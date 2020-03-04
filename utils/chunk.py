@@ -5,6 +5,9 @@ from typing import Dict, List
 import os.path
 
 
+def clean_function_line(assembly_function: str) -> str:  
+	return re.sub("^:\s+", "", assembly_function)
+
 def chunk_assembly(functions: List[str], raw_assembly: str) -> Dict[str, str]: 
 	'''
 	Chunks assembly (str format) based on the functions that exist in the assembly
@@ -17,17 +20,18 @@ def chunk_assembly(functions: List[str], raw_assembly: str) -> Dict[str, str]:
 
 	'''
 	function2def = {}
-	match_iterator = re.finditer("|".join(functions), raw_assembly)
+	function_regex = ["(?<=(\n)){}(?=:\n)".format(fun) for fun in functions]
+	match_iterator = re.finditer("|".join(function_regex), raw_assembly)
 	match = next(match_iterator)
 	function = match.group()
 	start = match.end(0)
 
 	for match in match_iterator: 
-		function2def[function] = raw_assembly[start: match.start(0)]
+		function2def[function] = clean_function_line(raw_assembly[start: match.start(0)])
 		function = match.group(0)
 		start = match.end(0)
 
-	function2def[function] = raw_assembly[start:]
+	function2def[function] = clean_function_line(raw_assembly[start:])
 
 	return function2def
 
@@ -42,7 +46,8 @@ def function_names(executable_filename: str, assembly_string: str) -> List[str]:
 	process3 = subprocess.Popen(["sed", "s/.*T //"], stdin=process2.stdout, stdout=subprocess.PIPE)
 	functions = process3.communicate()[0].decode("utf-8").split()
 
-	functions_in_assembly = [fun for fun in functions if fun in assembly_string]
+	#functions_in_assembly = [fun for fun in functions if fun in assembly_string]
+	functions_in_assembly = [fun for fun in functions if re.search("(?<=(\n)){}(?=:\n)".format(fun), assembly_string)]
 
 	return functions_in_assembly
 
