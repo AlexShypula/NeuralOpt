@@ -24,7 +24,7 @@ def collect_file_names(database: str, collection: str = "repos") -> Dict[str, Di
 				# ensure the makefile didn't fail or return no binaries
 				if makefile["success"] == True and makefile["binaries"] != [] and makefile["sha256"] != []:  
 					directory = makefile["directory"]
-					orig_files = makefile["binares"]
+					orig_files = makefile["binaries"]
 					sha256_files = makefile['sha256']
 					repo_path = "/".join([makefile["repo_owner"],compile_result["repo_name"]])
 					file2sha = {file: sha for file, sha in zip(orig_files, sha256_files)}
