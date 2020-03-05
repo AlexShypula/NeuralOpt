@@ -72,7 +72,7 @@ def functions_and_assembly(compile_path: str, file_names_dict):
 		ELF_path = os.path.join(repo_path, file_names_dict["ELF_sha"])
 		fun_list = chunk.function_names(ELF_path, unopt_assembly_string)
 	except: 
-		print(f"there was an error with reading assembly file: {file_names_dict['repo_path'] +" file: "+ file_names_dict['assembly_file']}")
+		print(f"there was an error with reading assembly file: {file_names_dict['repo_path'] +' file: '+ file_names_dict['assembly_file']}")
 
 	return fun_list, assembly_string
 
