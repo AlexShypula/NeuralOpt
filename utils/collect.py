@@ -26,7 +26,7 @@ def collect_file_names(database: str, collection: str = "repos") -> Dict[str, Di
 					directory = makefile["directory"]
 					orig_files = makefile["binaries"]
 					sha256_files = makefile['sha256']
-					repo_path = "/".join([makefile["repo_owner"],compile_result["repo_name"]])
+					repo_path = "/".join([compile_result["repo_owner"],compile_result["repo_name"]])
 					file2sha = {file: sha for file, sha in zip(orig_files, sha256_files)}
 
 					for file_name in orig_files: 
