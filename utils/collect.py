@@ -111,8 +111,8 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 					chunk.write_to_csv(out_file_name, csv_row)
 			else:
 				print(f"the file {assembly_identifier} had inconsistencies in functions between the unopt and the opt versions\n\n \
-							the set of unoptimized functions is {set(unopt_fun_list)}\n \
-							and the set of optimized functions is {set(opt_fun_list)}\n\n")
+							the set of unoptimized functions is {unopt_fun_list}\n \
+							and the set of optimized functions is {opt_fun_list}\n\n")
 		else: 
 			print(f"the file {assembly_identifier} does not exist in the optimized dictionary")
 
