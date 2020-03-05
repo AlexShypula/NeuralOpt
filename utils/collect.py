@@ -22,7 +22,7 @@ def collect_file_names(database: str, collection: str = "repos") -> Dict[str, Di
 		if compile_result["num_binaries"] > 0: 
 			for makefile in compile_result["makefiles"]: 
 				# ensure the makefile didn't fail or return no binaries
-				if makefile["success"] == True and makefile["binares"] != [] and makefile["sha256"] != []:  
+				if makefile["success"] == True and makefile["binaries"] != [] and makefile["sha256"] != []:  
 					directory = makefile["directory"]
 					orig_files = makefile["binares"]
 					sha256_files = makefile['sha256']
