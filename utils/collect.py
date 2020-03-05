@@ -1,8 +1,8 @@
- import os
+import os
 from pymongo import MongoClient
 import chunk
 from tqdm import tqdm
-
+from typing import Dict, List
 
 def collect_file_names(database: str, collection: str = "repos") -> Dict[str, Dict]: 
 	"""
