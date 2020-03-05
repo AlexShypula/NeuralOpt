@@ -77,7 +77,7 @@ def filter_fun(string, **kwargs):
 # In[144]:
 
 
-def tokenize_assembly(assembly_string: str, split_regexp: str, filter_fun: Callable, clean_regexp: str = r"(\..*\n)|(\#.*)") -> List[str]: 
+def tokenize_assembly(assembly_string: str, split_regexp: str, instructions: List[str], filter_fun: Callable, clean_regexp: str = r"(\..*\n)|(\#.*)") -> List[str]: 
     """
     assembly string: a string of assembly that we wish to tokenize
     split_regexp: the regex string on which to split, ideally the output of split_regex
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     print(f"assembly is {assembly}")
     instructions = read_instructions()
     split_regexp = split_regex(instructions)
-    tokenized_results = tokenize_assembly(assembly, split_regexp, filter_fun)
+    tokenized_results = tokenize_assembly(assembly, split_regexp, instructions, filter_fun)
     from pprint import pprint
     print("tokenized assembly is: \n")
     pprint(tokenized_results)

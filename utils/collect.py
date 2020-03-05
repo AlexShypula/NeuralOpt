@@ -1,6 +1,6 @@
-import os
+ import os
 from pymongo import MongoClient
-import utils
+import chunk
 from tqdm import tqdm
 
 
@@ -45,17 +45,27 @@ def collect_file_names(database: str, collection: str = "repos") -> Dict[str, Di
 	return file_names_dictionary
 
 def read_from_file(file_path: str) -> str: 
+	'''
+	Wrapper for f.read()
+	'''
 	with open(file_path, "r") as f: 
 		file_contents = f.read()
 	return file_contents
 
-def functions_and_assembly(compile_path, file_names_dict): 
+def functions_and_assembly(compile_path: str, file_names_dict): 
+	'''
+	Driver for the chunk.function_names function
+	Returns the functions in the assembly file as well as the assembly read in as a string
+
+	compile_path: path to the folder containin the partially and fully compiled files (i.e. assembly and ELF executable files)
+	file_names_dict: dictionary returned from the collect_file_names function. It contains the repo path as well as the file names and hashes for each assembly and ELF
+	'''
 	repo_path = os.path.join(compile_path, file_names_dict[repo_path])
 
 	assembly_string_path = os.path.join(repo_path, file_names_dict["assembly_sha"])
 	assembly_string = read_from_file(assembly_string_path)
 	ELF_path = os.path.join(repo_path, file_names_dict["ELF_sha"])
-	fun_list = utils.function_names(ELF_path, unopt_assembly_string)
+	fun_list = chunk.function_names(ELF_path, unopt_assembly_string)
 
 	return fun_list, assembly_string
 
@@ -65,33 +75,35 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 	if check_for_duplicates: 
 		running_unopt_sha_set = set()
 
+	# both dictionaries should have the same exact repo paths, assembly_file, and ELF_file values; however, the hashes will be different due to optimization levels
+	# each key in the dictionary is the concatenation of the repo_path as well as the assembly file name 
 	unoptimized_dictionary = collect_file_names(unopt_db)
 	optimized_dictionary = collect_file_names(opt_db)
-
 	for assembly_file_name in tqdm(unoptimized_dictionary):
 
 		if check_for_duplicates: 
+			# skip if the assembly hash has already been processed before
 			if unoptimized_dictionary["assembly_sha"] in running_unopt_sha_set: 
 				continue
 			else: 
 				running_unopt_sha_set.add(unoptimized_dictionary["assembly_sha"])
 
 		if assembly_file_name in optimized_dictionary: 
+			# get functions for both assembly files as well as corresponding assembly files
 			unopt_fun_list, unopt_assembly_string = functions_and_assembly(unopt_compile_path, unoptimized_dictionary[assembly_file_name])
 			opt_fun_list, opt_assembly_string = functions_and_assembly(opt_compile_path, optimized_dictionary[assembly_file_name])
-
+			# ensure that there is parity between functions
 			if set(unopt_fun_names) == set(opt_fun_names): 
 				# dictionary where keys are function names and values are the assembly 
-				chunk_unopt_assembly = utils.chunk_assembly(unopt_fun_list, unopt_assembly_string)
-				chunk_opt_assembly = utils.chunk_assembly(opt_fun_list, opt_assembly_string)
+				chunk_unopt_assembly = chunk.chunk_assembly(unopt_fun_list, unopt_assembly_string)
+				chunk_opt_assembly = chunk.chunk_assembly(opt_fun_list, opt_assembly_string)
 				for function_name in chunk_unopt_assembly: 
 					csv_row = [assembly_file_name, function_name, chunk_unopt_assembly[function_name], chunk_opt_assembly[function_name]]
-					utils.write_to_csv(out_file_name, csv_row)
+					chunk.write_to_csv(out_file_name, csv_row)
 			else:
 				print(f"the file {assembly_file_name} had inconsistencies in functions between the unopt and the opt versions\n\n \
 							the set of unoptimized functions is {set(unopt_fun_names)}\n \
-							and the set of optimized funcitons is {set(opt_fun_names)}\n\n")
-
+							and the set of optimized functions is {set(opt_fun_names)}\n\n")
 		else: 
 			print(f"the file {assembly_file_name} does not exist in the optimized dictionary")
 
