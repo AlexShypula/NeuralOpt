@@ -64,12 +64,15 @@ def functions_and_assembly(compile_path: str, file_names_dict):
 	compile_path: path to the folder containin the partially and fully compiled files (i.e. assembly and ELF executable files)
 	file_names_dict: dictionary returned from the collect_file_names function. It contains the repo path as well as the file names and hashes for each assembly and ELF
 	'''
-	repo_path = os.path.join(compile_path, file_names_dict[repo_path])
+	repo_path = os.path.join(compile_path, file_names_dict["repo_path"])
 
 	assembly_string_path = os.path.join(repo_path, file_names_dict["assembly_sha"])
-	assembly_string = read_from_file(assembly_string_path)
-	ELF_path = os.path.join(repo_path, file_names_dict["ELF_sha"])
-	fun_list = chunk.function_names(ELF_path, unopt_assembly_string)
+	try: 
+		assembly_string = read_from_file(assembly_string_path)
+		ELF_path = os.path.join(repo_path, file_names_dict["ELF_sha"])
+		fun_list = chunk.function_names(ELF_path, unopt_assembly_string)
+	except: 
+		print(f"there was an error with reading assembly file: {file_names_dict["repo_path"]["assembly_file"]}")
 
 	return fun_list, assembly_string
 
@@ -87,10 +90,10 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 
 		if check_for_duplicates: 
 			# skip if the assembly hash has already been processed before
-			if unoptimized_dictionary["assembly_sha"] in running_unopt_sha_set: 
+			if unoptimized_dictionary[assembly_identifier]["assembly_sha"] in running_unopt_sha_set: 
 				continue
 			else: 
-				running_unopt_sha_set.add(unoptimized_dictionary["assembly_sha"])
+				running_unopt_sha_set.add(unoptimized_dictionary[assembly_identifier]["assembly_sha"])
 
 		if assembly_identifier in optimized_dictionary: 
 			# get functions for both assembly files as well as corresponding assembly files
