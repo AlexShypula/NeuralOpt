@@ -1,6 +1,6 @@
 import os
 from pymongo import MongoClient
-import chunk
+from chunk import function_names, chunk_assembly, write_to_csv
 from tqdm import tqdm
 from typing import Dict, List
 
@@ -70,7 +70,7 @@ def functions_and_assembly(compile_path: str, file_names_dict):
 	try: 
 		assembly_string = read_from_file(assembly_string_path)
 		ELF_path = os.path.join(repo_path, file_names_dict["ELF_sha"])
-		fun_list = chunk.function_names(ELF_path, unopt_assembly_string)
+		fun_list = function_names(ELF_path, unopt_assembly_string)
 	except: 
 		print(f"there was an error with reading assembly file: {file_names_dict['repo_path'] +' file: '+ file_names_dict['assembly_file']}")
 		return None, None
@@ -103,12 +103,12 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 			# ensure that the files were able to be red and that there is parity between functions
 			if unopt_fun_list and opt_fun_list and set(unopt_fun_list) == set(opt_fun_list): 
 				# dictionary where keys are function names and values are the assembly 
-				chunk_unopt_assembly = chunk.chunk_assembly(unopt_fun_list, unopt_assembly_string)
-				chunk_opt_assembly = chunk.chunk_assembly(opt_fun_list, opt_assembly_string)
+				chunk_unopt_assembly = chunk_assembly(unopt_fun_list, unopt_assembly_string)
+				chunk_opt_assembly = chunk_assembly(opt_fun_list, opt_assembly_string)
 				for function_name in chunk_unopt_assembly: 
 					#TODO: Add the repo path and the assembly hash so you can easily lookup the files for debugging
 					csv_row = [assembly_identifier, function_name, chunk_unopt_assembly[function_name], chunk_opt_assembly[function_name]]
-					chunk.write_to_csv(out_file_name, csv_row)
+					write_to_csv(out_file_name, csv_row)
 			else:
 				print(f"the file {assembly_identifier} had inconsistencies in functions between the unopt and the opt versions\n\n \
 							the set of unoptimized functions is {unopt_fun_list}\n \
