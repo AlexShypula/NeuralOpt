@@ -1,4 +1,4 @@
-import re
+import regex as re
 import csv
 import subprocess
 from typing import Dict, List
