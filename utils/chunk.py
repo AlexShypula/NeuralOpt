@@ -3,6 +3,7 @@ import csv
 import subprocess
 from typing import Dict, List
 import os.path
+from tqdm import tqdm
 
 
 def clean_function_line(assembly_function: str) -> str:  
@@ -25,8 +26,9 @@ def chunk_assembly(functions: List[str], raw_assembly: str) -> Dict[str, str]:
 	match = next(match_iterator)
 	function = match.group()
 	start = match.end(0)
-
-	for match in match_iterator: 
+	if len(functions) > 100:
+		print(f"Len of Functions is {len(functions)}")
+	for match in (tqdm(match_iterator) if len(functions) > 100 else match_iterator):
 		function2def[function] = clean_function_line(raw_assembly[start: match.start(0)])
 		function = match.group(0)
 		start = match.end(0)
