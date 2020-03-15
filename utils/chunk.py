@@ -33,6 +33,8 @@ def chunk_assembly(functions: List[str], raw_assembly: str) -> Dict[str, str]:
 	for i, match in enumerate(match_iterator):
 		if len(functions) > 100:
 			print(f"iteration {i} start is {start} and end is {match.start(0)} len of file is {len(raw_assembly)}")
+		if i == 858:
+			pdb.set_trace()
 		function2def[function] = clean_function_line(raw_assembly[start: match.start(0)])
 		function = match.group(0)
 		start = match.end(0)
