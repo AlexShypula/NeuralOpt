@@ -1,12 +1,17 @@
-import os
 from pymongo import MongoClient
-#from .chunk import function_names, chunk_assembly, write_to_csv
 from tqdm import tqdm
 from typing import Dict, List
-if __package__ is None or __package__ == '':
-    import chunk
-else:
-    from . import chunk
+import sys
+import os
+
+PACKAGE_PARENT = '..'
+SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.expanduser(__file__))))
+sys.path.append(os.path.normpath(os.path.join(SCRIPT_DIR, PACKAGE_PARENT)))
+
+import chunk
+# from chunk import chunk_assembly, function_names, write_to_csv
+
+
 
 def collect_file_names(database: str, collection: str = "repos") -> Dict[str, Dict]: 
 	"""
