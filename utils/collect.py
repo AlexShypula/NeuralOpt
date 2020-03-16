@@ -79,8 +79,8 @@ def functions_and_assembly(compile_path: str, file_names_dict):
 	try: 
 		assembly_string = read_from_file(assembly_string_path)
 		ELF_path = os.path.join(repo_path, file_names_dict["ELF_sha"])
-		fun_list = function_names(ELF_path, unopt_assembly_string)
-	except: 
+		fun_list = function_names(ELF_path, assembly_string)
+	except OSError:
 		print(f"there was an error with reading assembly file: {file_names_dict['repo_path'] +' file: '+ file_names_dict['assembly_file']}")
 		return None, None
 
