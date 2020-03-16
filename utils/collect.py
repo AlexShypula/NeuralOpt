@@ -110,7 +110,7 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 			unopt_fun_list, unopt_assembly_string = functions_and_assembly(unopt_compile_path, unoptimized_dictionary[assembly_identifier])
 			opt_fun_list, opt_assembly_string = functions_and_assembly(opt_compile_path, optimized_dictionary[assembly_identifier])
 			# break out if the number of functions is above 300, a quick workaround
-			if len(unopt_fun_list) > 300:
+			if len(unopt_fun_list) > 300 or len(unopt_assembly_string) > 3000000:
 				continue
 			# ensure that the files were able to be red and that there is parity between functions
 			if unopt_fun_list and opt_fun_list and set(unopt_fun_list) == set(opt_fun_list): 
