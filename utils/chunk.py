@@ -4,7 +4,6 @@ import subprocess
 from typing import Dict, List
 import os.path
 from tqdm import tqdm
-import pdb
 
 
 def clean_function_line(assembly_function: str) -> str:  
@@ -31,18 +30,11 @@ def chunk_assembly(functions: List[str], raw_assembly: str) -> Dict[str, str]:
 		print(f"Len of Functions is {len(functions)}")
 		t = tqdm(total = len(functions))
 	for i, match in enumerate(match_iterator):
-		if len(functions) > 100:
-			print(f"iteration {i} start is {start} and end is {match.start(0)} len of file is {len(raw_assembly)}")
-		if i == 858:
-			pdb.set_trace()
 		function2def[function] = clean_function_line(raw_assembly[start: match.start(0)])
 		function = match.group(0)
 		start = match.end(0)
 		if len(functions) > 100:
 			t.update()
-	if len(functions) > 100:
-		print(f"out of the match loop function, start is {start} and len of remainder is {len(raw_assembly[start:])}")
-		pdb.set_trace()
 	function2def[function] = clean_function_line(raw_assembly[start:])
 
 	return function2def
