@@ -101,8 +101,6 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 
 	data = []
 	for i, assembly_identifier in enumerate(tqdm(unoptimized_dictionary)):
-		if i == 3000:
-			break
 
 		if check_for_duplicates: 
 			# skip if the assembly hash has already been processed before
