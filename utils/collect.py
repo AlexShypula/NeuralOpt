@@ -136,5 +136,5 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 		else: 
 			print(f"the file {assembly_identifier} does not exist in the optimized dictionary")
 
-		with open(out_file_name, 'w') as f:
-			json.dump({"columns": ['file_path', 'function', 'unoptimized', 'optimized'], "data": data}, f)
+	with open(out_file_name, 'w') as f:
+		json.dump({"columns": ['file_path', 'function', 'unoptimized', 'optimized'], "data": data}, f)
