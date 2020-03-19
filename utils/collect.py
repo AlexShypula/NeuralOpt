@@ -1,8 +1,9 @@
 from pymongo import MongoClient
 from tqdm import tqdm
-from typing import Dict, List
+from typing import Dict
 import sys
 import os
+import json
 
 PACKAGE_PARENT = '..'
 SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.expanduser(__file__))))
@@ -88,15 +89,20 @@ def functions_and_assembly(compile_path: str, file_names_dict):
 
 
 
-def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: str, unopt_db: str, opt_db: str, check_for_duplicates = True) -> None: 
-	if check_for_duplicates: 
+def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: str, unopt_db: str, opt_db: str, check_for_duplicates = True) -> None:
+
+	if check_for_duplicates:
 		running_unopt_sha_set = set()
 
 	# both dictionaries should have the same exact repo paths, assembly_file, and ELF_file values; however, the hashes will be different due to optimization levels
 	# each key in the dictionary is the concatenation of the repo_path as well as the assembly file name 
 	unoptimized_dictionary = collect_file_names(unopt_db)
 	optimized_dictionary = collect_file_names(opt_db)
-	for assembly_identifier in tqdm(unoptimized_dictionary):
+
+	data = []
+	for i, assembly_identifier in enumerate(tqdm(unoptimized_dictionary)):
+		if i == 3000:
+			break
 
 		if check_for_duplicates: 
 			# skip if the assembly hash has already been processed before
@@ -119,8 +125,10 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 				chunk_opt_assembly = chunk_assembly(opt_fun_list, opt_assembly_string)
 				for function_name in chunk_unopt_assembly: 
 					#TODO: Add the repo path and the assembly hash so you can easily lookup the files for debugging
-					csv_row = [assembly_identifier, function_name, chunk_unopt_assembly[function_name], chunk_opt_assembly[function_name]]
-					write_to_csv(out_file_name, csv_row)
+					# csv_row = [assembly_identifier, function_name, chunk_unopt_assembly[function_name], chunk_opt_assembly[function_name]]
+					# write_to_csv(out_file_name, csv_row)
+					data.append([assembly_identifier, function_name, chunk_unopt_assembly[function_name])
+
 			else:
 				print(f"the file {assembly_identifier} had inconsistencies in functions between the unopt and the opt versions\n\n \
 							the set of unoptimized functions is {unopt_fun_list}\n \
@@ -128,4 +136,5 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 		else: 
 			print(f"the file {assembly_identifier} does not exist in the optimized dictionary")
 
-
+		with open('3_18.json', 'w') as f:
+			json.dump({"columns": ['file_path', 'function', 'unoptimized', 'optimized'], "data": data}, f)
