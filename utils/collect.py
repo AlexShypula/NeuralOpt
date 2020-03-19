@@ -127,7 +127,7 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 					#TODO: Add the repo path and the assembly hash so you can easily lookup the files for debugging
 					# csv_row = [assembly_identifier, function_name, chunk_unopt_assembly[function_name], chunk_opt_assembly[function_name]]
 					# write_to_csv(out_file_name, csv_row)
-					data.append([assembly_identifier, function_name, chunk_unopt_assembly[function_name], chunk_opt_assembly[function_name])
+					data.append([assembly_identifier, function_name, chunk_unopt_assembly[function_name], chunk_opt_assembly[function_name]])
 
 			else:
 				print(f"the file {assembly_identifier} had inconsistencies in functions between the unopt and the opt versions\n\n \
