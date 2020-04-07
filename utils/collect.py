@@ -4,6 +4,8 @@ from typing import Dict
 import sys
 import os
 import json
+import gc
+from typing import List
 
 PACKAGE_PARENT = '..'
 SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.expanduser(__file__))))
@@ -87,9 +89,22 @@ def functions_and_assembly(compile_path: str, file_names_dict):
 
 	return fun_list, assembly_string
 
+class json_writer:
+	def __init__(self, out_file_prefix: str, columns = ['file_path', 'function', 'unoptimized', 'optimized']):
+		self.out_file_prefix = out_file_prefix
+		self.columns = columns
+		self.counter = 1
+
+	def write(self, data: List[List[str]]):
+
+		file_name = "_".join([self.out_file_prefix, str(self.counter)]) + ".json"
+		with open(file_name , 'w') as f:
+			json.dump({"columns": self.columns, "data": data}, f)
+		self.counter+=1
 
 
-def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: str, unopt_db: str, opt_db: str, check_for_duplicates = True) -> None:
+def data_to_csv(out_file_prefix: str, unopt_compile_path: str, opt_compile_path: str, unopt_db: str, opt_db: str, check_for_duplicates = True, write_freq = 5000) -> None:
+	data_writer = json_writer(out_file_prefix, columns = ['file_path', 'function', 'unoptimized', 'optimized'])
 
 	if check_for_duplicates:
 		running_unopt_sha_set = set()
@@ -134,5 +149,14 @@ def data_to_csv(out_file_name: str, unopt_compile_path: str, opt_compile_path: s
 		else: 
 			print(f"the file {assembly_identifier} does not exist in the optimized dictionary")
 
-	with open(out_file_name, 'w') as f:
-		json.dump({"columns": ['file_path', 'function', 'unoptimized', 'optimized'], "data": data}, f)
+		# write json every write_freq number of files
+		if (i+1) % write_freq == 0:
+			data_writer.write(data)
+			del data
+			gc.collect()
+			data = []
+
+	# write last batch of data
+	if data != []
+		data_writer.write(data)
+
