@@ -157,6 +157,6 @@ def data_to_csv(out_file_prefix: str, unopt_compile_path: str, opt_compile_path:
 			data = []
 
 	# write last batch of data
-	if data != []
+	if data != []: 
 		data_writer.write(data)
 
