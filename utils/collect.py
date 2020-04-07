@@ -117,6 +117,13 @@ def data_to_csv(out_file_prefix: str, unopt_compile_path: str, opt_compile_path:
 	data = []
 	for i, assembly_identifier in enumerate(tqdm(unoptimized_dictionary)):
 
+		# write json every write_freq number of files
+		if (i+1) % write_freq == 0:
+			data_writer.write(data)
+			del data
+			gc.collect()
+			data = []
+
 		if check_for_duplicates: 
 			# skip if the assembly hash has already been processed before
 			if unoptimized_dictionary[assembly_identifier]["assembly_sha"] in running_unopt_sha_set: 
@@ -148,13 +155,6 @@ def data_to_csv(out_file_prefix: str, unopt_compile_path: str, opt_compile_path:
 							and the set of optimized functions is {opt_fun_list}\n\n")
 		else: 
 			print(f"the file {assembly_identifier} does not exist in the optimized dictionary")
-
-		# write json every write_freq number of files
-		if (i+1) % write_freq == 0:
-			data_writer.write(data)
-			del data
-			gc.collect()
-			data = []
 
 	# write last batch of data
 	if data != []: 
