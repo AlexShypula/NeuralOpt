@@ -1,0 +1,203 @@
+
+import json
+from pymongo import MongoClient
+from tqdm import tqdm
+from typing import Dict
+import sys
+import os
+import json
+import subprocess
+import gc
+from typing import List
+
+
+
+def collect_file_names(database: str, out_file_prefix: str, collection: str = "repos") -> None:
+	"""
+	collects the file names the specified database (i.e. the assembly file, the corresponding ELF file, as well as the corresponding hashes for both)
+
+	database: database to query for results
+
+	returns a dictionary in which the key is the full path to the assembly file and its value is a dictionary with the repo_path, original assembly_file name, corresponding ELF file name, and their respective hashes
+	"""
+
+	client= MongoClient()
+	db_compile_results = client[database][collection]
+
+	file_names_dictionary = {}
+
+	for compile_result in tqdm(db_compile_results.find()):
+		if compile_result["num_binaries"] > 0:
+			for makefile in compile_result["makefiles"]:
+				# ensure the makefile didn't fail or return no binaries
+				if makefile["success"] == True and makefile["binaries"] != [] and makefile["sha256"] != []:
+					directory = makefile["directory"]
+					orig_files = makefile["binaries"]
+					sha256_files = makefile['sha256']
+					repo_path = "/".join([compile_result["repo_owner"],compile_result["repo_name"]])
+					file2sha = {file: sha for file, sha in zip(orig_files, sha256_files)}
+
+					for file_name in orig_files:
+						if file_name[-2:] == ".s":
+							shared_name = file_name[:-2]
+							if (shared_name + ".o") in orig_files:
+								ELF = shared_name + ".o"
+							elif shared_name in orig_files:
+								ELF = shared_name
+							else:
+								print(f"assembly file: {file_name}'s corresponding ELF could not be found in the following list {orig_files}", file=sys.stderr)
+								continue
+							identifier = "/".join([repo_path, directory, file_name])
+							file_names_dictionary[identifier] = {	"repo_path": repo_path,
+																 	"directory": directory,
+																	"assembly_file": file_name,
+																	"ELF_file": ELF,
+																	"assembly_sha": file2sha[file_name],
+																	"ELF_sha": file2sha[ELF]
+																	}
+
+
+	with open(out_file_prefix + '.json', 'w') as f:
+		json.dump(file_names_dictionary, f, indent = 4)
+
+
+
+def decompile_both(unopt_compile_path: str, opt_compile_path: str, unopt_data_dict: Dict[str, Dict], opt_data_dict: Dict[str, Dict] = None,  unopt_prefix = "Og", opt_prefix = "Og"):
+
+	running_unopt_sha_set = set()
+
+	for binary_identifier in tqdm(unopt_data_dict):
+		if unopt_data_dict[binary_identifier]["assembly_sha"] not in running_unopt_sha_set:
+			if opt_data_dict and binary_identifier in opt_data_dict:
+
+				binary_path = binary_identifier[:-2] # based on the current way the collect script is written, last 2 chars will always be .s
+
+				unopt_dict = unopt_data_dict[binary_identifier]
+				opt_dict = opt_data_dict[binary_identifier]
+
+				if not copy_and_decompile(unopt_dict, unopt_compile_path, binary_path, unopt_prefix):
+					continue
+				else:
+					copy_and_decompile(opt_dict, opt_compile_path, binary_path, opt_prefix)
+
+
+
+
+def copy_and_decompile(data_dict, compile_path, binary_path, optimization_prefix):
+	try:
+		pth = os.path.join([binary_path, optimization_prefix, "bin"])
+		os.makedirs(pth)
+
+		pth = os.path.join([binary_path, optimization_prefix, "functions"])
+		os.makedirs(pth)
+
+	except FileExistsError:
+		print(f"path: {pth} already exists, moving to next binary")
+		return False
+
+	path_to_orig_bin = os.path.join(compile_path, data_dict["repo_path"], data_dict["ELF_sha"])
+	path_to_local_bin = os.path.join([binary_path, optimization_prefix, "bin"])
+	path_to_functions = os.path.join([binary_path, optimization_prefix, "functions"])
+	subprocess.run(["cp", path_to_orig_bin, path_to_local_bin])
+	subprocess.run(['stoke', 'extract', '-i', path_to_local_bin, "-o", path_to_functions])
+	return True
+
+
+
+
+
+
+
+
+
+def data_to_csv(out_file_prefix: str, unopt_compile_path: str, opt_compile_path: str, unopt_db: str, opt_db: str, check_for_duplicates = True, write_freq = 5000) -> None:
+	data_writer = json_writer(out_file_prefix, columns = ['file_path', 'function', 'unoptimized', 'optimized'])
+
+	if check_for_duplicates:
+		running_unopt_sha_set = set()
+
+	# both dictionaries should have the same exact repo paths, assembly_file, and ELF_file values; however, the hashes will be different due to optimization levels
+	# each key in the dictionary is the concatenation of the repo_path as well as the assembly file name
+	unoptimized_dictionary = collect_file_names(unopt_db)
+	optimized_dictionary = collect_file_names(opt_db)
+
+	data = []
+	for i, assembly_identifier in enumerate(tqdm(unoptimized_dictionary)):
+
+		if check_for_duplicates:
+			# skip if the assembly hash has already been processed before
+			if unoptimized_dictionary[assembly_identifier]["assembly_sha"] in running_unopt_sha_set:
+				continue
+			else:
+				running_unopt_sha_set.add(unoptimized_dictionary[assembly_identifier]["assembly_sha"])
+
+		if assembly_identifier in optimized_dictionary:
+			# get functions for both assembly files as well as corresponding assembly files
+			unopt_fun_list, unopt_assembly_string = functions_and_assembly(unopt_compile_path, unoptimized_dictionary[assembly_identifier])
+
+			opt_fun_list, opt_assembly_string = functions_and_assembly(opt_compile_path, optimized_dictionary[assembly_identifier])
+
+
+
+
+
+
+def functions_and_assembly(compile_path: str, file_names_dict):
+	'''
+	Driver for the chunk.function_names function
+	Returns the functions in the assembly file as well as the assembly read in as a string
+
+	compile_path: path to the folder containin the partially and fully compiled files (i.e. assembly and ELF executable files)
+	file_names_dict: dictionary returned from the collect_file_names function. It contains the repo path as well as the file names and hashes for each assembly and ELF
+	'''
+	repo_path = os.path.join(compile_path, file_names_dict["repo_path"])
+
+	assembly_string_path = os.path.join(repo_path, file_names_dict["assembly_sha"])
+	try:
+		assembly_string = read_from_file(assembly_string_path)
+		ELF_path = os.path.join(repo_path, file_names_dict["ELF_sha"])
+		fun_list = function_names(ELF_path, assembly_string)
+	except OSError:
+		print(
+			f"there was an error with reading assembly file: {file_names_dict['repo_path'] + ' file: ' + file_names_dict['assembly_file']}")
+		return None, None
+
+	return fun_list, assembly_string
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			# ensure that the files were able to be red and that there is parity between functions
+			if unopt_fun_list and opt_fun_list and set(unopt_fun_list) == set(opt_fun_list):
+				# break out if the number of functions is above 300, a quick workaround
+				if len(unopt_fun_list) > 300 or len(unopt_assembly_string) > 3000000:
+					continue
+				# dictionary where keys are function names and values are the assembly
+				chunk_unopt_assembly = chunk_assembly(unopt_fun_list, unopt_assembly_string)
+				chunk_opt_assembly = chunk_assembly(opt_fun_list, opt_assembly_string)
+				for function_name in chunk_unopt_assembly:
+					#TODO: Add the repo path and the assembly hash so you can easily lookup the files for debugging
+					# csv_row = [assembly_identifier, function_name, chunk_unopt_assembly[function_name], chunk_opt_assembly[function_name]]
+					# write_to_csv(out_file_name, csv_row)
+					data.append([assembly_identifier, function_name, chunk_unopt_assembly[function_name], chunk_opt_assembly[function_name]])
+
+			else:
+				print(f"the file {assembly_identifier} had inconsistencies in functions between the unopt and the opt versions\n\n \
+							the set of unoptimized functions is {unopt_fun_list}\n \
+							and the set of optimized functions is {opt_fun_list}\n\n")
+		else:
+			print(f"the file {assembly_identifier} does not exist in the optimized dictionary")
+
+	# write last batch of data
+	if data != []:
+		data_writer.write(data)
