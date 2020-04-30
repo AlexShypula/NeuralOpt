@@ -23,8 +23,10 @@ def collect_file_names(database: str, out_file_prefix: str, collection: str = "r
 	db_compile_results = client[database][collection]
 
 	file_names_dictionary = {}
+	results = db_compile_results.find()
+	total = results.count()
 
-	for compile_result in tqdm(db_compile_results.find()):
+	for compile_result in tqdm(results, total = total):
 		if compile_result["num_binaries"] > 0:
 			for makefile in compile_result["makefiles"]:
 				# ensure the makefile didn't fail or return no binaries
