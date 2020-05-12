@@ -12,20 +12,17 @@ from multiprocessing.pool import ThreadPool
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 
+
 @dataclass
-class parse_options:
-
-	o: str = field(metadata=dict(args=["-o", "--out_file_name"))
-
+class ParseOptions:
+	o: str = field(metadata=dict(args=["-o", "--out_file_name"]))
 	unopt_bin: str = field(metadata=dict(args=["-unopt_bin", "--unoptimized_binary_dir"]))
 	opt_bin: str = field(metadata=dict(args=["-opt_bin", "--unoptimized_binary_dir"]))
-
 	unopt_meta: str = field(metadata=dict(args=["-unopt_meta", "--unoptimized_bin_metadata"]))
 	opt_meta: str = field(metadata=dict(args=["-opt_meta", "--optimized_bin_metadata"]))
-
-	n_workers = 1
-	unopt_flag = "O0"
-	opt_flag = "Og"
+	n_workers: int = 1
+	unopt_flag: str = "O0"
+	opt_flag: str = "Og"
 
 
 
@@ -80,39 +77,43 @@ def collect_file_names(database: str, out_file_prefix: str, collection: str = "r
 		json.dump(file_names_dictionary, f, indent = 4)
 
 
-def decompile_both(unopt_compile_path: str, opt_compile_path: str, unopt_data_dict: Dict[str, Dict], opt_data_dict: Dict[str, Dict] = None,  unopt_prefix = "Og", opt_prefix = "Og"):
+def decompile_both(unopt_compile_path: str, opt_compile_path: str, unopt_data_dict: Dict[str, Dict], opt_data_dict: Dict[str, Dict] = None,  unopt_prefix = "O0", opt_prefix = "Og", res_folder = "processed_binaries"):
 
 	running_unopt_sha_set = set()
 
 	for binary_identifier in tqdm(unopt_data_dict):
-		if unopt_data_dict[binary_identifier]["assembly_sha"] not in running_unopt_sha_set:
+		asbly_hash = unopt_data_dict[binary_identifier]["assembly_sha"]
+		if asbly_hash not in running_unopt_sha_set:
+			running_unopt_sha_set.add(asbly_hash)
 			if opt_data_dict and binary_identifier in opt_data_dict:
-
-				binary_path = binary_identifier[:-2] # based on the current way the collect script is written, last 2 chars will always be .s
 
 				unopt_dict = unopt_data_dict[binary_identifier]
 				opt_dict = opt_data_dict[binary_identifier]
 
-				if not copy_and_decompile(unopt_dict, unopt_compile_path, binary_path, unopt_prefix):
+				# based on the current way the collect script is written, last 2 chars will always be .s
+				binary_path = binary_identifier[:-2]
+
+				if not copy_and_decompile(unopt_dict, unopt_compile_path, res_folder, binary_path, unopt_prefix):
 					continue
 				else:
-					copy_and_decompile(opt_dict, opt_compile_path, binary_path, opt_prefix)
+					copy_and_decompile(opt_dict, opt_compile_path, res_folder, binary_path, opt_prefix)
 
-def parallel_decompile(unopt_compile_path: str, opt_compile_path: str, unopt_data_dict: Dict[str, Dict], opt_data_dict: Dict[str, Dict] = None,  unopt_prefix = "Og", opt_prefix = "Og", n_workers = 16):
+def parallel_decompile(unopt_compile_path: str, opt_compile_path: str, unopt_data_dict: Dict[str, Dict], opt_data_dict: Dict[str, Dict] = None,  unopt_prefix = "O0", opt_prefix = "Og", n_workers = 16, res_folder = "processed_binaries"):
 	running_unopt_sha_set = set()
 
 	jobs_list = []
 	for binary_identifier in tqdm(unopt_data_dict):
-		if unopt_data_dict[binary_identifier]["assembly_sha"] not in running_unopt_sha_set:
+		asbly_sha = unopt_data_dict[binary_identifier]["assembly_sha"]
+		if asbly_sha not in running_unopt_sha_set:
 			if opt_data_dict and binary_identifier in opt_data_dict:
 
-
-				binary_path = binary_identifier[
-							  :-2]  # based on the current way the collect script is written, last 2 chars will always be .s
+				# based on the current way the collect script is written, last 2 chars will always be .s
+				binary_path = binary_identifier[:-2]
 
 				unopt_dict = unopt_data_dict[binary_identifier]
 				opt_dict = opt_data_dict[binary_identifier]
 				copy_and_decompile_dict = {"binary_path": binary_path,
+										   "result_folder": res_folder,
 										   "unopt_prefix": unopt_prefix,
 										   "opt_prefix": opt_prefix,
 										   "unopt_compile_path": unopt_compile_path,
@@ -130,15 +131,19 @@ def run_dual_cpy_decompile(copy_and_decompile_dict):
 
 	if not copy_and_decompile(copy_and_decompile_dict["unopt_dict"],
 							  copy_and_decompile_dict["unopt_compile_path"],
+							  copy_and_decompile_dict["result_folder"],
 							  copy_and_decompile_dict["binary_path"],
-							  copy_and_decompile_dict["unopt_prefix"]):
+							  copy_and_decompile_dict["unopt_prefix"]
+							  ):
 
 		return copy_and_decompile_dict["binary_path"], "failed on unopt copy and decompile", 0
 
 	elif not copy_and_decompile(copy_and_decompile_dict["opt_dict"],
-						   copy_and_decompile_dict["opt_compile_path"],
-						   copy_and_decompile_dict["binary_path"],
-						   copy_and_decompile_dict["opt_prefix"]):
+								copy_and_decompile_dict["opt_compile_path"],
+								copy_and_decompile_dict["result_folder"],
+								copy_and_decompile_dict["binary_path"],
+								copy_and_decompile_dict["opt_prefix"]
+								):
 
 		return copy_and_decompile_dict["binary_path"], "failed on opt copy and decompile", 0
 
@@ -146,29 +151,29 @@ def run_dual_cpy_decompile(copy_and_decompile_dict):
 		return copy_and_decompile_dict["binary_path"], "success", 1
 
 
-
-def copy_and_decompile(data_dict, compile_path, binary_path, optimization_prefix):
+def copy_and_decompile(data_dict, compile_path, result_folder, binary_path, optimization_prefix):
 	try:
-		pth = os.path.join([binary_path, optimization_prefix, "bin"])
-		os.makedirs(pth)
+		lcl_bin_fldr = os.path.join([result_folder, binary_path, optimization_prefix, "bin"])
+		os.makedirs(lcl_bin_fldr)
 
-		pth = os.path.join([binary_path, optimization_prefix, "functions"])
-		os.makedirs(pth)
+		lcl_fun_fldr = os.path.join([result_folder, binary_path, optimization_prefix, "functions"])
+		os.makedirs(lcl_fun_fldr)
 
 	except FileExistsError:
-		print(f"path: {pth} already exists, moving to next binary")
+		print(f"path: {os.path.join([result_folder, binary_path, optimization_prefix])} already exists, moving to next binary")
 		return False
 
 	path_to_orig_bin = os.path.join(compile_path, data_dict["repo_path"], data_dict["ELF_sha"])
-	path_to_local_bin = os.path.join([binary_path, optimization_prefix, "bin"])
-	path_to_functions = os.path.join([binary_path, optimization_prefix, "functions"])
+	path_to_local_bin = os.path.join([lcl_bin_fldr, data_dict["ELF_sha"]])
+	# path_to_functions = os.path.join([binary_path, optimization_prefix, "functions"])
 	subprocess.run(["cp", path_to_orig_bin, path_to_local_bin])
-	subprocess.run(['stoke', 'extract', '-i', path_to_local_bin, "-o", path_to_functions])
+	subprocess.run(['stoke', 'extract', '-i', path_to_local_bin, "-o", lcl_fun_fldr])
 	return True
 
-if __name__ == "__main__":
 
-	parser = ArgumentParser(parse_options)
+if __name__ == "__main__":
+	breakpoint()
+	parser = ArgumentParser(ParseOptions)
 	print(parser.parse_args())
 	args = parser.parse_args()
 
