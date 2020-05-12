@@ -1,4 +1,3 @@
-
 import json
 from pymongo import MongoClient
 from tqdm import tqdm
@@ -7,6 +6,26 @@ import sys
 import os
 import json
 import subprocess
+from multiprocessing.pool import ThreadPool
+
+
+from dataclasses import dataclass, field
+from argparse_dataclass import ArgumentParser
+
+@dataclass
+class parse_options:
+
+	o: str = field(metadata=dict(args=["-o", "--out_file_name"))
+
+	unopt_bin: str = field(metadata=dict(args=["-unopt_bin", "--unoptimized_binary_dir"]))
+	opt_bin: str = field(metadata=dict(args=["-opt_bin", "--unoptimized_binary_dir"]))
+
+	unopt_meta: str = field(metadata=dict(args=["-unopt_meta", "--unoptimized_bin_metadata"]))
+	opt_meta: str = field(metadata=dict(args=["-opt_meta", "--optimized_bin_metadata"]))
+
+	n_workers = 1
+	unopt_flag = "O0"
+	opt_flag = "Og"
 
 
 
@@ -49,7 +68,7 @@ def collect_file_names(database: str, out_file_prefix: str, collection: str = "r
 								continue
 							identifier = "/".join([repo_path, directory, file_name])
 							file_names_dictionary[identifier] = {	"repo_path": repo_path,
-																 	"directory": directory,
+																	"directory": directory,
 																	"assembly_file": file_name,
 																	"ELF_file": ELF,
 																	"assembly_sha": file2sha[file_name],
@@ -59,7 +78,6 @@ def collect_file_names(database: str, out_file_prefix: str, collection: str = "r
 
 	with open(out_file_prefix + '.json', 'w') as f:
 		json.dump(file_names_dictionary, f, indent = 4)
-
 
 
 def decompile_both(unopt_compile_path: str, opt_compile_path: str, unopt_data_dict: Dict[str, Dict], opt_data_dict: Dict[str, Dict] = None,  unopt_prefix = "Og", opt_prefix = "Og"):
@@ -80,6 +98,52 @@ def decompile_both(unopt_compile_path: str, opt_compile_path: str, unopt_data_di
 				else:
 					copy_and_decompile(opt_dict, opt_compile_path, binary_path, opt_prefix)
 
+def parallel_decompile(unopt_compile_path: str, opt_compile_path: str, unopt_data_dict: Dict[str, Dict], opt_data_dict: Dict[str, Dict] = None,  unopt_prefix = "Og", opt_prefix = "Og", n_workers = 16):
+	running_unopt_sha_set = set()
+
+	jobs_list = []
+	for binary_identifier in tqdm(unopt_data_dict):
+		if unopt_data_dict[binary_identifier]["assembly_sha"] not in running_unopt_sha_set:
+			if opt_data_dict and binary_identifier in opt_data_dict:
+
+
+				binary_path = binary_identifier[
+							  :-2]  # based on the current way the collect script is written, last 2 chars will always be .s
+
+				unopt_dict = unopt_data_dict[binary_identifier]
+				opt_dict = opt_data_dict[binary_identifier]
+				copy_and_decompile_dict = {"binary_path": binary_path,
+										   "unopt_prefix": unopt_prefix,
+										   "opt_prefix": opt_prefix,
+										   "unopt_compile_path": unopt_compile_path,
+										   "opt_compile_path": opt_compile_path,
+										   "unopt_dict": unopt_dict,
+										   "opt_dict": opt_dict}
+				jobs_list.append(copy_and_decompile_dict)
+
+	for bin_pth, msg, rc in ThreadPool(n_workers).imap_unordered(run_dual_cpy_decompile, jobs_list):
+		if rc != 0:
+			print(f"on {bin_pth} the process {msg} with code: {rc}")
+
+
+def run_dual_cpy_decompile(copy_and_decompile_dict):
+
+	if not copy_and_decompile(copy_and_decompile_dict["unopt_dict"],
+							  copy_and_decompile_dict["unopt_compile_path"],
+							  copy_and_decompile_dict["binary_path"],
+							  copy_and_decompile_dict["unopt_prefix"]):
+
+		return copy_and_decompile_dict["binary_path"], "failed on unopt copy and decompile", 0
+
+	elif not copy_and_decompile(copy_and_decompile_dict["opt_dict"],
+						   copy_and_decompile_dict["opt_compile_path"],
+						   copy_and_decompile_dict["binary_path"],
+						   copy_and_decompile_dict["opt_prefix"]):
+
+		return copy_and_decompile_dict["binary_path"], "failed on opt copy and decompile", 0
+
+	else:
+		return copy_and_decompile_dict["binary_path"], "success", 1
 
 
 
@@ -101,6 +165,38 @@ def copy_and_decompile(data_dict, compile_path, binary_path, optimization_prefix
 	subprocess.run(["cp", path_to_orig_bin, path_to_local_bin])
 	subprocess.run(['stoke', 'extract', '-i', path_to_local_bin, "-o", path_to_functions])
 	return True
+
+if __name__ == "__main__":
+
+	parser = ArgumentParser(parse_options)
+	print(parser.parse_args())
+	args = parser.parse_args()
+
+	with open(args.unopt_meta, 'r') as f:
+		unopt_metadata = json.load(f)
+
+	with open(args.opt_meta, 'r') as f:
+		opt_metadata = json.load(f)
+
+	if args.n_workers < 2:
+		decompile_both(
+			args.unopt_bin,
+			args.opt_bin,
+			unopt_metadata,
+			opt_metadata,
+			unopt_prefix = args.unopt_flag,
+			opt_prefix = args.opt_flag
+		)
+	else:
+		parallel_decompile(
+			args.unopt_bin,
+			args.opt_bin,
+			unopt_metadata,
+			opt_metadata,
+			unopt_prefix=args.unopt_flag,
+			opt_prefix=args.opt_flag,
+			n_workers=args.n_workers,
+		)
 
 
 
