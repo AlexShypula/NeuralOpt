@@ -7,15 +7,13 @@ import os
 import json
 import subprocess
 from multiprocessing.pool import ThreadPool
-
-
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 
 
 @dataclass
 class ParseOptions:
-	o: str = field(metadata=dict(args=["-o", "--out_file_name"]))
+
 	unopt_bin: str = field(metadata=dict(args=["-unopt_bin", "--unoptimized_binary_dir"]))
 	opt_bin: str = field(metadata=dict(args=["-opt_bin", "--unoptimized_binary_dir"]))
 	unopt_meta: str = field(metadata=dict(args=["-unopt_meta", "--unoptimized_bin_metadata"]))
@@ -23,7 +21,8 @@ class ParseOptions:
 	n_workers: int = 1
 	unopt_flag: str = "O0"
 	opt_flag: str = "Og"
-
+	o: str = field(metadata=dict(args=["-o", "--out_file_name"]), default='succcessful_paths.txt')
+	out_dir: str = field(metadata=dict(args=["-out_dir", "--out_binary_directory"]), default='processed_binaries')
 
 
 def collect_file_names(database: str, out_file_prefix: str, collection: str = "repos") -> None:
@@ -80,6 +79,7 @@ def collect_file_names(database: str, out_file_prefix: str, collection: str = "r
 def decompile_both(unopt_compile_path: str, opt_compile_path: str, unopt_data_dict: Dict[str, Dict], opt_data_dict: Dict[str, Dict] = None,  unopt_prefix = "O0", opt_prefix = "Og", res_folder = "processed_binaries"):
 
 	running_unopt_sha_set = set()
+	successful_paths = []
 
 	for binary_identifier in tqdm(unopt_data_dict):
 		asbly_hash = unopt_data_dict[binary_identifier]["assembly_sha"]
@@ -93,10 +93,18 @@ def decompile_both(unopt_compile_path: str, opt_compile_path: str, unopt_data_di
 				# based on the current way the collect script is written, last 2 chars will always be .s
 				binary_path = binary_identifier[:-2]
 
-				if not copy_and_decompile(unopt_dict, unopt_compile_path, res_folder, binary_path, unopt_prefix):
+				rc, err_msg =  copy_and_decompile(unopt_dict, unopt_compile_path, res_folder, binary_path, unopt_prefix)
+				if not rc:
+					print(f"on {binary_path} the process had error {err_msg} with code: {True}")
 					continue
+				rc, err_msg = copy_and_decompile(opt_dict, opt_compile_path, res_folder, binary_path, opt_prefix)
+				if not rc:
+					print(f"on {binary_path} the process had error {err_msg} with code: {True}")
 				else:
-					copy_and_decompile(opt_dict, opt_compile_path, res_folder, binary_path, opt_prefix)
+					successful_paths.append(binary_path)
+
+	return successful_paths
+
 
 def parallel_decompile(unopt_compile_path: str, opt_compile_path: str, unopt_data_dict: Dict[str, Dict], opt_data_dict: Dict[str, Dict] = None,  unopt_prefix = "O0", opt_prefix = "Og", n_workers = 16, res_folder = "processed_binaries"):
 	running_unopt_sha_set = set()
@@ -122,33 +130,41 @@ def parallel_decompile(unopt_compile_path: str, opt_compile_path: str, unopt_dat
 										   "opt_dict": opt_dict}
 				jobs_list.append(copy_and_decompile_dict)
 
+	successful_paths = []
 	for bin_pth, msg, rc in ThreadPool(n_workers).imap_unordered(run_dual_cpy_decompile, jobs_list):
-		if rc != 0:
-			print(f"on {bin_pth} the process {msg} with code: {rc}")
+		# if rc is False, print error
+		if not rc :
+			print(f"on {bin_pth} the process had error {msg} with code: {rc}")
+		else:
+			successful_paths.append(bin_pth)
+
+	return successful_paths
 
 
 def run_dual_cpy_decompile(copy_and_decompile_dict):
 
-	if not copy_and_decompile(copy_and_decompile_dict["unopt_dict"],
-							  copy_and_decompile_dict["unopt_compile_path"],
-							  copy_and_decompile_dict["result_folder"],
-							  copy_and_decompile_dict["binary_path"],
-							  copy_and_decompile_dict["unopt_prefix"]
-							  ):
+	rc, err_msg = copy_and_decompile(copy_and_decompile_dict["unopt_dict"],
+										copy_and_decompile_dict["unopt_compile_path"],
+										copy_and_decompile_dict["result_folder"],
+										copy_and_decompile_dict["binary_path"],
+										copy_and_decompile_dict["unopt_prefix"]
+									)
+	# if the rc is False then return with err
+	if not rc:
+		return copy_and_decompile_dict["binary_path"], err_msg, False
 
-		return copy_and_decompile_dict["binary_path"], "failed on unopt copy and decompile", 0
-
-	elif not copy_and_decompile(copy_and_decompile_dict["opt_dict"],
-								copy_and_decompile_dict["opt_compile_path"],
-								copy_and_decompile_dict["result_folder"],
-								copy_and_decompile_dict["binary_path"],
-								copy_and_decompile_dict["opt_prefix"]
-								):
-
-		return copy_and_decompile_dict["binary_path"], "failed on opt copy and decompile", 0
+	rc, err_msg =  copy_and_decompile(copy_and_decompile_dict["opt_dict"],
+										copy_and_decompile_dict["opt_compile_path"],
+										copy_and_decompile_dict["result_folder"],
+										copy_and_decompile_dict["binary_path"],
+										copy_and_decompile_dict["opt_prefix"]
+									)
+	# if the rc is False then return with err
+	if not rc:
+		return copy_and_decompile_dict["binary_path"], err_msg, False
 
 	else:
-		return copy_and_decompile_dict["binary_path"], "success", 1
+		return copy_and_decompile_dict["binary_path"], "success", True
 
 
 def copy_and_decompile(data_dict, compile_path, result_folder, binary_path, optimization_prefix):
@@ -160,15 +176,19 @@ def copy_and_decompile(data_dict, compile_path, result_folder, binary_path, opti
 		os.makedirs(lcl_fun_fldr)
 
 	except FileExistsError:
-		print(f"path: {os.path.join([result_folder, binary_path, optimization_prefix])} already exists, moving to next binary")
-		return False
+		err = f"path: {os.path.join([result_folder, binary_path, optimization_prefix])} already exists"
+		return False, err
 
 	path_to_orig_bin = os.path.join(compile_path, data_dict["repo_path"], data_dict["ELF_sha"])
 	path_to_local_bin = os.path.join([lcl_bin_fldr, data_dict["ELF_sha"]])
 	# path_to_functions = os.path.join([binary_path, optimization_prefix, "functions"])
-	subprocess.run(["cp", path_to_orig_bin, path_to_local_bin])
-	subprocess.run(['stoke', 'extract', '-i', path_to_local_bin, "-o", lcl_fun_fldr])
-	return True
+	p = subprocess.run(["cp", path_to_orig_bin, path_to_local_bin], capture_output=True, text=True)
+	if p.returncode == 0:
+		p = subprocess.run(['stoke', 'extract', '-i', path_to_local_bin, "-o", lcl_fun_fldr], capture_output=True, text=True)
+	if p.returncode!=0:
+		return False, p.stderr
+	else:
+		return True, "process exited normally"
 
 
 if __name__ == "__main__":
@@ -184,16 +204,17 @@ if __name__ == "__main__":
 		opt_metadata = json.load(f)
 
 	if args.n_workers < 2:
-		decompile_both(
+		successful_paths = decompile_both(
 			args.unopt_bin,
 			args.opt_bin,
 			unopt_metadata,
 			opt_metadata,
 			unopt_prefix = args.unopt_flag,
-			opt_prefix = args.opt_flag
+			opt_prefix = args.opt_flag,
+			res_folder=args.out_dir
 		)
 	else:
-		parallel_decompile(
+		successful_paths = parallel_decompile(
 			args.unopt_bin,
 			args.opt_bin,
 			unopt_metadata,
@@ -201,7 +222,12 @@ if __name__ == "__main__":
 			unopt_prefix=args.unopt_flag,
 			opt_prefix=args.opt_flag,
 			n_workers=args.n_workers,
+			res_folder=args.out_dir
 		)
+	with open(args.o, "w+") as f:
+		for path in successful_paths:
+			full_pth = os.path.join([args.res_folder, path])
+			f.write(full_pth + "\n")
 
 
 
