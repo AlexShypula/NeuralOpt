@@ -9,13 +9,19 @@ import subprocess
 from multiprocessing.pool import ThreadPool
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
+import re
+
+COLLAPSE_PATTERN = re.compile("/\./")
+def collapse_path(path_string): 
+    return COLLAPSE_PATTERN.sub("/", path_string)
+    
 
 
 @dataclass
 class ParseOptions:
 
 	unopt_bin: str = field(metadata=dict(args=["-unopt_bin", "--unoptimized_binary_dir"]))
-	opt_bin: str = field(metadata=dict(args=["-opt_bin", "--unoptimized_binary_dir"]))
+	opt_bin: str = field(metadata=dict(args=["-opt_bin", "--optimized_binary_dir"]))
 	unopt_meta: str = field(metadata=dict(args=["-unopt_meta", "--unoptimized_bin_metadata"]))
 	opt_meta: str = field(metadata=dict(args=["-opt_meta", "--optimized_bin_metadata"]))
 	n_workers: int = 1
@@ -50,6 +56,7 @@ def collect_file_names(database: str, out_file_prefix: str, collection: str = "r
 					orig_files = makefile["binaries"]
 					sha256_files = makefile['sha256']
 					repo_path = "/".join([compile_result["repo_owner"],compile_result["repo_name"]])
+
 					file2sha = {file: sha for file, sha in zip(orig_files, sha256_files)}
 
 					for file_name in orig_files:
@@ -91,7 +98,7 @@ def decompile_both(unopt_compile_path: str, opt_compile_path: str, unopt_data_di
 				opt_dict = opt_data_dict[binary_identifier]
 
 				# based on the current way the collect script is written, last 2 chars will always be .s
-				binary_path = binary_identifier[:-2]
+				binary_path = collapse_path(binary_identifier[:-2])
 
 				rc, err_msg =  copy_and_decompile(unopt_dict, unopt_compile_path, res_folder, binary_path, unopt_prefix)
 				if not rc:
@@ -116,7 +123,7 @@ def parallel_decompile(unopt_compile_path: str, opt_compile_path: str, unopt_dat
 			if opt_data_dict and binary_identifier in opt_data_dict:
 
 				# based on the current way the collect script is written, last 2 chars will always be .s
-				binary_path = binary_identifier[:-2]
+				binary_path = collapse_path(binary_identifier[:-2])
 
 				unopt_dict = unopt_data_dict[binary_identifier]
 				opt_dict = opt_data_dict[binary_identifier]
@@ -169,18 +176,18 @@ def run_dual_cpy_decompile(copy_and_decompile_dict):
 
 def copy_and_decompile(data_dict, compile_path, result_folder, binary_path, optimization_prefix):
 	try:
-		lcl_bin_fldr = os.path.join([result_folder, binary_path, optimization_prefix, "bin"])
+		lcl_bin_fldr = os.path.join(result_folder, binary_path, optimization_prefix, "bin")
 		os.makedirs(lcl_bin_fldr)
 
-		lcl_fun_fldr = os.path.join([result_folder, binary_path, optimization_prefix, "functions"])
+		lcl_fun_fldr = os.path.join(result_folder, binary_path, optimization_prefix, "functions")
 		os.makedirs(lcl_fun_fldr)
 
 	except FileExistsError:
-		err = f"path: {os.path.join([result_folder, binary_path, optimization_prefix])} already exists"
+		err = f"path: {os.path.join(result_folder, binary_path, optimization_prefix)} already exists"
 		return False, err
 
 	path_to_orig_bin = os.path.join(compile_path, data_dict["repo_path"], data_dict["ELF_sha"])
-	path_to_local_bin = os.path.join([lcl_bin_fldr, data_dict["ELF_sha"]])
+	path_to_local_bin = os.path.join(lcl_bin_fldr, data_dict["ELF_sha"])
 	# path_to_functions = os.path.join([binary_path, optimization_prefix, "functions"])
 	p = subprocess.run(["cp", path_to_orig_bin, path_to_local_bin], capture_output=True, text=True)
 	if p.returncode == 0:
@@ -226,7 +233,7 @@ if __name__ == "__main__":
 		)
 	with open(args.o, "w+") as f:
 		for path in successful_paths:
-			full_pth = os.path.join([args.res_folder, path])
+			full_pth = os.path.join(args.res_folder, path)
 			f.write(full_pth + "\n")
 
 
