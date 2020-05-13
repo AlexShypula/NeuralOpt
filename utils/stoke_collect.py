@@ -138,12 +138,14 @@ def parallel_decompile(unopt_compile_path: str, opt_compile_path: str, unopt_dat
 				jobs_list.append(copy_and_decompile_dict)
 
 	successful_paths = []
-	for bin_pth, msg, rc in ThreadPool(n_workers).imap_unordered(run_dual_cpy_decompile, jobs_list):
-		# if rc is False, print error
-		if not rc :
-			print(f"on {bin_pth} the process had error {msg} with code: {rc}")
-		else:
-			successful_paths.append(bin_pth)
+	with tqdm(total=len(jobs_list), smoothing=0) as pbar:
+		for bin_pth, msg, rc in ThreadPool(n_workers).imap_unordered(run_dual_cpy_decompile, jobs_list):
+			pbar.update()
+			# if rc is False, print error
+			if not rc:
+				print(f"on {bin_pth} the process had error {msg} with code: {rc}")
+			else:
+				successful_paths.append(bin_pth)
 
 	return successful_paths
 
@@ -233,7 +235,7 @@ if __name__ == "__main__":
 		)
 	with open(args.o, "w+") as f:
 		for path in successful_paths:
-			full_pth = os.path.join(args.res_folder, path)
+			full_pth = os.path.join(args.out_dir, path)
 			f.write(full_pth + "\n")
 
 
