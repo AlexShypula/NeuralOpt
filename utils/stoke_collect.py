@@ -197,7 +197,11 @@ def copy_and_decompile(data_dict, compile_path, result_folder, binary_path, opti
 		p.terminate()
 		return False, err.cmd
 	if p.returncode == 0:
-		p = subprocess.run(['stoke', 'extract', '-i', path_to_local_bin, "-o", lcl_fun_fldr], capture_output=True, text=True, timeout=180)
+		try:
+			p = subprocess.run(['stoke', 'extract', '-i', path_to_local_bin, "-o", lcl_fun_fldr], capture_output=True, text=True, timeout=180)
+		except subprocess.TimeoutExpired as err:
+			p.terminate()
+			return False, err.cmd
 	if p.returncode!=0:
 		return False, p.stderr
 	else:
