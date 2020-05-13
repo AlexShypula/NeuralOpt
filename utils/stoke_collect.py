@@ -201,7 +201,6 @@ def copy_and_decompile(data_dict, compile_path, result_folder, binary_path, opti
 
 
 if __name__ == "__main__":
-	breakpoint()
 	parser = ArgumentParser(ParseOptions)
 	print(parser.parse_args())
 	args = parser.parse_args()
