@@ -193,12 +193,12 @@ def copy_and_decompile(data_dict, compile_path, result_folder, binary_path, opti
 	# path_to_functions = os.path.join([binary_path, optimization_prefix, "functions"])
 	try:
 		p = subprocess.run(["cp", path_to_orig_bin, path_to_local_bin], capture_output=True, text=True, timeout=500)
-	except subprocess.TimeoutExpired as err:
+	except (subprocess.TimeoutExpired, UnicodeDecodeError) as err:
 		return False, err
 	if p.returncode == 0:
 		try:
 			p = subprocess.run(['stoke', 'extract', '-i', path_to_local_bin, "-o", lcl_fun_fldr], capture_output=True, text=True, timeout=500)
-		except subprocess.TimeoutExpired as err:
+		except (subprocess.TimeoutExpired, UnicodeDecodeError) as err:
                     return False, err
 	if p.returncode!=0:
 		return False, p.stderr
