@@ -3,12 +3,13 @@ import re
 import subprocess
 import random
 import os
+import re
+import sentencepiece as spm
 from os import listdir, makedirs
 from os.path import isfile, join
 from typing import List, Dict
 from collections import OrderedDict
 from tqdm import tqdm
-import sentencepiece as spm
 from collections import Counter
 from multiprocessing.pool import Pool
 from dataclasses import dataclass, field
@@ -31,6 +32,9 @@ class ParseOptions:
     model_fldr: str = field(metadata=dict(args=["-model_fldr", "--bpe_folder_name"]), default='bpe')
     n_workers: int = 8
     n_splits: int = 16
+    no_fun_names: bool = field(metadata=dict(args=["-no_fun_names", "--remove_fun_names"]), default = False)
+    full_canonicalization: bool = field(metadata=dict(args=["-full_canon", "--fully_canonicalize_locations"]), default = False)
+
 
 
 def hash_file(file_string: str, encoding: str = "utf-8") -> str:
@@ -54,7 +58,10 @@ def parallel_pipeline(path_to_bin: str,
                 test_fldr: str = "test",
                 model_fldr: str = "bpe",
                 n_workers = 8,
-                n_splits = 16):
+                n_splits = 16,
+                no_fun_names = False,
+                full_canonicalization = False):
+
 
     assert n_splits % n_workers == 0
     mkdir(train_fldr)
@@ -69,7 +76,10 @@ def parallel_pipeline(path_to_bin: str,
                 "train_fldr": train_fldr,
                 "dev_fldr": dev_fldr,
                 "test_fldr": test_fldr,
-                "suffix": None}
+                "suffix": None,
+                "preserve_fun_names": not no_fun_names,
+                "preserve_semantics": not full_canonicalization,
+                }
 
     jobs = []
     job_chunk_size = (len(path_list) // n_splits) + 1
@@ -201,7 +211,9 @@ def process_all(path_to_bin: str,
                 train_fldr: str = "train",
                 dev_fldr:str = "dev",
                 test_fldr: str = "test",
-                suffix: str = "0"):
+                suffix: str = "0",
+                preserve_fun_names: bool = True,
+                preserve_semantics: bool = True):
 
     src_shas = set()
     tgt_shas = set()
@@ -221,7 +233,7 @@ def process_all(path_to_bin: str,
     test_src_f = open(join(test_fldr, f"test_{suffix}.src"), "w")
     test_tgt_f = open(join(test_fldr, f"test_{suffix}.tgt"), "w")
 
-    for path in tqdm(path_list, position=0, leave=True):
+    for path in tqdm(path_list, position=int(suffix), desc = f"job {suffix}", leave=True):
         unopt_fun_dir = join(path_to_bin, path, unopt_prefix, fun_dir)
         opt_fun_dir = join(path_to_bin, path, opt_prefix, fun_dir)
         src_lst = [f for f in listdir(unopt_fun_dir) if isfile(join(unopt_fun_dir, f))]
@@ -248,8 +260,13 @@ def process_all(path_to_bin: str,
                 n_dups += 1
                 continue
             tgt_shas.add(tgt_hash)
-            src_asbly, _, _, _ = process_raw_assembly(src_text)
-            tgt_asbly, _, _, _ = process_raw_assembly(tgt_text)
+            # breakpoint()
+            src_asbly, _, _, _ = process_raw_assembly(raw_assembly=src_text,
+                                                      preserve_fun_names=preserve_fun_names,
+                                                      preserve_semantics=preserve_semantics)
+            tgt_asbly, _, _, _ = process_raw_assembly(raw_assembly=tgt_text,
+                                                      preserve_fun_names=preserve_fun_names,
+                                                      preserve_semantics=preserve_semantics)
             rn = random.random()
             if rn < 0.95:
                 tr_src_f.write(src_asbly+"\n")
@@ -317,6 +334,7 @@ def parallel_bpe_process_wrapper(args_dict: Dict[str, str]):
     return bpe_process(**args_dict)
 
 def bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_file: str, spm_model_pth: str, threshold = 200, hashes = None):
+    job_no = re.findall("\d|$", in_src_file)[0]
     dups = 0
     sent_piece = spm.SentencePieceProcessor()
     sent_piece.Load(spm_model_pth)
@@ -327,7 +345,7 @@ def bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_f
         tgt_data = f.readlines()
     src_out = open(out_src_file, "w+")
     tgt_out = open(out_tgt_file, "w+")
-    for i, src_asbly in enumerate(tqdm(src_data, position=0, leave=True)):
+    for i, src_asbly in enumerate(tqdm(src_data, position=int(job_no), desc = f"job no: {job_no}", leave=True)):
         if type(hashes) == type(set()):
             src_hash = hash_file(src_asbly.strip())
             if src_hash in hashes:
@@ -389,24 +407,27 @@ def _spec_char_undo(assembly:str):
     assembly = UNDERSCORE_PATTERN_UNDO("_", assembly)
 
 
-def process_raw_assembly(raw_assembly:str):
+def process_raw_assembly(raw_assembly: str, preserve_fun_names: bool = True, preserve_semantics: bool = True):
     metadata, assembly = _split_metadata(raw_assembly)
-    function_list = FINDALL_FUNCTIONS_PATTERN.findall(metadata)
-    assembly, canon2orig_loc_dict = _process_assembly(assembly, function_list)
+    if preserve_fun_names:
+        function_list = FINDALL_FUNCTIONS_PATTERN.findall(metadata)
+    else:
+        function_list = []
+    assembly, orig2canon_loc_dict = _process_assembly(assembly, function_list, preserve_semantics)
     assembly = _spec_char_rep(assembly.strip()) # remove leading and training \n
-    return assembly, metadata, function_list, canon2orig_loc_dict
+    return assembly, metadata, function_list, orig2canon_loc_dict
 
-def _process_assembly(assembly: str, function_list: List[str]):
+def _process_assembly(assembly: str, function_list: List[str], preserve_semantics: bool):
     no_comments = COMMENT_PATTERN.sub("", assembly)
     no_extra_space = WHITESPACE_PATTERN.sub("\n", no_comments)
-    clean_assembly, canon2orig_loc_dict = _canonicalize_labels(no_extra_space, function_list)
-    return clean_assembly, canon2orig_loc_dict
+    clean_assembly, orig2canon_loc_dict = _canonicalize_labels(no_extra_space, function_list, preserve_semantics)
+    return clean_assembly, orig2canon_loc_dict
 
 def _split_metadata(raw_assembly:str):
     metadata, assembly = METADATA_SPLIT_PATTERN.split(raw_assembly, maxsplit=1)
     return metadata, assembly
 
-def _canonicalize_labels(assembly: str, function_list: List[str]):
+def _canonicalize_labels(assembly: str, function_list: List[str], preserve_semantics: bool = True):
     raw_locs = FINDALL_LOCATIONS_PATTERN.findall(assembly)
     # make a list of the locations that we'll keep
     kept_locs = [".size"]
@@ -417,18 +438,22 @@ def _canonicalize_labels(assembly: str, function_list: List[str]):
     idiosyn_locs = [l for l in OrderedDict.fromkeys(raw_locs)
                                if l not in kept_locs]
     # canonicalized locations starting from 1
-    canon_locs = [".L"+ str(i+1) for i in range(len(idiosyn_locs))]
-    canon2idiosyn = {canon: idiosyn for canon, idiosyn in zip(canon_locs, idiosyn_locs)}
-    for canon, idiosyn in canon2idiosyn.items():
+    if preserve_semantics:
+        canon_locs = [".L"+ str(i+1) for i in range(len(idiosyn_locs))]
+    else:
+        canon_locs = [".LOC"] * len(idiosyn_locs)
+    idiosyn2canon = {idiosyn: canon for idiosyn, canon in zip(idiosyn_locs, canon_locs)}
+    for idiosyn, canon in idiosyn2canon.items():
         # replace all occurrences
         assembly = re.sub(idiosyn, canon, assembly)
-    return assembly, canon2idiosyn
+    return assembly, idiosyn2canon
 
 
 
 
 
 if __name__ == "__main__":
+    # breakpoint()
     parser = ArgumentParser(ParseOptions)
     print(parser.parse_args())
     args = parser.parse_args()
