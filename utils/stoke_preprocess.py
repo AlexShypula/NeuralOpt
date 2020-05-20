@@ -404,7 +404,8 @@ def _spec_char_rep(assembly:str):
 
 def _spec_char_undo(assembly:str):
     assembly = NEW_LINE_PATTERN_UNDO.sub("\n", assembly)
-    assembly = UNDERSCORE_PATTERN_UNDO("_", assembly)
+    assembly = UNDERSCORE_PATTERN_UNDO.sub("_", assembly)
+    return assembly
 
 
 def process_raw_assembly(raw_assembly: str, preserve_fun_names: bool = True, preserve_semantics: bool = True):
@@ -453,7 +454,7 @@ def _canonicalize_labels(assembly: str, function_list: List[str], preserve_seman
 
 
 if __name__ == "__main__":
-    # breakpoint()
+    # point()
     parser = ArgumentParser(ParseOptions)
     print(parser.parse_args())
     args = parser.parse_args()
