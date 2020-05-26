@@ -228,8 +228,8 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 			return result_dictionary, tc_stdout, err, "", tc_gen.returncode if flag == "unopt" else 0
 
 		if cost_test.returncode == 0:
-			cost = COST_SEARCH_REGEX.search(cost_test.stdout)
-			correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout)
+			cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
+			correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
 
 
 
@@ -260,8 +260,8 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 			return result_dictionary, tc_stdout, cost_test.stdout, err, tc_gen.returncode if flag == "unopt" else 0
 
 		if benchmark_test.returncode == 0:
-			runtime = RUNTIME_SEARCH_REGEX.search(benchmark_test.stdout)
-			throughput = THROUGHPUT_SEARCH_REGEX.search(benchmark_test.stdout)
+			runtime = RUNTIME_SEARCH_REGEX.search(benchmark_test.stdout).group()
+			throughput = THROUGHPUT_SEARCH_REGEX.search(benchmark_test.stdout).group()
 
 
 		if flag == "unopt":
