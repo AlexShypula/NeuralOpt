@@ -196,9 +196,13 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 		result_dictionary["unopt_length"] = assembly_length
 		result_dictionary["unopt_hash"] = assembly_hash
 		result_dictionary["unopt_tcgen_returncode"] = tc_gen.returncode
+		if tc_gen.returncode != 0:
+			return result_dictionary, tc_stdout, "", "", tc_gen.returncode
 	elif flag == "opt":
 		result_dictionary["opt_length"] = assembly_length
 		result_dictionary["opt_hash"] = assembly_hash
+
+
 
 	if flag == "opt" or tc_gen.returncode == 0:
 		try:
@@ -228,6 +232,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 			correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout)
 
 
+
 		if flag == "unopt":
 			result_dictionary["unopt_unopt_cost_returncode"] = cost_test.returncode
 			if cost_test.returncode == 0 :
@@ -240,19 +245,19 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				result_dictionary["opt_unopt_cost"] = cost
 				result_dictionary["opt_unopt_correctness"] = correct
 
-		if cost_test.returncode == 0:
-			try:
-				benchmark_test = subprocess.run(
-					['stoke', 'benchmark', 'cost', '--target', path_to_target, '--rewrite', path_to_function, '--testcases',
-					 tc_path, '--functions', fun_dir, "--prune", '--iterations', str(benchmark_iters)],
-					stdout=subprocess.PIPE,
-					stderr=subprocess.STDOUT,
-					text=True,
-					timeout=300
-				)
+		# if cost_test.returncode == 0:
+		try:
+			benchmark_test = subprocess.run(
+				['stoke', 'benchmark', 'cost', '--target', path_to_target, '--rewrite', path_to_function, '--testcases',
+				 tc_path, '--functions', fun_dir, "--prune", '--iterations', str(benchmark_iters)],
+				stdout=subprocess.PIPE,
+				stderr=subprocess.STDOUT,
+				text=True,
+				timeout=300
+			)
 
-			except subprocess.TimeoutExpired as err:
-				return result_dictionary, tc_stdout, cost_test.stdout, err, tc_gen.returncode if flag == "unopt" else 0
+		except subprocess.TimeoutExpired as err:
+			return result_dictionary, tc_stdout, cost_test.stdout, err, tc_gen.returncode if flag == "unopt" else 0
 
 		if benchmark_test.returncode == 0:
 			runtime = RUNTIME_SEARCH_REGEX.search(benchmark_test.stdout)
