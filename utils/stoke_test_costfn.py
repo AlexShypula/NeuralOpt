@@ -86,7 +86,7 @@ def parallel_eval_cost(path_list: List[str],
 	for path in path_list:
 		job = template_dict.copy()
 		job["path"] = path
-		jobs.append(path)
+		jobs.append(job)
 
 	with tqdm(total=len(jobs), smoothing=0) as pbar:
 		for csv_dict_list, tc_gen_list, cost_list, benchmark_list in ThreadPool(n_workers).imap_unordered(par_test_binary_directory, jobs):
