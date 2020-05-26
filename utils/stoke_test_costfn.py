@@ -155,7 +155,7 @@ def test_binary_directory(path: str,
 			cost_list.append(log_prefix + cost_str)
 			benchmark_list.append(log_prefix + benchmark_str)
 
-	return res_dict, tcgen_list, cost_list, benchmark_list
+	return csv_rows, tcgen_list, cost_list, benchmark_list
 
 
 def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt_fun: str = None, benchmark_iters: int = 250, result_dictionary = None, flag = "unopt"):
