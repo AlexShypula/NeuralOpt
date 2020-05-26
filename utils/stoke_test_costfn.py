@@ -38,18 +38,17 @@ FIELDNAMES = ["path_to_function",
 
 @dataclass
 class ParseOptions:
-    path_list: str = field(metadata=dict(args=["-path_list", "--list_of_decompiled_binaries"]))
-    unopt_prefix: str = "O0"
-    opt_prefix: str = "Og"
-    fun_dir_suff: str = field(metadata=dict(args=["-fun_dir_suff", "--functions_folder_name"]), default='functions')
+	path_list: str = field(metadata=dict(args=["-path_list", "--list_of_decompiled_binaries"]))
+	unopt_prefix: str = "O0"
+	opt_prefix: str = "Og"
+	fun_dir_suff: str = field(metadata=dict(args=["-fun_dir_suff", "--functions_folder_name"]), default='functions')
 	tc_dir_suff: str =  field(metadata=dict(args=["-tc_dir_suff", "--testcases_folder_name"]), default='testcases')
-
-    stats_csv: str = field(metadata=dict(args=["-stats_out", "--statistics_file_name"]), default='stats.csv')
+	stats_csv: str = field(metadata=dict(args=["-stats_out", "--statistics_file_name"]), default='stats.csv')
 	tc_gen_log: str = field(metadata=dict(args=["-tc_gen_log", "--testcase_gen_log_file"]), default='tc_gen.log')
 	cost_log: str = field(metadata=dict(args=["-cost_log", "--cost_fn_log_file"]), default='cost.log')
 	benchmark_log: str = field(metadata=dict(args=["-benchmark_log", "--cost_benchmark_log_file"]), default='benchmark.log')
 	separator: str = ","
-    n_workers: int = 8
+	n_workers: int = 8
 
 def parallel_eval_cost(path_list: List[str],
 					   unopt_prefix: str = "O0",
