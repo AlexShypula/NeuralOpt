@@ -188,7 +188,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 							   timeout=300)
 
 		except (subprocess.TimeoutExpired) as err:
-			return result_dictionary, err, "", "", -1
+			return result_dictionary, str(err), "", "", -1
 
 	tc_stdout = tc_gen.stdout if flag == "unopt" else ""
 
@@ -225,7 +225,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				timeout=300)
 
 		except subprocess.TimeoutExpired as err:
-			return result_dictionary, tc_stdout, err, "", tc_gen.returncode if flag == "unopt" else 0
+			return result_dictionary, tc_stdout, str(err), "", tc_gen.returncode if flag == "unopt" else 0
 
 		if cost_test.returncode == 0:
 			cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
@@ -257,7 +257,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 			)
 
 		except subprocess.TimeoutExpired as err:
-			return result_dictionary, tc_stdout, cost_test.stdout, err, tc_gen.returncode if flag == "unopt" else 0
+			return result_dictionary, tc_stdout, cost_test.stdout, str(err), tc_gen.returncode if flag == "unopt" else 0
 
 		if benchmark_test.returncode == 0:
 			runtime = RUNTIME_SEARCH_REGEX.search(benchmark_test.stdout).group()
