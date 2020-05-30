@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 import re
 import regex
+from time import time, sleep
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
@@ -49,6 +50,63 @@ class ParseOptions:
 	benchmark_log: str = field(metadata=dict(args=["-benchmark_log", "--cost_benchmark_log_file"]), default='benchmark.log')
 	separator: str = ","
 	n_workers: int = 8
+
+class StopWatch:
+	def __init__(self):
+		self.time = 0
+		self.n_events = 0
+		self.timing = False
+	def start(self):
+		assert self.timing == False
+		self._start_time = time()
+		self.timing = True
+	def _stop_timing(self):
+		assert self.timing == True
+		self._end_time = time()
+		self.time = self._end_time - self._start_time
+		self.timing = False
+	def new_event(self, name = None):
+		self.n_events += 1
+		if not name:
+			name = f"unnamed_event_{self.n_events}"
+		setattr(self, name, StopWatch())
+	def _calculate_overhead(self):
+		assert self.timing == False
+		self.overhead = self.time
+		for k,v in self.__dict__.items():
+			#print(f"key: {k}, value: {v}")
+			if type(v) == type(self):
+				if v.timing == True:
+					v._stop_timing()
+				self.overhead -= v.time
+		return self.overhead
+	def stop(self):
+		assert self.timing == True
+		self._stop_timing()
+		self._calculate_overhead()
+		return self.time, self.overhead
+
+
+def mini_watch_test():
+	foo = StopWatch()
+	foo.start()
+	sleep(2)
+	foo.new_event("bar")
+	foo.bar.start()
+	sleep(1)
+	foo.bar.stop()
+	foo.new_event("spam")
+	foo.spam.start()
+	sleep(2)
+	foo.stop()
+	print("foo: ", vars(foo))
+	print("bar: ", vars(foo.bar))
+	print("spam: ", vars(foo.spam))
+	# foo should be ~5 total, ~2 overhead
+	# bar should be ~1 total
+	# spam should be ~2
+
+
 
 def parallel_eval_cost(path_list: List[str],
 					   unopt_prefix: str = "O0",
@@ -150,10 +208,10 @@ def test_binary_directory(path: str,
 																		   result_dictionary = res_dict,
 																		   flag = "opt")
 
-			csv_rows.append(res_dict)
 			log_prefix = f"Log for function {join(opt_fun_dir, fun_file)}: "
 			cost_list.append(log_prefix + cost_str)
 			benchmark_list.append(log_prefix + benchmark_str)
+	csv_rows.append(res_dict)
 
 	return csv_rows, tcgen_list, cost_list, benchmark_list
 
@@ -201,8 +259,6 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 	elif flag == "opt":
 		result_dictionary["opt_length"] = assembly_length
 		result_dictionary["opt_hash"] = assembly_hash
-
-
 
 	if flag == "opt" or tc_gen.returncode == 0:
 		try:
