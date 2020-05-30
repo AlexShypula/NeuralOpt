@@ -37,6 +37,23 @@ FIELDNAMES = ["path_to_function",
 			  "opt_unopt_runtime",
 			  "opt_unopt_throughput"]
 
+TIMEFIELDS = ["unopt_time",
+			  "unopt_overhead",
+			  "tcgen_time",
+			  "unopt_unopt_cost_time",
+			  "unopt_unopt_benchamrk_time",
+			  "opt_time",
+			  "opt_overhead",
+			  "opt_unopt_cost_time",
+			  "opt_unopt_benchamrk_time"]
+
+STDOUTFIELDS = ["tcgcn_str",
+				"unopt_cost_str",
+				"unopt_benchmark_str",
+				"opt_cost_str",
+				"opt_benchmark_str"]
+
+
 @dataclass
 class ParseOptions:
 	path_list: str = field(metadata=dict(args=["-path_list", "--list_of_decompiled_binaries"]))
@@ -50,6 +67,9 @@ class ParseOptions:
 	benchmark_log: str = field(metadata=dict(args=["-benchmark_log", "--cost_benchmark_log_file"]), default='benchmark.log')
 	separator: str = ","
 	n_workers: int = 8
+	time: bool = field(metadata=dict(args=["-time", "--time_subprocesses"]), default = False)
+	stdout_to_csv: bool = field(metadata=dict(args=["-stdout_to_csv", "--subprocess_out_to_csv"]), default = False)
+
 
 class StopWatch:
 	def __init__(self):
@@ -107,7 +127,6 @@ def mini_watch_test():
 	# spam should be ~2
 
 
-
 def parallel_eval_cost(path_list: List[str],
 					   unopt_prefix: str = "O0",
 					   opt_prefix: str = "Og",
@@ -119,13 +138,20 @@ def parallel_eval_cost(path_list: List[str],
 					   cost_log: str = "cost.log",
 					   benchmark_log: str = "benchmark.log",
 					   separator: str = ",",
-					   n_workers: int = 8
+					   n_workers: int = 8,
+					   time = False,
+					   stdout_to_csv = False,
 					   ):
 
 
 	stats_csv_fh = open(stats_csv, "w")
+	field_names = FIELDNAMES
+	if time:
+		field_names.extend(TIMEFIELDS)
+	if stdout_to_csv:
+		field_names.extend(STDOUTFIELDS)
 	dict_writer = csv.DictWriter(stats_csv_fh,
-								 fieldnames=FIELDNAMES,
+								 fieldnames=field_names,
 								 delimiter=separator,
 								 quoting=csv.QUOTE_ALL)
 	dict_writer.writeheader()
@@ -139,6 +165,8 @@ def parallel_eval_cost(path_list: List[str],
 						"unopt_prefix": unopt_prefix,
 						"opt_prefix": opt_prefix,
 						"benchmark_iters": benchmark_iters,
+					 	"time": time,
+						"stdout_to_csv": stdout_to_csv,
 					}
 	jobs = []
 	for path in path_list:
@@ -168,6 +196,8 @@ def test_binary_directory(path: str,
 						unopt_prefix: str = "O0",
 						opt_prefix: str = "Og",
 						benchmark_iters: int = 250,
+						time: bool = False,
+						stdout_to_csv: bool = False,
 						):
 
 
@@ -190,13 +220,20 @@ def test_binary_directory(path: str,
 																					   path_to_unopt_fun = None,
 																					   benchmark_iters = benchmark_iters,
 																					   result_dictionary = None,
-																					   flag = "unopt")
+																					   flag = "unopt",
+																					   time = time)
 		# add partial results to the log list
 		unopt_fun_path = join(unopt_fun_dir, fun_file)
 		log_prefix = f"Log for function {unopt_fun_path}: "
+
 		tcgen_list.append(log_prefix + tcgen_str)
 		cost_list.append(log_prefix + cost_str)
 		benchmark_list.append(log_prefix + benchmark_str)
+
+		if stdout_to_csv:
+			res_dict["tcgen_str"] = tcgen_str
+			res_dict["unopt_cost_str"] = cost_str
+			res_dict["unopt_benchmark_str"] = benchmark_str
 
 		if tc_gen_rc == 0 and fun_file in tgt_lst:
 
@@ -206,19 +243,28 @@ def test_binary_directory(path: str,
 																		   path_to_unopt_fun = unopt_fun_path,
 																		   benchmark_iters = benchmark_iters,
 																		   result_dictionary = res_dict,
-																		   flag = "opt")
+																		   flag = "opt",
+																		   time = time)
 
 			log_prefix = f"Log for function {join(opt_fun_dir, fun_file)}: "
 			cost_list.append(log_prefix + cost_str)
 			benchmark_list.append(log_prefix + benchmark_str)
+			if stdout_to_csv:
+				res_dict["opt_cost_str"] = cost_str
+				res_dict["opt_benchmark_str"] = benchmark_str
+
 	csv_rows.append(res_dict)
 
 	return csv_rows, tcgen_list, cost_list, benchmark_list
 
 
-def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt_fun: str = None, benchmark_iters: int = 250, result_dictionary = None, flag = "unopt"):
+def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt_fun: str = None, benchmark_iters: int = 250, result_dictionary = None, flag = "unopt", time = False):
 
 	assert flag in ("opt", "unopt"), "only 2 modes, opt and unopt"
+
+	if time:
+		stop_watch = StopWatch()
+		stop_watch.start()
 
 	path_to_function = join(fun_dir, fun_file)
 	function_name = splitext(fun_file)[0]
@@ -234,33 +280,54 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 		assembly = f.read()
 	assembly_hash = hash_file(assembly)
 	assembly_length = len(assembly)
+	if flag == "unopt":
+		result_dictionary["unopt_length"] = assembly_length
+		result_dictionary["unopt_hash"] = assembly_hash
+	elif flag == "opt":
+		result_dictionary["opt_length"] = assembly_length
+		result_dictionary["opt_hash"] = assembly_hash
 
 	if flag == "unopt":
 		try:
 			#dir_name, base_file = os.path.split(path_to_function)
 			#tc_file = splitext(base_file)[0] + ".tc"
+			if time:
+				stop_watch.new_event("tcgen")
+				stop_watch.tcgen.start()
+
 			tc_gen = subprocess.run(['stoke', 'testcase', '--target', path_to_function, "-o", tc_path, '--functions', fun_dir, "--prune"],
 							   stdout=subprocess.PIPE,
 							   stderr=subprocess.STDOUT,
 							   text=True,
 							   timeout=300)
 
+			result_dictionary["unopt_tcgen_returncode"] = tc_gen.returncode
+
+			if time:
+				stop_watch.tcgen._stop_timing()
+				result_dictionary["tcgen_time"] = stop_watch.tcgen.time
+
+			if tc_gen.returncode != 0:
+				if time:
+					stop_watch.stop()
+					result_dictionary[f"{flag}_time"] = stop_watch.time
+					result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
+				return result_dictionary, tc_gen.stdout, "", "", tc_gen.returncode
+
 		except (subprocess.TimeoutExpired) as err:
+			if time:
+				stop_watch.stop()
+				result_dictionary[f"{flag}_time"] = stop_watch.time
+				result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
+				result_dictionary["tcgen_time"] = stop_watch.tcgen.time
+
 			return result_dictionary, str(err), "", "", -1
 
 	tc_stdout = tc_gen.stdout if flag == "unopt" else ""
 
-	if flag == "unopt":
-		result_dictionary["unopt_length"] = assembly_length
-		result_dictionary["unopt_hash"] = assembly_hash
-		result_dictionary["unopt_tcgen_returncode"] = tc_gen.returncode
-		if tc_gen.returncode != 0:
-			return result_dictionary, tc_stdout, "", "", tc_gen.returncode
-	elif flag == "opt":
-		result_dictionary["opt_length"] = assembly_length
-		result_dictionary["opt_hash"] = assembly_hash
-
 	if flag == "opt" or tc_gen.returncode == 0:
+		#TODO: remove this unnecessary if-statement as we can just execute it every-time it is called
+		#if tc_gen returncode != 0 we have an early exit anyway.....
 		try:
 			# benchmarking opt to unopt
 			if path_to_unopt_fun:
@@ -273,6 +340,10 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 									  "however, if you are in opt mode, you should specify this arg"
 				path_to_target = path_to_function
 
+			if time:
+				stop_watch.new_event("cost_test")
+				stop_watch.cost_test.start()
+
 			cost_test = subprocess.run(
 				['stoke', 'debug', 'cost', '--target', path_to_target, '--rewrite', path_to_function, '--testcases', tc_path, '--functions', fun_dir, "--prune"],
 				stdout=subprocess.PIPE,
@@ -280,29 +351,33 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				text=True,
 				timeout=300)
 
-		except subprocess.TimeoutExpired as err:
-			return result_dictionary, tc_stdout, str(err), "", tc_gen.returncode if flag == "unopt" else 0
+			if time:
+				stop_watch.cost_test._stop_timing()
+				result_dictionary[f"{flag}_unopt_cost_time"] = stop_watch.cost_test.time
 
-		if cost_test.returncode == 0:
-			cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
-			correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
-
-
-
-		if flag == "unopt":
-			result_dictionary["unopt_unopt_cost_returncode"] = cost_test.returncode
-			if cost_test.returncode == 0 :
-				result_dictionary["unopt_unopt_cost"] = cost
-				result_dictionary["unopt_unopt_correctness"] = correct
-
-		elif flag == "opt":
-			result_dictionary["opt_unopt_cost_returncode"] = cost_test.returncode
 			if cost_test.returncode == 0:
-				result_dictionary["opt_unopt_cost"] = cost
-				result_dictionary["opt_unopt_correctness"] = correct
+				cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
+				correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
+
+			result_dictionary[f"{flag}_unopt_cost_returncode"] = cost_test.returncode
+			if cost_test.returncode == 0:
+				result_dictionary[f"{flag}_unopt_cost"] = cost
+				result_dictionary[f"{flag}_unopt_correctness"] = correct
+
+		except subprocess.TimeoutExpired as err:
+			if time:
+				stop_watch.stop()
+				result_dictionary[f"{flag}_time"] = stop_watch.time
+				result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
+				result_dictionary[f"{flag}_unopt_cost_time"] = stop_watch.cost_test.time
+
+			return result_dictionary, tc_stdout, str(err), "", tc_gen.returncode if flag == "unopt" else 0
 
 		# if cost_test.returncode == 0:
 		try:
+			if time:
+				stop_watch.new_event("benchmark_test")
+
 			benchmark_test = subprocess.run(
 				['stoke', 'benchmark', 'cost', '--target', path_to_target, '--rewrite', path_to_function, '--testcases',
 				 tc_path, '--functions', fun_dir, "--prune", '--iterations', str(benchmark_iters)],
@@ -312,26 +387,32 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				timeout=300
 			)
 
+			if time:
+				stop_watch.benchmark_test._stop_timing()
+				result_dictionary[f"{flag}_unopt_benchmark_time"] = stop_watch.benchmark_test.time
+
+			if benchmark_test.returncode == 0:
+				runtime = RUNTIME_SEARCH_REGEX.search(benchmark_test.stdout).group()
+				throughput = THROUGHPUT_SEARCH_REGEX.search(benchmark_test.stdout).group()
+
+			result_dictionary[f"{flag}_unopt_benchmark_returncode"] = benchmark_test.returncode
+			if benchmark_test.returncode == 0:
+				result_dictionary[f"{flag}_unopt_runtime"] = runtime
+				result_dictionary[f"{flag}_unopt_throughput"] = throughput
+
 		except subprocess.TimeoutExpired as err:
+			if time:
+				stop_watch.stop()
+				result_dictionary[f"{flag}_time"] = stop_watch.time
+				result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
+				result_dictionary[f"{flag}_unopt_benchmark_time"] = stop_watch.benchmark_test.time
+
 			return result_dictionary, tc_stdout, cost_test.stdout, str(err), tc_gen.returncode if flag == "unopt" else 0
 
-		if benchmark_test.returncode == 0:
-			runtime = RUNTIME_SEARCH_REGEX.search(benchmark_test.stdout).group()
-			throughput = THROUGHPUT_SEARCH_REGEX.search(benchmark_test.stdout).group()
-
-
-		if flag == "unopt":
-
-			result_dictionary["unopt_unopt_benchmark_returncode"] = benchmark_test.returncode
-			if benchmark_test.returncode == 0:
-				result_dictionary["unopt_unopt_runtime"] = runtime
-				result_dictionary["unopt_unopt_throughput"] = throughput
-
-		elif flag == "opt":
-			result_dictionary["opt_unopt_benchmark_returncode"] = benchmark_test.returncode
-			if benchmark_test.returncode == 0:
-				result_dictionary["opt_unopt_runtime"] = runtime
-				result_dictionary["opt_unopt_throughput"] = throughput
+	if time:
+		stop_watch.stop()
+		result_dictionary[f"{flag}_time"] = stop_watch.time
+		result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
 
 	return result_dictionary, tc_stdout, cost_test.stdout, benchmark_test.stdout, tc_gen.returncode if flag == "unopt" else 0
 
