@@ -50,7 +50,7 @@ TIMEFIELDS = ["unopt_time",
 			  "opt_unopt_cost_time",
 			  "opt_unopt_benchamrk_time"]
 
-STDOUTFIELDS = ["tcgcn_str",
+STDOUTFIELDS = ["tcgen_str",
 				"unopt_cost_str",
 				"unopt_benchmark_str",
 				"opt_cost_str",
@@ -416,6 +416,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 		try:
 			if time:
 				stop_watch.new_event("benchmark_test")
+				stop_watch.benchmark_test.start()
 
 			benchmark_test = subprocess.run(
 				['stoke', 'benchmark', 'cost', '--target', path_to_target, '--rewrite', path_to_function, '--testcases',
