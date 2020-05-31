@@ -56,6 +56,8 @@ STDOUTFIELDS = ["tcgcn_str",
 				"opt_cost_str",
 				"opt_benchmark_str"]
 
+ASBLYFIELDS = ["unopt_assembly",
+				 "opt_assembly"]
 
 @dataclass
 class ParseOptions:
@@ -75,6 +77,7 @@ class ParseOptions:
 	n_workers: int = 8
 	time: bool = field(metadata=dict(args=["-time", "--time_subprocesses"]), default = False)
 	stdout_to_csv: bool = field(metadata=dict(args=["-stdout_to_csv", "--subprocess_out_to_csv"]), default = False)
+	write_asbly: bool = field(metadata=dict(args=["-write_asbly", "--write_asseembly_to_csv"]), default = False)
 
 
 class StopWatch:
@@ -147,17 +150,22 @@ def parallel_eval_cost(path_list: List[str],
 					   spm_model_path: str = None,
 					   separator: str = ",",
 					   n_workers: int = 8,
-					   time = False,
-					   stdout_to_csv = False,
+					   time: bool = False,
+					   stdout_to_csv: bool = False,
+					   write_asbly: bool = False,
 					   ):
 
 
+	if write_asbly:
+		assert spm_model_path, "in order to collect the assembly, you need to specify a sentpiece model for processing"
 	stats_csv_fh = open(stats_csv, "w")
 	field_names = FIELDNAMES
 	if time:
 		field_names.extend(TIMEFIELDS)
 	if stdout_to_csv:
 		field_names.extend(STDOUTFIELDS)
+	if write_asbly:
+		field_names.extend(ASBLYFIELDS)
 	dict_writer = csv.DictWriter(stats_csv_fh,
 								 fieldnames=field_names,
 								 delimiter=separator,
@@ -182,6 +190,7 @@ def parallel_eval_cost(path_list: List[str],
 					 	"time": time,
 						"stdout_to_csv": stdout_to_csv,
 					 	"spm_model": sent_piece,
+					 	"write_asbly": write_asbly
 					}
 	jobs = []
 	for path in path_list:
@@ -215,6 +224,7 @@ def test_binary_directory(path: str,
 						time: bool = False,
 						stdout_to_csv: bool = False,
 						spm_model = None,
+						write_asbly: bool = False,
 						):
 
 
@@ -240,7 +250,8 @@ def test_binary_directory(path: str,
 																					   result_dictionary = None,
 																					   flag = "unopt",
 																					   time = time,
-																					   spm_model = spm_model)
+																					   spm_model = spm_model,
+																					   write_asbly = write_asbly)
 		# add partial results to the log list
 		unopt_fun_path = join(unopt_fun_dir, fun_file)
 		log_prefix = f"Log for function {unopt_fun_path}: "
@@ -264,7 +275,8 @@ def test_binary_directory(path: str,
 																		   result_dictionary = res_dict,
 																		   flag = "opt",
 																		   time = time,
-																		   spm_model = spm_model)
+																		   spm_model = spm_model,
+																		   write_asbly = write_asbly)
 
 			log_prefix = f"Log for function {join(opt_fun_dir, fun_file)}: "
 			cost_list.append(log_prefix + cost_str)
@@ -280,7 +292,8 @@ def test_binary_directory(path: str,
 
 def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt_fun: str = None,
 						benchmark_iters: int = 250, max_testcases: int = 1024,
-						result_dictionary = None, flag = "unopt", time = False, spm_model = None):
+						result_dictionary = None, flag = "unopt", time = False, spm_model = None,
+						write_asbly: bool = False):
 
 	assert flag in ("opt", "unopt"), "only 2 modes, opt and unopt"
 
@@ -309,6 +322,8 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 		asbly = process_raw_assembly(raw_assembly=assembly, preserve_fun_names=True, preserve_semantics=True)
 		tokenized_asbly = merge_registers(spm_model.EncodeAsPieces(asbly.strip()))
 		result_dictionary[f"{flag}_bpe_len"] = len(tokenized_asbly)
+		if write_asbly:
+			result_dictionary[f"{flag}_assembly"] = " ".join(tokenized_asbly)
 
 	if flag == "unopt":
 		try:
