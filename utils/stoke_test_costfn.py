@@ -319,7 +319,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 	result_dictionary[f"{flag}_hash"] = assembly_hash
 
 	if spm_model:
-		asbly = process_raw_assembly(raw_assembly=assembly, preserve_fun_names=True, preserve_semantics=True)
+		asbly, _, _, _ = process_raw_assembly(raw_assembly=assembly, preserve_fun_names=True, preserve_semantics=True)
 		tokenized_asbly = merge_registers(spm_model.EncodeAsPieces(asbly.strip()))
 		result_dictionary[f"{flag}_bpe_len"] = len(tokenized_asbly)
 		if write_asbly:
