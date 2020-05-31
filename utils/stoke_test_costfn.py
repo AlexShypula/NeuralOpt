@@ -44,11 +44,11 @@ TIMEFIELDS = ["unopt_time",
 			  "unopt_overhead",
 			  "tcgen_time",
 			  "unopt_unopt_cost_time",
-			  "unopt_unopt_benchamrk_time",
+			  "unopt_unopt_benchmark_time",
 			  "opt_time",
 			  "opt_overhead",
 			  "opt_unopt_cost_time",
-			  "opt_unopt_benchamrk_time"]
+			  "opt_unopt_benchmark_time"]
 
 STDOUTFIELDS = ["tcgen_str",
 				"unopt_cost_str",
