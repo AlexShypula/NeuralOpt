@@ -285,7 +285,7 @@ def test_binary_directory(path: str,
 				res_dict["opt_cost_str"] = cost_str
 				res_dict["opt_benchmark_str"] = benchmark_str
 
-	csv_rows.append(res_dict)
+		csv_rows.append(res_dict)
 
 	return csv_rows, tcgen_list, cost_list, benchmark_list
 

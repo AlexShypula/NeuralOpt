@@ -12,5 +12,5 @@ python3 NeuralOpt/utils/stoke_test_costfn.py \
   -stdout_to_csv \
   -write_asbly \
   -benchmark_iters 250 \
-  -max_testcases 1024 \
+  -max_tc 1024 \
   -spm_model_path 4_30_processed/bpe/bpe_1000.model
