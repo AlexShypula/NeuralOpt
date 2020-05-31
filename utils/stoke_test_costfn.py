@@ -1,15 +1,16 @@
 import csv
+import subprocess
+import sentencepiece as spm
+import re
+import regex
 from tqdm import tqdm
 from os.path import join, splitext, isfile
 from os import listdir
-import subprocess
 from multiprocessing.pool import ThreadPool
-from stoke_preprocess import hash_file, mkdir
+from stoke_preprocess import hash_file, mkdir, process_raw_assembly, merge_registers
 from typing import List
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
-import re
-import regex
 from time import time, sleep
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
@@ -20,9 +21,11 @@ THROUGHPUT_SEARCH_REGEX = regex.compile("(?<=Throughput:\s+)[0-9\.]+")
 
 FIELDNAMES = ["path_to_function",
 			  "unopt_length",
+			  "unopt_bpe_len",
 			  "unopt_hash",
 			  "unopt_tcgen_returncode",
 			  "opt_length",
+			  "opt_bpe_len",
 			  "opt_hash",
 			  "unopt_unopt_cost_returncode",
 			  "unopt_unopt_cost",
@@ -67,6 +70,7 @@ class ParseOptions:
 	benchmark_log: str = field(metadata=dict(args=["-benchmark_log", "--cost_benchmark_log_file"]), default='benchmark.log')
 	benchmark_iters: int = field(metadata=dict(args=["-benchmark_iters", "--benchmark_number_tests"]), default=250)
 	max_testcases: int = field(metadata=dict(args=["-max_tc", "--max_testcases"]), default=1024)
+	spm_model_path: str = field(metadata=dict(args=["-spm_model_path", "--sent_piece_model_path"]), default=None)
 	separator: str = ","
 	n_workers: int = 8
 	time: bool = field(metadata=dict(args=["-time", "--time_subprocesses"]), default = False)
@@ -140,6 +144,7 @@ def parallel_eval_cost(path_list: List[str],
 					   tc_gen_log: str = "tc_gen.log",
 					   cost_log: str = "cost.log",
 					   benchmark_log: str = "benchmark.log",
+					   spm_model_path: str = None,
 					   separator: str = ",",
 					   n_workers: int = 8,
 					   time = False,
@@ -162,6 +167,11 @@ def parallel_eval_cost(path_list: List[str],
 	cost_fh = open(cost_log, "w")
 	benchmark_fh = open(benchmark_log, "w")
 
+	sent_piece = None
+	if spm_model_path:
+		sent_piece = spm.SentencePieceProcessor()
+		sent_piece.Load(spm_model_path)
+
 	template_dict = {"path": None,
 						"fun_dir_suff":  fun_dir_suff,
 						"tc_dir_suff": tc_dir_suff,
@@ -171,6 +181,7 @@ def parallel_eval_cost(path_list: List[str],
 					    "max_testcases": max_testcases,
 					 	"time": time,
 						"stdout_to_csv": stdout_to_csv,
+					 	"spm_model": sent_piece,
 					}
 	jobs = []
 	for path in path_list:
@@ -203,6 +214,7 @@ def test_binary_directory(path: str,
 						max_testcases: int = 1024,
 						time: bool = False,
 						stdout_to_csv: bool = False,
+						spm_model = None,
 						):
 
 
@@ -227,7 +239,8 @@ def test_binary_directory(path: str,
 																					   max_testcases = max_testcases,
 																					   result_dictionary = None,
 																					   flag = "unopt",
-																					   time = time)
+																					   time = time,
+																					   spm_model = spm_model)
 		# add partial results to the log list
 		unopt_fun_path = join(unopt_fun_dir, fun_file)
 		log_prefix = f"Log for function {unopt_fun_path}: "
@@ -250,7 +263,8 @@ def test_binary_directory(path: str,
 																		   benchmark_iters = benchmark_iters,
 																		   result_dictionary = res_dict,
 																		   flag = "opt",
-																		   time = time)
+																		   time = time,
+																		   spm_model = spm_model)
 
 			log_prefix = f"Log for function {join(opt_fun_dir, fun_file)}: "
 			cost_list.append(log_prefix + cost_str)
@@ -266,7 +280,7 @@ def test_binary_directory(path: str,
 
 def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt_fun: str = None,
 						benchmark_iters: int = 250, max_testcases: int = 1024,
-						result_dictionary = None, flag = "unopt", time = False):
+						result_dictionary = None, flag = "unopt", time = False, spm_model = None):
 
 	assert flag in ("opt", "unopt"), "only 2 modes, opt and unopt"
 
@@ -288,12 +302,13 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 		assembly = f.read()
 	assembly_hash = hash_file(assembly)
 	assembly_length = len(assembly)
-	if flag == "unopt":
-		result_dictionary["unopt_length"] = assembly_length
-		result_dictionary["unopt_hash"] = assembly_hash
-	elif flag == "opt":
-		result_dictionary["opt_length"] = assembly_length
-		result_dictionary["opt_hash"] = assembly_hash
+	result_dictionary[f"{flag}_length"] = assembly_length
+	result_dictionary[f"{flag}_hash"] = assembly_hash
+
+	if spm_model:
+		asbly = process_raw_assembly(raw_assembly=assembly, preserve_fun_names=True, preserve_semantics=True)
+		tokenized_asbly = merge_registers(spm_model.EncodeAsPieces(asbly.strip()))
+		result_dictionary[f"{flag}_bpe_len"] = len(tokenized_asbly)
 
 	if flag == "unopt":
 		try:
