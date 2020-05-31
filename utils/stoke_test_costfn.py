@@ -65,6 +65,8 @@ class ParseOptions:
 	tc_gen_log: str = field(metadata=dict(args=["-tc_gen_log", "--testcase_gen_log_file"]), default='tc_gen.log')
 	cost_log: str = field(metadata=dict(args=["-cost_log", "--cost_fn_log_file"]), default='cost.log')
 	benchmark_log: str = field(metadata=dict(args=["-benchmark_log", "--cost_benchmark_log_file"]), default='benchmark.log')
+	benchmark_iters: int = field(metadata=dict(args=["-benchmark_iters", "--benchmark_number_tests"]), default=250)
+	max_testcases: int = field(metadata=dict(args=["-max_tc", "--max_testcases"]), default=1024)
 	separator: str = ","
 	n_workers: int = 8
 	time: bool = field(metadata=dict(args=["-time", "--time_subprocesses"]), default = False)
@@ -133,6 +135,7 @@ def parallel_eval_cost(path_list: List[str],
 					   fun_dir_suff: str = "functions",
 					   tc_dir_suff: str = "testcases",
 					   benchmark_iters: int = 250,
+					   max_testcases: int = 1024,
 					   stats_csv: str = "stats.csv",
 					   tc_gen_log: str = "tc_gen.log",
 					   cost_log: str = "cost.log",
@@ -165,6 +168,7 @@ def parallel_eval_cost(path_list: List[str],
 						"unopt_prefix": unopt_prefix,
 						"opt_prefix": opt_prefix,
 						"benchmark_iters": benchmark_iters,
+					    "max_testcases": max_testcases,
 					 	"time": time,
 						"stdout_to_csv": stdout_to_csv,
 					}
@@ -196,6 +200,7 @@ def test_binary_directory(path: str,
 						unopt_prefix: str = "O0",
 						opt_prefix: str = "Og",
 						benchmark_iters: int = 250,
+						max_testcases: int = 1024,
 						time: bool = False,
 						stdout_to_csv: bool = False,
 						):
@@ -219,6 +224,7 @@ def test_binary_directory(path: str,
 																					   tc_dir = tc_dir,
 																					   path_to_unopt_fun = None,
 																					   benchmark_iters = benchmark_iters,
+																					   max_testcases = max_testcases,
 																					   result_dictionary = None,
 																					   flag = "unopt",
 																					   time = time)
@@ -258,7 +264,9 @@ def test_binary_directory(path: str,
 	return csv_rows, tcgen_list, cost_list, benchmark_list
 
 
-def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt_fun: str = None, benchmark_iters: int = 250, result_dictionary = None, flag = "unopt", time = False):
+def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt_fun: str = None,
+						benchmark_iters: int = 250, max_testcases: int = 1024,
+						result_dictionary = None, flag = "unopt", time = False):
 
 	assert flag in ("opt", "unopt"), "only 2 modes, opt and unopt"
 
@@ -295,7 +303,8 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				stop_watch.new_event("tcgen")
 				stop_watch.tcgen.start()
 
-			tc_gen = subprocess.run(['stoke', 'testcase', '--target', path_to_function, "-o", tc_path, '--functions', fun_dir, "--prune"],
+			tc_gen = subprocess.run(['stoke', 'testcase', '--target', path_to_function, "-o", tc_path,
+									 '--functions', fun_dir, "--prune", '--max_testcases', max_testcases],
 							   stdout=subprocess.PIPE,
 							   stderr=subprocess.STDOUT,
 							   text=True,
