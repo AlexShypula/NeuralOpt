@@ -3,6 +3,7 @@ import subprocess
 import sentencepiece as spm
 import re
 import regex
+import datetime
 from tqdm import tqdm
 from os.path import join, splitext, isfile
 from os import listdir
@@ -78,6 +79,7 @@ class ParseOptions:
 	time: bool = field(metadata=dict(args=["-time", "--time_subprocesses"]), default = False)
 	stdout_to_csv: bool = field(metadata=dict(args=["-stdout_to_csv", "--subprocess_out_to_csv"]), default = False)
 	write_asbly: bool = field(metadata=dict(args=["-write_asbly", "--write_asseembly_to_csv"]), default = False)
+	live_dangerously: bool = field(metadata=dict(args=["-live_dangerously", "--live_dangerously"]), default = False)
 
 
 class StopWatch:
@@ -153,8 +155,11 @@ def parallel_eval_cost(path_list: List[str],
 					   time: bool = False,
 					   stdout_to_csv: bool = False,
 					   write_asbly: bool = False,
+					   live_dangerously: bool = False
 					   ):
 
+	stop_watch = StopWatch()
+	stop_watch.start()
 
 	if write_asbly:
 		assert spm_model_path, "in order to collect the assembly, you need to specify a sentpiece model for processing"
@@ -190,7 +195,8 @@ def parallel_eval_cost(path_list: List[str],
 					 	"time": time,
 						"stdout_to_csv": stdout_to_csv,
 					 	"spm_model": sent_piece,
-					 	"write_asbly": write_asbly
+					 	"write_asbly": write_asbly,
+					 	"live_dangerously": live_dangerously
 					}
 	jobs = []
 	for path in path_list:
@@ -210,6 +216,8 @@ def parallel_eval_cost(path_list: List[str],
 	tc_gen_fh.close()
 	cost_fh.close()
 	benchmark_fh.close()
+	stop_watch.stop()
+	print(f"time it took to run the entire program was {datetime.timedelta(seconds = stop_watch.time)}")
 
 def par_test_binary_directory(args_dict):
 	return test_binary_directory(**args_dict)
@@ -225,6 +233,7 @@ def test_binary_directory(path: str,
 						stdout_to_csv: bool = False,
 						spm_model = None,
 						write_asbly: bool = False,
+						live_dangerously: bool = False,
 						):
 
 
@@ -251,7 +260,8 @@ def test_binary_directory(path: str,
 																					   flag = "unopt",
 																					   time = time,
 																					   spm_model = spm_model,
-																					   write_asbly = write_asbly)
+																					   write_asbly = write_asbly,
+																					   live_dangerously = live_dangerously)
 		# add partial results to the log list
 		unopt_fun_path = join(unopt_fun_dir, fun_file)
 		log_prefix = f"Log for function {unopt_fun_path}: "
@@ -276,7 +286,8 @@ def test_binary_directory(path: str,
 																		   flag = "opt",
 																		   time = time,
 																		   spm_model = spm_model,
-																		   write_asbly = write_asbly)
+																		   write_asbly = write_asbly,
+																		   live_dangerously = live_dangerously)
 
 			log_prefix = f"Log for function {join(opt_fun_dir, fun_file)}: "
 			cost_list.append(log_prefix + cost_str)
@@ -293,13 +304,15 @@ def test_binary_directory(path: str,
 def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt_fun: str = None,
 						benchmark_iters: int = 250, max_testcases: int = 1024,
 						result_dictionary = None, flag = "unopt", time = False, spm_model = None,
-						write_asbly: bool = False):
+						write_asbly: bool = False, live_dangerously: bool = False):
 
 	assert flag in ("opt", "unopt"), "only 2 modes, opt and unopt"
 
 	if time:
 		stop_watch = StopWatch()
 		stop_watch.start()
+
+	live_dangerously_str = "--live_dangerously" if live_dangerously else ""
 
 	path_to_function = join(fun_dir, fun_file)
 	function_name = splitext(fun_file)[0]
@@ -334,7 +347,8 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				stop_watch.tcgen.start()
 
 			tc_gen = subprocess.run(['stoke', 'testcase', '--target', path_to_function, "-o", tc_path,
-									 '--functions', fun_dir, "--prune", '--max_testcases', str(max_testcases)],
+									 '--functions', fun_dir, "--prune", '--max_testcases', str(max_testcases)
+									 live_dangerously_str],
 							   stdout=subprocess.PIPE,
 							   stderr=subprocess.STDOUT,
 							   text=True,
@@ -384,7 +398,8 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				stop_watch.cost_test.start()
 
 			cost_test = subprocess.run(
-				['stoke', 'debug', 'cost', '--target', path_to_target, '--rewrite', path_to_function, '--testcases', tc_path, '--functions', fun_dir, "--prune"],
+				['stoke', 'debug', 'cost', '--target', path_to_target, '--rewrite', path_to_function, '--testcases',
+				 tc_path, '--functions', fun_dir, "--prune", live_dangerously_str],
 				stdout=subprocess.PIPE,
 				stderr=subprocess.STDOUT,
 				text=True,
@@ -420,7 +435,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 
 			benchmark_test = subprocess.run(
 				['stoke', 'benchmark', 'cost', '--target', path_to_target, '--rewrite', path_to_function, '--testcases',
-				 tc_path, '--functions', fun_dir, "--prune", '--iterations', str(benchmark_iters)],
+				 tc_path, '--functions', fun_dir, "--prune", '--iterations', str(benchmark_iters), live_dangerously_str],
 				stdout=subprocess.PIPE,
 				stderr=subprocess.STDOUT,
 				text=True,
