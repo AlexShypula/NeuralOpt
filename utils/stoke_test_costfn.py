@@ -347,7 +347,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				stop_watch.tcgen.start()
 
 			tc_gen = subprocess.run(['stoke', 'testcase', '--target', path_to_function, "-o", tc_path,
-									 '--functions', fun_dir, "--prune", '--max_testcases', str(max_testcases)
+									 '--functions', fun_dir, "--prune", '--max_testcases', str(max_testcases),
 									 live_dangerously_str],
 							   stdout=subprocess.PIPE,
 							   stderr=subprocess.STDOUT,
