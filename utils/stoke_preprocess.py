@@ -36,7 +36,6 @@ class ParseOptions:
     full_canonicalization: bool = field(metadata=dict(args=["-full_canon", "--fully_canonicalize_locations"]), default = False)
 
 
-
 def hash_file(file_string: str, encoding: str = "utf-8") -> str:
     m = hashlib.sha512()
     m.update(bytes(file_string, encoding))
@@ -170,8 +169,6 @@ def parallel_pipeline(path_to_bin: str,
     print("Done ! Nice !!")
 
 
-
-
 def merge_all_files(fldr_pth: str, out_src: str, out_tgt: str, n_splits: int, mode: str = "train", count = False):
     global_counter = Counter()
     src = open(join(fldr_pth, out_src), "w")
@@ -193,7 +190,6 @@ def merge_all_files(fldr_pth: str, out_src: str, out_tgt: str, n_splits: int, mo
                 global_counter = global_counter + c
 
     return global_counter
-
 
 # bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_file: str, spm_model_pth: str, threshold = 200, hashes = None):
 
