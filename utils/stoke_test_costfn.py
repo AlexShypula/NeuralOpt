@@ -180,12 +180,15 @@ def parallel_eval_cost(path_list: List[str],
 	cost_fh = open(cost_log, "w")
 	benchmark_fh = open(benchmark_log, "w")
 
+	asbly_hash_set = set()
+
 	sent_piece = None
 	if spm_model_path:
 		sent_piece = spm.SentencePieceProcessor()
 		sent_piece.Load(spm_model_path)
 
 	template_dict = {"path": None,
+						"asbly_hash_set": asbly_hash_set,
 						"fun_dir_suff":  fun_dir_suff,
 						"tc_dir_suff": tc_dir_suff,
 						"unopt_prefix": unopt_prefix,
@@ -223,6 +226,7 @@ def par_test_binary_directory(args_dict):
 	return test_binary_directory(**args_dict)
 
 def test_binary_directory(path: str,
+						asbly_hash_set: List[str],
 						fun_dir_suff: str = "functions",
 						tc_dir_suff: str = "testcases",
 						unopt_prefix: str = "O0",
@@ -250,9 +254,10 @@ def test_binary_directory(path: str,
 	cost_list = []
 	benchmark_list = []
 	for fun_file in src_lst:
-		res_dict, tcgen_str, cost_str, benchmark_str, tc_gen_rc = test_indiv_function(fun_dir = unopt_fun_dir,
+		res_dict, tcgen_str, cost_str, benchmark_str, tc_gen_rc, assembly_hash = test_indiv_function(fun_dir = unopt_fun_dir,
 																					   fun_file = fun_file,
 																					   tc_dir = tc_dir,
+																					   asbly_hash_set = asbly_hash_set,
 																					   path_to_unopt_fun = None,
 																					   benchmark_iters = benchmark_iters,
 																					   max_testcases = max_testcases,
@@ -262,6 +267,7 @@ def test_binary_directory(path: str,
 																					   spm_model = spm_model,
 																					   write_asbly = write_asbly,
 																					   live_dangerously = live_dangerously)
+		asbly_hash_set.add(assembly_hash)
 		# add partial results to the log list
 		unopt_fun_path = join(unopt_fun_dir, fun_file)
 		log_prefix = f"Log for function {unopt_fun_path}: "
@@ -277,9 +283,10 @@ def test_binary_directory(path: str,
 
 		if tc_gen_rc == 0 and fun_file in tgt_lst:
 
-			res_dict, _, cost_str, benchmark_str, _ = test_indiv_function(fun_dir = opt_fun_dir,
+			res_dict, _, cost_str, benchmark_str, _, _ = test_indiv_function(fun_dir = opt_fun_dir,
 																		   fun_file = fun_file,
 																		   tc_dir = tc_dir,
+																		   asbly_hash_set = asbly_hash_set,
 																		   path_to_unopt_fun = unopt_fun_path,
 																		   benchmark_iters = benchmark_iters,
 																		   result_dictionary = res_dict,
@@ -301,8 +308,8 @@ def test_binary_directory(path: str,
 	return csv_rows, tcgen_list, cost_list, benchmark_list
 
 
-def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt_fun: str = None,
-						benchmark_iters: int = 250, max_testcases: int = 1024,
+def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  asbly_hash_set: List[str],
+						path_to_unopt_fun: str = None, benchmark_iters: int = 250, max_testcases: int = 1024,
 						result_dictionary = None, flag = "unopt", time = False, spm_model = None,
 						write_asbly: bool = False, live_dangerously: bool = False):
 
@@ -330,6 +337,9 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 	assembly_length = len(assembly)
 	result_dictionary[f"{flag}_length"] = assembly_length
 	result_dictionary[f"{flag}_hash"] = assembly_hash
+
+	if assembly_hash in asbly_hash_set:
+		return result_dictionary, "duplicate", "duplicate", "duplicate", -42, assembly_hash
 
 	if spm_model:
 		asbly, _, _, _ = process_raw_assembly(raw_assembly=assembly, preserve_fun_names=True, preserve_semantics=True)
@@ -365,7 +375,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 					stop_watch.stop()
 					result_dictionary[f"{flag}_time"] = stop_watch.time
 					result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
-				return result_dictionary, tc_gen.stdout, "", "", tc_gen.returncode
+				return result_dictionary, tc_gen.stdout, "", "", tc_gen.returncode, assembly_hash
 
 		except (subprocess.TimeoutExpired) as err:
 			if time:
@@ -374,7 +384,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
 				result_dictionary["tcgen_time"] = stop_watch.tcgen.time
 
-			return result_dictionary, str(err), "", "", -1
+			return result_dictionary, str(err), "", "", -1, assembly_hash
 
 	tc_stdout = tc_gen.stdout if flag == "unopt" else ""
 
@@ -425,7 +435,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
 				result_dictionary[f"{flag}_unopt_cost_time"] = stop_watch.cost_test.time
 
-			return result_dictionary, tc_stdout, str(err), "", tc_gen.returncode if flag == "unopt" else 0
+			return result_dictionary, tc_stdout, str(err), "", tc_gen.returncode if flag == "unopt" else 0, assembly_hash
 
 		# if cost_test.returncode == 0:
 		try:
@@ -462,14 +472,14 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  path_to_unopt
 				result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
 				result_dictionary[f"{flag}_unopt_benchmark_time"] = stop_watch.benchmark_test.time
 
-			return result_dictionary, tc_stdout, cost_test.stdout, str(err), tc_gen.returncode if flag == "unopt" else 0
+			return result_dictionary, tc_stdout, cost_test.stdout, str(err), tc_gen.returncode if flag == "unopt" else 0, assembly_hash
 
 	if time:
 		stop_watch.stop()
 		result_dictionary[f"{flag}_time"] = stop_watch.time
 		result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
 
-	return result_dictionary, tc_stdout, cost_test.stdout, benchmark_test.stdout, tc_gen.returncode if flag == "unopt" else 0
+	return result_dictionary, tc_stdout, cost_test.stdout, benchmark_test.stdout, tc_gen.returncode if flag == "unopt" else 0, assembly_hash
 
 if __name__ == "__main__":
     parser = ArgumentParser(ParseOptions)
