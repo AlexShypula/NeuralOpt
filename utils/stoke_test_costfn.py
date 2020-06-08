@@ -8,8 +8,8 @@ from tqdm import tqdm
 from os.path import join, splitext, isfile
 from os import listdir
 from multiprocessing.pool import ThreadPool
-from stoke_preprocess import hash_file, mkdir, process_raw_assembly, merge_registers
-from typing import List
+from stoke_preprocess import hash_file, mkdir, process_raw_assembly, merge_registers, stitch_together
+from typing import List, Tuple
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 from time import time, sleep
@@ -21,6 +21,9 @@ RUNTIME_SEARCH_REGEX = regex.compile("(?<=Runtime:\s+)[0-9\.]+")
 THROUGHPUT_SEARCH_REGEX = regex.compile("(?<=Throughput:\s+)[0-9\.]+")
 
 UNSUPPORTED_REGEX = re.compile("(call\w{0,1}|j\w{1,4}) (\%\w+)")
+
+FUNCTION_NAME_REGEX = re.compile("(?<=\.)[\w_]+(?=:)")
+REMOVE_FOOTER_REGEX = re.compile(".size [\w_\s\-\.,]+")
 
 FIELDNAMES = ["path_to_function",
 			  "unopt_length",
@@ -62,6 +65,37 @@ STDOUTFIELDS = ["tcgen_str",
 ASBLYFIELDS = ["unopt_assembly",
 				 "opt_assembly"]
 
+BPETESTFIELDS = ["header_footer",
+"orig_assembly",
+"unopt_tunit_rc",
+"unopt_bpe_tunit_stdout",
+"unopt_tunit_assembly"
+"opt_tunit_rc",
+"opt_bpe_tunit_stdout",
+"opt_tunit_assembly",
+"unopt_orig_unopt_bpe_cost_rc",
+"unopt_orig_unopt_bpe_cost_stdout",
+"unopt_orig_unopt_bpe_cost",
+"unopt_orig_unopt_bpe_correctness",
+"opt_orig_unopt_bpe_cost_rc",
+"opt_orig_unopt_bpe_cost_stdout",
+"opt_orig_unopt_bpe_cost",
+"opt_orig_unopt_bpe_correctness"
+]
+
+TUNITORIGFIELDS = ["orig_tunit_rc",
+"orig_tunit_stdout",
+"orig_tunit_assembly",
+"unopt_tunit_unopt_bpe_cost_rc",
+"unopt_tunit_unopt_bpe_cost_stdout",
+"unopt_tunit_unopt_bpe_cost",
+"unopt_tunit_unopt_bpe_correctness",
+"opt_tunit_unopt_bpe_cost_rc",
+"opt_tunit_unopt_bpe_cost_stdout",
+"opt_tunit_unopt_bpe_cost",
+"opt_tunit_unopt_bpe_correctness"
+]
+
 @dataclass
 class ParseOptions:
 	path_list: str = field(metadata=dict(args=["-path_list", "--list_of_decompiled_binaries"]))
@@ -84,6 +118,8 @@ class ParseOptions:
 	write_asbly: bool = field(metadata=dict(args=["-write_asbly", "--write_asseembly_to_csv"]), default = False)
 	live_dangerously: bool = field(metadata=dict(args=["-live_dangerously", "--live_dangerously"]), default = False)
 	filter_unsupported: bool = field(metadata=dict(args=["-filter_unsupported", "--filter_unsupported"]), default=False)
+	test_bpe: bool = field(metadata=dict(args=["-test_bpe"]), default=False)
+	tunit_on_orig: bool = field(metadata=dict(args=["-orig_tunit", "--tunit_on_orig"]), default=False)
 
 
 class StopWatch:
@@ -162,6 +198,8 @@ def parallel_eval_cost(path_list: List[str],
 					   write_asbly: bool = False,
 					   live_dangerously: bool = False,
 					   filter_unsupported: bool = False,
+					   test_bpe: bool = False,
+					   tunit_on_orig: bool = False
 					   ):
 
 	stop_watch = StopWatch()
@@ -177,6 +215,10 @@ def parallel_eval_cost(path_list: List[str],
 		field_names.extend(STDOUTFIELDS)
 	if write_asbly:
 		field_names.extend(ASBLYFIELDS)
+	if test_bpe:
+		field_names.extend(BPETESTFIELDS)
+	if tunit_on_orig:
+		field_names.extend(TUNITORIGFIELDS)
 	dict_writer = csv.DictWriter(stats_csv_fh,
 								 fieldnames=field_names,
 								 delimiter=separator,
@@ -207,7 +249,9 @@ def parallel_eval_cost(path_list: List[str],
 					 	"spm_model": sent_piece,
 					 	"write_asbly": write_asbly,
 					 	"live_dangerously": live_dangerously,
-					 	"filter_unsupported": filter_unsupported
+					 	"filter_unsupported": filter_unsupported,
+					 	"test_bpe": test_bpe,
+					 	"tunit_on_orig": tunit_on_orig
 					}
 	jobs = []
 	for path in path_list:
@@ -247,7 +291,9 @@ def test_binary_directory(path: str,
 						spm_model = None,
 						write_asbly: bool = False,
 						live_dangerously: bool = False,
-						filter_unsupported: bool = False
+						filter_unsupported: bool = False,
+					    test_bpe: bool = False,
+					    tunit_on_orig: bool = False
 						):
 
 
@@ -313,6 +359,16 @@ def test_binary_directory(path: str,
 			log_prefix = f"Log for function {join(opt_fun_dir, fun_file)}: "
 			cost_list.append(log_prefix + cost_str)
 			benchmark_list.append(log_prefix + benchmark_str)
+
+			if test_bpe:
+				res_dict = test_bpe(fun_file = fun_file,
+									 unopt_fun_dir = unopt_fun_dir,
+									 opt_fun_dir = opt_fun_dir,
+									 tc_dir = tc_dir,
+									 result_dict = res_dict,
+									 live_dangerously = live_dangerously,
+									 tunit_orig = tunit_on_orig)
+
 			if stdout_to_csv:
 				res_dict["opt_cost_str"] = cost_str
 				res_dict["opt_benchmark_str"] = benchmark_str
@@ -511,6 +567,173 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  asbly_hash_se
 		result_dictionary[f"{flag}_overhead"] = stop_watch.overhead
 
 	return result_dictionary, tc_stdout, cost_test.stdout, benchmark_test.stdout, tc_gen.returncode if flag == "unopt" else 0, assembly_hash
+
+
+def test_bpe(fun_file: str, unopt_fun_dir: str, opt_fun_dir: str, tc_dir: str, result_dict, live_dangerously: bool = False, tunit_orig = False):
+	orig_unopt_file = join(unopt_fun_dir, fun_file)
+
+	unopt_bpe_dir = join(unopt_fun_dir, "bpe_tunit")
+	opt_bpe_dir = join(opt_fun_dir, "bpe_tunit")
+	mkdir(unopt_bpe_dir)
+	mkdir(opt_bpe_dir)
+
+	file_base = splitext(fun_file)[0]
+	raw_file = file_base + ".raw"
+	tunit_file = file_base + ".tunit"
+
+	testcases_f = join(tc_dir, file_base + ".tc")
+
+	raw_unopt_f = join(unopt_bpe_dir, raw_file)
+	raw_opt_f = join(opt_bpe_dir, raw_file)
+	unopt_tunit_f = join(unopt_bpe_dir, tunit_file)
+	opt_tunit_f = join(opt_bpe_dir, tunit_file)
+
+	unopt_string, header_footer = bpe2formatted(result_dict["unopt_assembly"])
+	opt_string, _ = bpe2formatted(result_dict["opt_assembly"], header_footer)
+	result_dict["header_footer"] = header_footer
+	with open(raw_unopt_f, "w") as raw_unopt_fh, open(raw_opt_f, "w") as raw_opt_fh:
+		raw_unopt_fh.write(unopt_string)
+		raw_opt_fh.write(opt_string)
+
+	unopt_tunit_rc, unopt_tunit_stdout = make_tunit_file(raw_unopt_f, unopt_tunit_f, unopt_fun_dir, live_dangerously)
+	result_dict["unopt_tunit_rc"] = unopt_tunit_rc
+	result_dict["unopt_bpe_tunit_stdout"] = unopt_tunit_stdout
+	if unopt_tunit_rc != 0 :
+		result_dict["unopt_tunit_assembly"] = unopt_string
+		return result_dict
+
+	opt_tunit_rc, opt_tunit_stdout = make_tunit_file(raw_opt_f, opt_tunit_f, unopt_fun_dir, live_dangerously)
+	result_dict["opt_tunit_rc"] = opt_tunit_rc
+	result_dict["opt_bpe_tunit_stdout"] = opt_tunit_stdout
+	if opt_tunit_rc != 0 :
+		result_dict["opt_tunit_assembly"] = opt_string
+		return result_dict
+
+	unopt_cost_rc, unopt_cost_stdout, unopt_cost, unopt_correct = test_costfn(target_= orig_unopt_file,
+																			  rewrite_f = unopt_tunit_f,
+																			  testcases_f = testcases_f,
+																			  fun_dir = unopt_fun_dir,
+																			  live_dangerously = live_dangerously)
+
+	opt_cost_rc, opt_cost_stdout, opt_cost, opt_correct = test_costfn(target_=orig_unopt_file,
+																			  rewrite_f=opt_tunit_f,
+																			  testcases_f=testcases_f,
+																			  fun_dir=unopt_fun_dir,
+																			  live_dangerously=live_dangerously)
+
+
+	with open(orig_unopt_file) as orig_fh, \
+		open(unopt_tunit_f) as unopt_tunit_fh, \
+		open(opt_tunit_f) as opt_tunit_fh:
+
+		result_dict["orig_assembly"] = orig_fh.read()
+		result_dict["unopt_tunit_assembly"] = unopt_tunit_fh.read()
+		result_dict["opt_tunit_assembly"] = opt_tunit_fh.read()
+
+	result_dict["unopt_orig_unopt_bpe_cost_rc"] = unopt_cost_rc
+	result_dict["unopt_orig_unopt_bpe_cost_stdout"] = unopt_cost_stdout
+	result_dict["unopt_orig_unopt_bpe_cost"] = unopt_cost
+	result_dict["unopt_orig_unopt_bpe_correctness"] = unopt_correct
+
+	result_dict["opt_orig_unopt_bpe_cost_rc"] = opt_cost_rc
+	result_dict["opt_orig_unopt_bpe_cost_stdout"] = opt_cost_stdout
+	result_dict["opt_orig_unopt_bpe_cost"] = opt_cost
+	result_dict["opt_orig_unopt_bpe_correctness"] = opt_correct
+
+	if tunit_orig:
+		unopt_tunit_dir = join(unopt_fun_dir, "orig_tunit")
+		mkdir(unopt_tunit_dir)
+		orig_tunit_f = join(unopt_tunit_dir, fun_file + ".tunit")
+		orig_tunit_rc, orig_tunit_stdout = make_tunit_file(orig_unopt_file, orig_tunit_f, unopt_fun_dir,live_dangerously)
+
+		result_dict["orig_tunit_rc"] = orig_tunit_rc
+		result_dict["orig_tunit_stdout"] = orig_tunit_stdout
+		if orig_tunit_rc != 0:
+			return result_dict
+
+		unopt_tunit_cost_rc, unopt_tunit_cost_stdout, unopt_tunit_cost, unopt_tunit_correct = test_costfn(
+			target_=orig_tunit_f,
+			rewrite_f=unopt_tunit_f,
+			testcases_f=testcases_f,
+			fun_dir=unopt_fun_dir,
+			live_dangerously=live_dangerously)
+
+		opt_tunit_cost_rc, opt_tunit_cost_stdout, opt_tunit_cost, opt_tunit_correct = test_costfn(
+			target_=orig_tunit_f,
+			rewrite_f=opt_tunit_f,
+			testcases_f=testcases_f,
+			fun_dir=unopt_fun_dir,
+			live_dangerously=live_dangerously)
+
+		with open(orig_tunit_f) as orig_tunit_fh:
+			result_dict["orig_tunit_assembly"] = orig_tunit_fh.read()
+
+		result_dict["unopt_tunit_unopt_bpe_cost_rc"] = unopt_tunit_cost_rc
+		result_dict["unopt_tunit_unopt_bpe_cost_stdout"] = unopt_tunit_cost_stdout
+		result_dict["unopt_tunit_unopt_bpe_cost"] = unopt_tunit_cost
+		result_dict["unopt_tunit_unopt_bpe_correctness"] = unopt_tunit_correct
+
+		result_dict["opt_tunit_unopt_bpe_cost_rc"] = opt_tunit_cost_rc
+		result_dict["opt_tunit_unopt_bpe_cost_stdout"] = opt_tunit_cost_stdout
+		result_dict["opt_tunit_unopt_bpe_cost"] = opt_tunit_cost
+		result_dict["opt_tunit_unopt_bpe_correctness"] = opt_tunit_correct
+
+	return result_dict
+
+
+def create_header_footer(assembly_string: str):
+	FUNCTION_NAME_REGEX.search(assembly_string).group()
+	function_name = re.search("(?<=\.)[\w_]+(?=:)", assembly_string).group()
+	header = f'''  .text\n  .global {function_name}\n  .type {function_name}, @function\n\n'''
+	footer = f".size {function_name}, .-{function_name}"
+	return header, footer
+
+
+def bpe2formatted(assembly_string: str, header_footer : Tuple[str, str] = None, remove_footer: bool = False):
+	# header is the zeroth indexed value in header_footer, and footer should be the fist indexed value
+	un_bpe_string = stitch_together(assembly_string)
+	if remove_footer:
+		un_bpe_string = REMOVE_FOOTER_REGEX.sub("", un_bpe_string)
+	if not header_footer:
+		header_footer = create_header_footer(assembly_string)
+	return header_footer[0] + un_bpe_string + header_footer[1], header_footer
+
+def make_tunit_file(in_f: str, out_f: str, fun_dir: str, live_dangerously: bool = False):
+	live_dangerously_str = "--live_dangerously" if live_dangerously else ""
+	try:
+		tunit_proc = subprocess.run(
+			['stoke', 'debug', 'tunit', '--target', in_f,'--functions', fun_dir, "--prune", live_dangerously_str > out_f],
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			text=True,
+			timeout=300)
+
+	except subprocess.TimeoutExpired as err:
+		return -11747, err
+
+	return tunit_proc.returncode, tunit_proc.stdout
+
+def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str, live_dangerously: bool = False):
+	live_dangerously_str = "--live_dangerously" if live_dangerously else ""
+	try:
+		cost_test = subprocess.run(
+			['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
+			 testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str],
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			text=True,
+			timeout=300)
+		if cost_test.returncode == 0:
+			cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
+			correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
+		else:
+			cost = -10701
+			correct = "failed"
+		return cost_test.returncode, cost_test.stdout, cost, correct
+
+	except subprocess.TimeoutExpired as err:
+		return -11785, err, -11785, "timeout"
+
 
 if __name__ == "__main__":
     parser = ArgumentParser(ParseOptions)
