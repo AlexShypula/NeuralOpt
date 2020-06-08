@@ -13,4 +13,6 @@ python3 NeuralOpt/utils/stoke_test_costfn.py \
   -write_asbly \
   -benchmark_iters 250 \
   -max_tc 1024 \
-  -spm_model_path 4_30_processed/bpe/bpe_1000.model
+  -spm_model_path 4_30_processed/bpe/bpe_1000.model \
+  -max_len 100 \
+  -filter_unsupported

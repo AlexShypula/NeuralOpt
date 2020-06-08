@@ -20,6 +20,8 @@ CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
 RUNTIME_SEARCH_REGEX = regex.compile("(?<=Runtime:\s+)[0-9\.]+")
 THROUGHPUT_SEARCH_REGEX = regex.compile("(?<=Throughput:\s+)[0-9\.]+")
 
+UNSUPPORTED_REGEX = re.compile("(call\w{0,1}|j\w{1,4}) (\%\w+)")
+
 FIELDNAMES = ["path_to_function",
 			  "unopt_length",
 			  "unopt_bpe_len",
@@ -73,6 +75,7 @@ class ParseOptions:
 	benchmark_log: str = field(metadata=dict(args=["-benchmark_log", "--cost_benchmark_log_file"]), default='benchmark.log')
 	benchmark_iters: int = field(metadata=dict(args=["-benchmark_iters", "--benchmark_number_tests"]), default=250)
 	max_testcases: int = field(metadata=dict(args=["-max_tc", "--max_testcases"]), default=1024)
+	max_seq_len: int = field(metadata=dict(args=["-max_len", "--max_seq_len"]), default=None)
 	spm_model_path: str = field(metadata=dict(args=["-spm_model_path", "--sent_piece_model_path"]), default=None)
 	separator: str = ","
 	n_workers: int = 8
@@ -80,6 +83,7 @@ class ParseOptions:
 	stdout_to_csv: bool = field(metadata=dict(args=["-stdout_to_csv", "--subprocess_out_to_csv"]), default = False)
 	write_asbly: bool = field(metadata=dict(args=["-write_asbly", "--write_asseembly_to_csv"]), default = False)
 	live_dangerously: bool = field(metadata=dict(args=["-live_dangerously", "--live_dangerously"]), default = False)
+	filter_unsupported: bool = field(metadata=dict(args=["-filter_unsupported", "--filter_unsupported"]), default=False)
 
 
 class StopWatch:
@@ -145,6 +149,7 @@ def parallel_eval_cost(path_list: List[str],
 					   tc_dir_suff: str = "testcases",
 					   benchmark_iters: int = 250,
 					   max_testcases: int = 1024,
+					   max_seq_len: int = None,
 					   stats_csv: str = "stats.csv",
 					   tc_gen_log: str = "tc_gen.log",
 					   cost_log: str = "cost.log",
@@ -155,7 +160,8 @@ def parallel_eval_cost(path_list: List[str],
 					   time: bool = False,
 					   stdout_to_csv: bool = False,
 					   write_asbly: bool = False,
-					   live_dangerously: bool = False
+					   live_dangerously: bool = False,
+					   filter_unsupported: bool = False,
 					   ):
 
 	stop_watch = StopWatch()
@@ -195,11 +201,13 @@ def parallel_eval_cost(path_list: List[str],
 						"opt_prefix": opt_prefix,
 						"benchmark_iters": benchmark_iters,
 					    "max_testcases": max_testcases,
+					 	"max_seq_len": max_seq_len,
 					 	"time": time,
 						"stdout_to_csv": stdout_to_csv,
 					 	"spm_model": sent_piece,
 					 	"write_asbly": write_asbly,
-					 	"live_dangerously": live_dangerously
+					 	"live_dangerously": live_dangerously,
+					 	"filter_unsupported": filter_unsupported
 					}
 	jobs = []
 	for path in path_list:
@@ -233,11 +241,13 @@ def test_binary_directory(path: str,
 						opt_prefix: str = "Og",
 						benchmark_iters: int = 250,
 						max_testcases: int = 1024,
+						max_seq_len: int = None,
 						time: bool = False,
 						stdout_to_csv: bool = False,
 						spm_model = None,
 						write_asbly: bool = False,
 						live_dangerously: bool = False,
+						filter_unsupported: bool = False
 						):
 
 
@@ -261,12 +271,14 @@ def test_binary_directory(path: str,
 																					   path_to_unopt_fun = None,
 																					   benchmark_iters = benchmark_iters,
 																					   max_testcases = max_testcases,
+																					   max_seq_len = max_seq_len,
 																					   result_dictionary = None,
 																					   flag = "unopt",
 																					   time = time,
 																					   spm_model = spm_model,
 																					   write_asbly = write_asbly,
-																					   live_dangerously = live_dangerously)
+																					   live_dangerously = live_dangerously,
+																					   filter_unsupported = filter_unsupported)
 		asbly_hash_set.add(assembly_hash)
 		# add partial results to the log list
 		unopt_fun_path = join(unopt_fun_dir, fun_file)
@@ -289,12 +301,14 @@ def test_binary_directory(path: str,
 																		   asbly_hash_set = asbly_hash_set,
 																		   path_to_unopt_fun = unopt_fun_path,
 																		   benchmark_iters = benchmark_iters,
+																		   max_seq_len = max_seq_len,
 																		   result_dictionary = res_dict,
 																		   flag = "opt",
 																		   time = time,
 																		   spm_model = spm_model,
 																		   write_asbly = write_asbly,
-																		   live_dangerously = live_dangerously)
+																		   live_dangerously = live_dangerously,
+																		   filter_unsupported = filter_unsupported)
 
 			log_prefix = f"Log for function {join(opt_fun_dir, fun_file)}: "
 			cost_list.append(log_prefix + cost_str)
@@ -310,10 +324,13 @@ def test_binary_directory(path: str,
 
 def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  asbly_hash_set: List[str],
 						path_to_unopt_fun: str = None, benchmark_iters: int = 250, max_testcases: int = 1024,
-						result_dictionary = None, flag = "unopt", time = False, spm_model = None,
-						write_asbly: bool = False, live_dangerously: bool = False):
+						max_seq_len: int = None, result_dictionary = None, flag = "unopt", time = False,
+						spm_model = None, write_asbly: bool = False, live_dangerously: bool = False,
+						filter_unsupported: bool = False):
 
 	assert flag in ("opt", "unopt"), "only 2 modes, opt and unopt"
+	if max_seq_len:
+		assert spm_model, "if using maximum sequence length, we need a sent-piece model to tokenize"
 
 	if time:
 		stop_watch = StopWatch()
@@ -333,20 +350,34 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  asbly_hash_se
 
 	with open(path_to_function) as f:
 		assembly = f.read()
-	assembly_hash = hash_file(assembly)
 	assembly_length = len(assembly)
 	result_dictionary[f"{flag}_length"] = assembly_length
-	result_dictionary[f"{flag}_hash"] = assembly_hash
 
-	if assembly_hash in asbly_hash_set:
-		return result_dictionary, "duplicate", "duplicate", "duplicate", -42, assembly_hash
 
 	if spm_model:
 		asbly, _, _, _ = process_raw_assembly(raw_assembly=assembly, preserve_fun_names=True, preserve_semantics=True)
 		tokenized_asbly = merge_registers(spm_model.EncodeAsPieces(asbly.strip()))
 		result_dictionary[f"{flag}_bpe_len"] = len(tokenized_asbly)
+		tokenized_asbly_string = " ".join(tokenized_asbly)
+		assembly_hash = hash_file(tokenized_asbly_string)
+		result_dictionary[f"{flag}_hash"] = assembly_hash
 		if write_asbly:
 			result_dictionary[f"{flag}_assembly"] = " ".join(tokenized_asbly)
+		if max_seq_len:
+			if len(tokenized_asbly) > max_seq_len:
+				return result_dictionary, "exceeds max seq len", "exceeds max seq len", "exceeds max seq len", -15213, assembly_hash
+	else:
+		assembly_hash = hash_file(assembly)
+		result_dictionary[f"{flag}_hash"] = assembly_hash
+
+	if assembly_hash in asbly_hash_set:
+		return result_dictionary, "duplicate", "duplicate", "duplicate", -42, assembly_hash
+
+	if filter_unsupported:
+		match = UNSUPPORTED_REGEX.search(assembly)
+		if match:
+			return result_dictionary, f"unsupported operation: {match.group()}", f"unsupported operation: {match.group()}", \
+			f"unsupported operation: {match.group()}", -15213, assembly_hash
 
 	if flag == "unopt":
 		try:
