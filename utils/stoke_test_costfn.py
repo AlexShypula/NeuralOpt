@@ -361,7 +361,7 @@ def test_binary_directory(path: str,
 			benchmark_list.append(log_prefix + benchmark_str)
 
 			if test_bpe:
-				res_dict = test_bpe(fun_file = fun_file,
+				res_dict = test_bpe_cost(fun_file = fun_file,
 									 unopt_fun_dir = unopt_fun_dir,
 									 opt_fun_dir = opt_fun_dir,
 									 tc_dir = tc_dir,
@@ -569,7 +569,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  asbly_hash_se
 	return result_dictionary, tc_stdout, cost_test.stdout, benchmark_test.stdout, tc_gen.returncode if flag == "unopt" else 0, assembly_hash
 
 
-def test_bpe(fun_file: str, unopt_fun_dir: str, opt_fun_dir: str, tc_dir: str, result_dict, live_dangerously: bool = False, tunit_orig = False):
+def test_bpe_cost(fun_file: str, unopt_fun_dir: str, opt_fun_dir: str, tc_dir: str, result_dict, live_dangerously: bool = False, tunit_orig: bool  = False):
 	orig_unopt_file = join(unopt_fun_dir, fun_file)
 
 	unopt_bpe_dir = join(unopt_fun_dir, "bpe_tunit")
