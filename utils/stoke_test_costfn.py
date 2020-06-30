@@ -69,7 +69,7 @@ BPETESTFIELDS = ["header_footer",
 "orig_assembly",
 "unopt_tunit_rc",
 "unopt_bpe_tunit_stdout",
-"unopt_tunit_assembly"
+"unopt_tunit_assembly", 
 "opt_tunit_rc",
 "opt_bpe_tunit_stdout",
 "opt_tunit_assembly",
@@ -219,6 +219,7 @@ def parallel_eval_cost(path_list: List[str],
 		field_names.extend(BPETESTFIELDS)
 	if tunit_on_orig:
 		field_names.extend(TUNITORIGFIELDS)
+	print(field_names)
 	dict_writer = csv.DictWriter(stats_csv_fh,
 								 fieldnames=field_names,
 								 delimiter=separator,
@@ -449,7 +450,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  asbly_hash_se
 							   stdout=subprocess.PIPE,
 							   stderr=subprocess.STDOUT,
 							   text=True,
-							   timeout=300)
+							   timeout=25)
 
 			result_dictionary["unopt_tcgen_returncode"] = tc_gen.returncode
 
@@ -500,7 +501,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  asbly_hash_se
 				stdout=subprocess.PIPE,
 				stderr=subprocess.STDOUT,
 				text=True,
-				timeout=300)
+				timeout=25)
 
 			if time:
 				stop_watch.cost_test._stop_timing()
@@ -536,7 +537,7 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  asbly_hash_se
 				stdout=subprocess.PIPE,
 				stderr=subprocess.STDOUT,
 				text=True,
-				timeout=300
+				timeout=25
 			)
 
 			if time:
@@ -588,8 +589,8 @@ def test_bpe_cost(fun_file: str, unopt_fun_dir: str, opt_fun_dir: str, tc_dir: s
 	unopt_tunit_f = join(unopt_bpe_dir, tunit_file)
 	opt_tunit_f = join(opt_bpe_dir, tunit_file)
 
-	unopt_string, header_footer = bpe2formatted(result_dict["unopt_assembly"])
-	opt_string, _ = bpe2formatted(result_dict["opt_assembly"], header_footer)
+	unopt_string, header_footer = bpe2formatted(result_dict["unopt_assembly"], remove_footer = True)
+	opt_string, _ = bpe2formatted(result_dict["opt_assembly"], header_footer, remove_footer = True)
 	result_dict["header_footer"] = header_footer
 	with open(raw_unopt_f, "w") as raw_unopt_fh, open(raw_opt_f, "w") as raw_opt_fh:
 		raw_unopt_fh.write(unopt_string)
@@ -609,13 +610,13 @@ def test_bpe_cost(fun_file: str, unopt_fun_dir: str, opt_fun_dir: str, tc_dir: s
 		result_dict["opt_tunit_assembly"] = opt_string
 		return result_dict
 
-	unopt_cost_rc, unopt_cost_stdout, unopt_cost, unopt_correct = test_costfn(target_= orig_unopt_file,
+	unopt_cost_rc, unopt_cost_stdout, unopt_cost, unopt_correct = test_costfn(target_f= orig_unopt_file,
 																			  rewrite_f = unopt_tunit_f,
 																			  testcases_f = testcases_f,
 																			  fun_dir = unopt_fun_dir,
 																			  live_dangerously = live_dangerously)
 
-	opt_cost_rc, opt_cost_stdout, opt_cost, opt_correct = test_costfn(target_=orig_unopt_file,
+	opt_cost_rc, opt_cost_stdout, opt_cost, opt_correct = test_costfn(target_f=orig_unopt_file,
 																			  rewrite_f=opt_tunit_f,
 																			  testcases_f=testcases_f,
 																			  fun_dir=unopt_fun_dir,
@@ -652,14 +653,14 @@ def test_bpe_cost(fun_file: str, unopt_fun_dir: str, opt_fun_dir: str, tc_dir: s
 			return result_dict
 
 		unopt_tunit_cost_rc, unopt_tunit_cost_stdout, unopt_tunit_cost, unopt_tunit_correct = test_costfn(
-			target_=orig_tunit_f,
+			target_f=orig_tunit_f,
 			rewrite_f=unopt_tunit_f,
 			testcases_f=testcases_f,
 			fun_dir=unopt_fun_dir,
 			live_dangerously=live_dangerously)
 
 		opt_tunit_cost_rc, opt_tunit_cost_stdout, opt_tunit_cost, opt_tunit_correct = test_costfn(
-			target_=orig_tunit_f,
+			target_f=orig_tunit_f,
 			rewrite_f=opt_tunit_f,
 			testcases_f=testcases_f,
 			fun_dir=unopt_fun_dir,
@@ -682,11 +683,14 @@ def test_bpe_cost(fun_file: str, unopt_fun_dir: str, opt_fun_dir: str, tc_dir: s
 
 
 def create_header_footer(assembly_string: str):
-	FUNCTION_NAME_REGEX.search(assembly_string).group()
-	function_name = re.search("(?<=\.)[\w_]+(?=:)", assembly_string).group()
-	header = f'''  .text\n  .global {function_name}\n  .type {function_name}, @function\n\n'''
-	footer = f".size {function_name}, .-{function_name}"
-	return header, footer
+    match = FUNCTION_NAME_REGEX.search(assembly_string)
+    if match == None: 
+        print(assembly_string)
+    else: 
+        function_name = match.group()
+    header = f'''  .text\n  .global {function_name}\n  .type {function_name}, @function\n\n'''
+    footer = f".size {function_name}, .-{function_name}"
+    return header, footer
 
 
 def bpe2formatted(assembly_string: str, header_footer : Tuple[str, str] = None, remove_footer: bool = False):
@@ -695,18 +699,19 @@ def bpe2formatted(assembly_string: str, header_footer : Tuple[str, str] = None, 
 	if remove_footer:
 		un_bpe_string = REMOVE_FOOTER_REGEX.sub("", un_bpe_string)
 	if not header_footer:
-		header_footer = create_header_footer(assembly_string)
+		header_footer = create_header_footer(un_bpe_string)
 	return header_footer[0] + un_bpe_string + header_footer[1], header_footer
 
 def make_tunit_file(in_f: str, out_f: str, fun_dir: str, live_dangerously: bool = False):
 	live_dangerously_str = "--live_dangerously" if live_dangerously else ""
 	try:
-		tunit_proc = subprocess.run(
-			['stoke', 'debug', 'tunit', '--target', in_f,'--functions', fun_dir, "--prune", live_dangerously_str > out_f],
-			stdout=subprocess.PIPE,
-			stderr=subprocess.STDOUT,
-			text=True,
-			timeout=300)
+		with open(out_f, "w") as f: 
+			tunit_proc = subprocess.run(
+				['stoke', 'debug', 'tunit', '--target', in_f,'--functions', fun_dir, "--prune", live_dangerously_str],
+				stdout=f,
+				stderr=subprocess.PIPE,
+				text=True,
+				timeout=25)
 
 	except subprocess.TimeoutExpired as err:
 		return -11747, err
@@ -722,7 +727,7 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str, l
 			stdout=subprocess.PIPE,
 			stderr=subprocess.STDOUT,
 			text=True,
-			timeout=300)
+			timeout=25)
 		if cost_test.returncode == 0:
 			cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
 			correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
