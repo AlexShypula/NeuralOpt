@@ -15,6 +15,7 @@ import sentencepiece as spm
 class ParseOptions:
     path_to_c_prog_list: str = field(metadata=dict(args=["-c_progs", "--path_to_c_prog_list"]))
     path_to_asbly_prefix_list: str = field(metadata=dict(args=["-asbly_names", "--path_to_asbly_prefix_list"]))
+    spm_model_path: str = field(metadata=dict(args=["-spm_path", "--sent_piece_model_path"]))
     destination_dir: str = field(metadata=dict(args=["-out_dir", "--out_directory"], default="processed_data"))
 
 
@@ -41,7 +42,7 @@ def merge_registers(a):
     return res
 
 
-def pre_process(c_progs: List[str], asbly_prefixes: List[str],
+def pre_process(c_progs: List[str], asbly_prefixes: List[str], spm_model_path: str,
                 destination_dir: str = "processed_data",
                 csv_out: str = "cost_stats.csv",
                 compilation_flags: List[str] = ["O0", "Og", "O2", "O3"]):
@@ -65,6 +66,8 @@ def pre_process(c_progs: List[str], asbly_prefixes: List[str],
         dict_writer.writerow(cost_dict)
 
     stats_csv_fh.close()
+
+    make_data(c_prog_list, asbly_prefixes, spm_model_path)
 
 
 def make_data(c_progs: List[str],
@@ -153,7 +156,7 @@ def process_program(file_path: str,
                                          text=True,
                                          timeout=300
                                      )
-        if compilation.returncode != 0 or fxn_compile != 0:
+        if compilation.returncode != 0 or fxn_compile.returncode != 0:
             print(f"compilation on {file_path} at {compilation_flag} flag failed: {compilation.stdout}")
             continue
         else:
@@ -220,4 +223,4 @@ if __name__ == "__main__":
     with open(args.path_to_asbly_prefix_list) as f:
         asbly_name_list = f.readlines()
         asbly_name_list = [asbly_name.strip() for asbly_name in asbly_name_list] 
-    pre_process(c_prog_list, asbly_name_list, args.destination_dir)
+    pre_process(c_prog_list, asbly_name_list, args.destination_dir, args.spm_model_path)
