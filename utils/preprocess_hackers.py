@@ -2,6 +2,7 @@ import subprocess
 import csv
 import re
 import os
+import json
 import sentencepiece as spm
 from typing import List, Dict
 from os import makedirs
@@ -107,6 +108,7 @@ def merge_registers(a):
 def pre_process(c_progs: List[str], asbly_prefixes: List[str], spm_model_path: str,
                 destination_dir: str = "processed_data",
                 csv_out: str = "cost_stats.csv",
+                train_data_out = "train_data.json",
                 compilation_flags: List[str] = ["O0", "Og", "O2", "O3"]):
 
     stats_csv_fh = open(join(destination_dir, csv_out), "w")
@@ -120,17 +122,23 @@ def pre_process(c_progs: List[str], asbly_prefixes: List[str], spm_model_path: s
                                  delimiter=",",
                                  quoting=csv.QUOTE_ALL)
     dict_writer.writeheader()
+    train_dict = dict()
     for i, (c_prog_pth, asbly_prefix) in enumerate(zip(c_progs, asbly_prefixes)):
-        cost_dict = process_program(file_path=c_prog_pth,
+        cost_dict, train_dict_update = process_program(file_path=c_prog_pth,
                         assembly_file_name = asbly_prefix,
                         problem_no = i,
                         destination_dir=destination_dir,
                         compilation_flags = compilation_flags)
         dict_writer.writerow(cost_dict)
+        train_dict.update(train_dict_update)
 
     stats_csv_fh.close()
 
-    make_data(c_prog_list, asbly_prefixes, spm_model_path, destination_dir)
+    src2hash = make_data(c_prog_list, asbly_prefixes, spm_model_path, destination_dir)
+
+    hash_train_dict = {src2hash[src]: train_dict[src] for src in src2hash.keys()}
+    with open(join(destination_dir, train_data_out)) as fh:
+        json.dump(hash_train_dict, fh)
 
 
 def make_data(c_progs: List[str],
@@ -153,6 +161,7 @@ def make_data(c_progs: List[str],
     sent_piece = spm.SentencePieceProcessor()
     sent_piece.Load(spm_model_path)
 
+    src2hash = dict()
     for i, (c_prog_pth, asbly_prefix) in enumerate(zip(c_progs, asbly_prefixes)):
         program_directory = join(destination_dir, os.path.basename(os.path.dirname(c_prog_pth)))
         for compilation_flag in (src_flag, tgt_flag):
@@ -165,6 +174,8 @@ def make_data(c_progs: List[str],
                 asbly_str = " ".join(tokenized_asbly)
 
             if compilation_flag == "O0":
+                src2hash[asbly_path] = hash_file(asbly_str)
+
                 if i < 15:
                     train_src.write(asbly_str+'\n')
                 elif i < 20:
@@ -184,6 +195,8 @@ def make_data(c_progs: List[str],
     val_src.close()
     val_tgt.close()
     test_src.close()
+
+    return src2hash
 
 
 def process_program(file_path: str,
@@ -275,7 +288,13 @@ def process_program(file_path: str,
                     cost_dict[f"{compilation_flag}-O0_cost"] = float(cost)
                     cost_dict[f"{compilation_flag}-O0_correct"] = True if correct == "yes" else False
 
-    return cost_dict
+    train_dict = {base_asbly_path: {"base_asbly_path": base_asbly_path,
+                                    "testcase_path": tc_path,
+                                    "O0_cost": cost_dict["O0-O0_cost"],
+                                    "Og_cost": cost_dict["Og-O0_cost"],
+                                    "cost_conf": cost_conf_dict}}
+
+    return cost_dict, train_dict
 
 
 if __name__ == "__main__":
