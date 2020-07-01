@@ -14,15 +14,15 @@ from stoke_test_costfn import COST_SEARCH_REGEX, CORRECT_SEARCH_REGEX
 
 DEF_IN_REGEX = re.compile('(?<=--def_in\s)"[^\n#]+')
 LIVE_OUT_REGEX = re.compile('(?<=--live_out\s)"[^\n#]+')
-DISTANCE_REGEX = re.compile('(?<=--distance\s)[^\n#]')
-MISALIGN_PENALTY_REGEX = re.compile('(?<=--misalign_penaltyt\s)[^\n#]')
-SIG_PENALTY_REGEX = re.compile('(?<=--sig_penaltyt\s)[^\n#]')
+DISTANCE_REGEX = re.compile('(?<=--distance\s)[^\n#]+')
+MISALIGN_PENALTY_REGEX = re.compile('(?<=--misalign_penalty\s)[^\n#]+')
+SIG_PENALTY_REGEX = re.compile('(?<=--sig_penalty\s)[^\n#]+')
 COSTFN_REGEX = re.compile('(?<=--cost\s)"[^\n#]+')
 
 
 def _search_and_strip(string: str, pattern: re.Pattern):
-    return pattern.search(string).group().strip()
-
+    string = pattern.search(string).group().strip()
+    return re.sub('"', '', string)
 
 def extract_conf(conf_path: str):
     with open(conf_path, "r") as fh:
@@ -30,9 +30,9 @@ def extract_conf(conf_path: str):
     conf_dict = {"def_in": _search_and_strip(conf, DEF_IN_REGEX),
                  "live_out": _search_and_strip(conf, LIVE_OUT_REGEX),
                  "distance": _search_and_strip(conf, DISTANCE_REGEX),
-                 "misalign_penalty": _search_and_strip(conf, MISALIGN_PENALTY_REGEX).
+                 "misalign_penalty": _search_and_strip(conf, MISALIGN_PENALTY_REGEX),
                  "sig_penalty": _search_and_strip(conf, SIG_PENALTY_REGEX),
-                 "costfn": _search_and_strip(conf, COSTFN_REGEX)}
+                 "costfn": _search_and_strip(conf, COSTFN_REGEX) + " + measured + size" }
     return conf_dict
 
 
@@ -52,11 +52,11 @@ def test_costfn_hackers(target_f: str,
              '--functions', fun_dir,
              "--prune", live_dangerously_str,
              "--def_in", settings_conf["def_in"],
-             "--live_out", settings_conf["live_out"]
-             "--distance", settings_conf["distance"]
-             "--misalign_penalty", settings_conf["misalign_penalty"]
-             "--sig_penalty", settings_conf["sig_penalty"]
-             "--cost", settings_conf["costfn"]],
+             "--live_out", settings_conf["live_out"], 
+             "--distance", settings_conf["distance"], 
+             "--misalign_penalty", settings_conf["misalign_penalty"], 
+             "--sig_penalty", settings_conf["sig_penalty"], 
+             "--cost", settings_conf["costfn"]] ,
 			stdout=subprocess.PIPE,
 			stderr=subprocess.STDOUT,
 			text=True,
@@ -249,7 +249,9 @@ def process_program(file_path: str,
                                     '--functions', function_dir,
                                     "--prune",
                                     '--max_testcases', "1024",
-                                    "--live_dangerously"],
+                                    "--live_dangerously", 
+                                    "--def_in", cost_conf_dict["def_in"], 
+                                    "--live_out", cost_conf_dict["live_out"]],
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT,
                                    text=True,
@@ -277,7 +279,6 @@ def process_program(file_path: str,
 
 
 if __name__ == "__main__":
-    #breakpoint()
     parser = ArgumentParser(ParseOptions)
     print(parser.parse_args())
     args = parser.parse_args()
