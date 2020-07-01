@@ -67,7 +67,7 @@ def pre_process(c_progs: List[str], asbly_prefixes: List[str], spm_model_path: s
 
     stats_csv_fh.close()
 
-    make_data(c_prog_list, asbly_prefixes, spm_model_path)
+    make_data(c_prog_list, asbly_prefixes, spm_model_path, destination_dir)
 
 
 def make_data(c_progs: List[str],
@@ -223,4 +223,4 @@ if __name__ == "__main__":
     with open(args.path_to_asbly_prefix_list) as f:
         asbly_name_list = f.readlines()
         asbly_name_list = [asbly_name.strip() for asbly_name in asbly_name_list] 
-    pre_process(c_prog_list, asbly_name_list, args.destination_dir, args.spm_model_path)
+    pre_process(c_prog_list, asbly_name_list, args.spm_model_path, args.destination_dir)
