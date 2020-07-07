@@ -246,7 +246,10 @@ class Model(nn.Module):
 
         assert len(train_hypotheses) == len(train_references)
 
-        reinforce_scores = cost_manager.parallel_get_rl_cost(zip(train_sources, train_hypotheses))
+        hashes_advantages_stats = cost_manager.parallel_get_rl_cost(zip(train_sources, train_hypotheses))
+        hash_stats = [(h, stats) for h, _, stats in hashes_advantages_stats]
+        reinforce_scores = [advantage for _, advantage, _ in hashes_advantages_stats]
+
         reinforce_scores = torch.tensor(reinforce_scores).unsqueeze(-1) 
         # mean_score = reinforce_scores.mean().item()
         # adjusted_scores = -1*(reinforce_scores - self.baseline)
@@ -256,14 +259,8 @@ class Model(nn.Module):
         reward_adjusted_log_probs = torch.mul(log_probs, reinforce_scores)
 
         batch_rl_loss = reward_adjusted_log_probs.sum()
-
-        # mle_loss = self.get_loss_for_batch(batch, loss_function)
-        # loss = 0.3*mle_loss + 0.7*batch_rl_loss
-
-        # del mle_loss
-        # del batch_rl_loss
         
-        return batch_rl_loss
+        return batch_rl_loss, hash_stats
 
     def __repr__(self) -> str:
         """

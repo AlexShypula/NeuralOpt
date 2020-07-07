@@ -30,9 +30,10 @@ class StokeCostManager:
         self.trailing_stats_dict = dict()
         for h in hash2metadata.keys():
             self.trailing_stats_dict[h] = {"costs": deque(maxlen = max_len),
-                                              "failed_tunit": deque(maxlen = max_len),
-                                              "failed_cost": deque(maxlen = max_len),
-                                              "n_steps": 0}
+                                            "failed_tunit": deque(maxlen = max_len),
+                                            "failed_cost": deque(maxlen = max_len),
+                                            "normalized_advantage": deque(maxlen = max_len),
+                                            "n_steps": 0}
             self.hash2metadata[h]["name"] = basename(self.hash2metadata["hash"]["base_asbly_path"])
         self.max_score = max_score
 
@@ -54,37 +55,57 @@ class StokeCostManager:
         # get trailing stats for advantage
         cost_std = np.std(self.trailing_stats_dict[h]["costs"])
         cost_mean = np.mean(self.trailing_stats_dict[h]["costs"])
-        # update the buffers
-        self.trailing_stats_dict[h]["costs"].append(effective_cost)
-        self.trailing_stats_dict[h]["failed_tunit"].append(failed_tunit)
-        self.trailing_stats_dict[h]["failed_cost"].append(failed_cost)
-        # re-calculate stats for logger
-        trailing_cost_mean = np.mean(self.trailing_stats_dict[h]["costs"])
-        trailing_cost_std = np.std(self.trailing_stats_dict[h]["costs"])
-        trailing_failed_tunit = np.mean(self.trailing_stats_dict[h]["failed_tunit"])
-        trailing_failed_cost = np.mean(self.trailing_stats_dict[h]["failed_cost"])
-        step_no = self.trailing_stats_dict[h]["n_steps"]
-        self.trailing_stats_dict[h]["n_steps"]+=1
 
         normalized_advantage = (effective_cost - cost_mean) / (cost_std if cost_std != 0 else 1)
 
-        self.tb_writer(f"{name}/normalized_advantage", normalized_advantage, step_no)
-        self.tb_writer(f"{name}/trailing_cost", trailing_cost_mean, step_no)
-        self.tb_writer(f"{name}/trailing_std", trailing_cost_std, step_no)
-        self.tb_writer(f"{name}/trailing_failed_tunit", trailing_failed_tunit, step_no)
-        self.tb_writer(f"{name}/trailing_failed_cost", trailing_failed_cost, step_no)
-
-        return normalized_advantage
+        return h, normalized_advantage, {"normalized_advantage": normalized_advantage,
+                                         "cost": effective_cost,
+                                         "failed_tunit": failed_tunit,
+                                         "failed_cost": failed_cost}
 
     def get_rl_cost_wrapper(self, args):
         return self.get_rl_cost(**args)
 
-    def parallel_get_rl_cost(self, bpe_strings: List[Tuple(str, str)]):
+    def parallel_get_rl_cost(self, bpe_strings: List[Tuple[str, str]]):
         arg_list = []
         for (source_bpe_str, hypothesis_bpe_str) in bpe_strings:
             arg_list.append({"source_bpe_string": source_bpe_str, "hyothesis_bpe_string": hypothesis_bpe_str})
-        cost_list = list(ThreadPool(self.n_workers).map(self.get_rl_cost_wrapper, arg_list))
-        return cost_list
+        hash_cost_list = list(ThreadPool(self.n_workers).map(self.get_rl_cost_wrapper, arg_list))
+        return hash_cost_list
+
+    def update_buffers(self, hash_stats_list: Tuple[str, Dict]):
+
+        for h, stats in hash_stats_list:
+            normalized_advantage = stats["normalized_advantage"]
+            effective_cost = stats["cost"]
+            failed_tunit = stats["failed_tunit"]
+            failed_cost = stats["failed_cost"]
+
+            # update the buffers
+            self.trailing_stats_dict[h]["normalized_advantage"].append(normalized_advantage)
+            self.trailing_stats_dict[h]["costs"].append(effective_cost)
+            self.trailing_stats_dict[h]["failed_tunit"].append(failed_tunit)
+            self.trailing_stats_dict[h]["failed_cost"].append(failed_cost)
+
+    def log_buffer_stats(self):
+
+        for h in self.trailing_stats_dict.keys():
+            name = self.hash2metadata[h]["name"]
+
+            # re-calculate stats for logger
+            mean_normalized_advantage = np.mean(self.trailing_stats_dict[h]["normalized_advantage"])
+            trailing_cost_mean = np.mean(self.trailing_stats_dict[h]["costs"])
+            trailing_cost_std = np.std(self.trailing_stats_dict[h]["costs"])
+            trailing_failed_tunit = np.mean(self.trailing_stats_dict[h]["failed_tunit"])
+            trailing_failed_cost = np.mean(self.trailing_stats_dict[h]["failed_cost"])
+            step_no = self.trailing_stats_dict[h]["n_steps"]
+            self.trailing_stats_dict[h]["n_steps"] += 1
+
+            self.tb_writer(f"{name}/normalized_advantage", mean_normalized_advantage, step_no)
+            self.tb_writer(f"{name}/trailing_cost", trailing_cost_mean, step_no)
+            self.tb_writer(f"{name}/trailing_std", trailing_cost_std, step_no)
+            self.tb_writer(f"{name}/trailing_failed_tunit", trailing_failed_tunit, step_no)
+            self.tb_writer(f"{name}/trailing_failed_cost", trailing_failed_cost, step_no)
 
 
 def get_stoke_cost(bpe_string: str,

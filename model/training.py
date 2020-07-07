@@ -508,40 +508,45 @@ class TrainManager:
         :param count: number of portions (batch_size) left before update
         :return: loss for batch (sum)
         """
-        #breakpoint()
-        if mode == "RL":
-            batch_loss, batch_bleu = self.model.get_rl_loss_for_batch(batch = batch,
+
+        hash_stats_list = []
+        for sample_no in range(sentence_samples):
+
+        #if mode == "RL":
+            # returns batch-loss calculated by a normalized advantage function
+            # and a dictionary of hashes to calculated costs
+            # we should cache the costs and then update the buffers for trailing costs after all samples are taken
+            batch_loss, hash_stats = self.model.get_rl_loss_for_batch(batch = batch,
                                                                       cost_manager = self.cost_manager,
                                                                       loss_function = self.loss,
                                                                       use_cuda = self.use_cuda,
                                                                       max_output_length = self.max_output_length,
                                                                       level = self.level)
-        else:     
-            batch_loss = self.model.get_loss_for_batch(
-                batch=batch, loss_function=self.loss)
 
-        # normalize batch loss
-        if self.normalization == "batch":
-            normalizer = batch.nseqs
-        elif self.normalization == "tokens":
-            normalizer = batch.ntokens
-        elif self.normalization == "none":
-            normalizer = 1
-        else:
-            raise NotImplementedError(
-                "Only normalize by 'batch' or 'tokens' "
-                "or summation of loss 'none' implemented")
+            hash_stats_list.extend(hash_stats) # list of tupled (h, {"cost": , "tunit_fail":, "cost_fail"}
 
-        norm_batch_loss = batch_loss / normalizer
-        if self.current_batch_multiplier > 1: 
-            norm_batch_loss = norm_batch_loss/self.current_batch_multiplier \
-                    if self.normalization != "none" else norm_batch_loss
-            norm_batch_bleu = batch_bleu / self.current_batch_multiplier \
-                    if self.normalization != "none" else batch_bleu
+            if self.normalization == "batch":
+                normalizer = batch.nseqs
+            elif self.normalization == "tokens":
+                normalizer = batch.ntokens
+            elif self.normalization == "none":
+                normalizer = 1
+            else:
+                raise NotImplementedError(
+                    "Only normalize by 'batch' or 'tokens' "
+                    "or summation of loss 'none' implemented")
+
+            norm_batch_loss = batch_loss / normalizer
+            if self.current_batch_multiplier > 1:
+                norm_batch_loss = norm_batch_loss/self.current_batch_multiplier \
+                        if self.normalization != "none" else norm_batch_loss
+                norm_batch_bleu = batch_bleu / self.current_batch_multiplier \
+                        if self.normalization != "none" else batch_bleu
 
 
-        norm_batch_loss.backward()
-        #torch.cuda.empty_cache()
+            norm_batch_loss.backward()
+
+        self.cost_manager.update_buffers(hash_stats_list)
 
         if update:
             #if self.current_batch_multiplier > 1:
@@ -564,6 +569,7 @@ class TrainManager:
 
             # increment step counter
             self.steps += 1
+            self.cost_manager.log_buffer_stats()
 
         #else:
         #    if count == self.current_batch_multiplier - 1:
