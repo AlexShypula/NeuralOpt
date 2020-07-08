@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau, \
     StepLR, ExponentialLR
 from torch.optim import Optimizer
 
-from joeynmt.helpers import ConfigurationError
+from helpers import ConfigurationError
 
 
 def build_gradient_clipper(config: dict) -> Optional[Callable]:

@@ -9,16 +9,16 @@ import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
 
-from model.initialization import initialize_model
-from model.embeddings import Embeddings
-from model.encoders import Encoder, RecurrentEncoder, TransformerEncoder
-from model.decoders import Decoder, RecurrentDecoder, TransformerDecoder
-from model.constants import PAD_TOKEN, EOS_TOKEN, BOS_TOKEN
-from model.search import beam_search, greedy, sample_rl_transformer
-from model.vocabulary import Vocabulary
-from model.batch import Batch
-from model.helpers import ConfigurationError, bpe_postprocess
-from model.loss import StokeCostManager
+from initialization import initialize_model
+from embeddings import Embeddings
+from encoders import Encoder, RecurrentEncoder, TransformerEncoder
+from decoders import Decoder, RecurrentDecoder, TransformerDecoder
+from constants import PAD_TOKEN, EOS_TOKEN, BOS_TOKEN
+from search import beam_search, greedy, sample_rl_transformer
+from vocabulary import Vocabulary
+from batch import Batch
+from helpers import ConfigurationError, bpe_postprocess
+from loss import StokeCostManager
 
 
 

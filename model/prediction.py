@@ -11,14 +11,14 @@ import numpy as np
 import torch
 from torchtext.data import Dataset, Field
 
-from joeynmt.helpers import bpe_postprocess, load_config, make_logger,\
+from helpers import bpe_postprocess, load_config, make_logger,\
     get_latest_checkpoint, load_checkpoint, store_attention_plots
-from joeynmt.metrics import bleu, chrf, token_accuracy, sequence_accuracy
-from joeynmt.model import build_model, Model
-from joeynmt.batch import Batch
-from joeynmt.data import load_data, make_data_iter, MonoDataset
-from joeynmt.constants import UNK_TOKEN, PAD_TOKEN, EOS_TOKEN
-from joeynmt.vocabulary import Vocabulary
+from metrics import bleu, chrf, token_accuracy, sequence_accuracy
+from modeling import build_model, Model
+from batch import Batch
+from data import load_data, make_data_iter, MonoDataset
+from constants import UNK_TOKEN, PAD_TOKEN, EOS_TOKEN
+from vocabulary import Vocabulary
 
 # pylint: disable=too-many-arguments,too-many-locals,no-member
 def validate_on_data(model: Model, data: Dataset,

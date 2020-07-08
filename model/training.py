@@ -20,19 +20,18 @@ from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
 from torchtext.data import Dataset
-
-from model.model import build_model
-from model.batch import Batch
-from model.helpers import log_data_info, load_config, log_cfg, \
+from modeling import build_model
+from batch import Batch
+from helpers import log_data_info, load_config, log_cfg, \
     store_attention_plots, load_checkpoint, make_model_dir, \
     make_logger, set_seed, symlink_update, ConfigurationError
-from model.model import Model
-from model.prediction import validate_on_data
-from model.loss import XentLoss, StokeCostManager
-from model.data import load_data, make_data_iter
-from model.builders import build_optimizer, build_scheduler, \
+from modeling import Model
+from prediction import validate_on_data
+from loss import XentLoss, StokeCostManager
+from data import load_data, make_data_iter
+from builders import build_optimizer, build_scheduler, \
     build_gradient_clipper
-from model.prediction import test
+from prediction import test
 import gc
 
 # pylint: disable=too-many-instance-attributes
@@ -67,12 +66,12 @@ class TrainManager:
 
         # cost_manager
         self.cost_manager = StokeCostManager(self.hash2metadata,
-                                             data_config.tmp_folder_path,
-                                             data_config.data_path,
+                                             data_config.get("tmp_folder_path"),
+                                             data_config.get("data_path"),
                                              self.tb_writer,
-                                             max_len=data_config.max_len,
-                                             max_score=data_config.max_score,
-                                             n_workers=data_config.n_workers)
+                                             max_len=data_config.get("max_len"),
+                                             max_score=data_config.get("max_score"),
+                                             n_workers=data_config.get("n_workers"))
 
         # model
         self.model = model

@@ -5,8 +5,8 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from joeynmt.helpers import freeze_params
-from joeynmt.transformer_layers import \
+from helpers import freeze_params
+from transformer_layers import \
     TransformerEncoderLayer, PositionalEncoding
 
 

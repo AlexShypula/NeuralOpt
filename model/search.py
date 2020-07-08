@@ -4,9 +4,9 @@ import torch.nn.functional as F
 from torch import Tensor
 import numpy as np
 
-from joeynmt.decoders import Decoder, TransformerDecoder
-from joeynmt.embeddings import Embeddings
-from joeynmt.helpers import tile
+from decoders import Decoder, TransformerDecoder
+from embeddings import Embeddings
+from helpers import tile
 from torch.distributions.categorical import Categorical
 
 

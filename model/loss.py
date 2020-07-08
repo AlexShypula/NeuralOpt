@@ -10,10 +10,10 @@ from torch import nn, Tensor
 from torch.autograd import Variable
 from time import time
 from os.path import join, basename, dirname
-from model.helpers import mkdir, hash_file, make_tunit_file, test_costfn, bpe2formatted
+from helpers import mkdir, hash_file, make_tunit_file, test_costfn, bpe2formatted
 from collections import deque
 from multiprocessing.pool import ThreadPool
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
@@ -34,7 +34,7 @@ class StokeCostManager:
                                             "failed_cost": deque(maxlen = max_len),
                                             "normalized_advantage": deque(maxlen = max_len),
                                             "n_steps": 0}
-            self.hash2metadata[h]["name"] = basename(self.hash2metadata["hash"]["base_asbly_path"])
+            self.hash2metadata[h]["name"] = basename(self.hash2metadata[h]["base_asbly_path"])
         self.max_score = max_score
 
     def get_rl_cost(self, source_bpe_string: str, hypothesis_bpe_string: str):

@@ -9,7 +9,7 @@ import numpy as np
 
 from torchtext.data import Dataset
 
-from joeynmt.constants import UNK_TOKEN, DEFAULT_UNK_ID, \
+from constants import UNK_TOKEN, DEFAULT_UNK_ID, \
     EOS_TOKEN, BOS_TOKEN, PAD_TOKEN
 
 

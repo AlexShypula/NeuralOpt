@@ -23,8 +23,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from torchtext.data import Dataset
 import yaml
-from model.vocabulary import Vocabulary
-from model.plotting import plot_heatmap
+from vocabulary import Vocabulary
+from plotting import plot_heatmap
 from os import makedirs
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
