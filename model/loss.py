@@ -28,6 +28,7 @@ class StokeCostManager:
         self.hash2metadata = hash2metadata
         self.n_workers = n_workers
         self.trailing_stats_dict = dict()
+        self.val_step = 0
         for h in hash2metadata.keys():
             self.trailing_stats_dict[h] = {"costs": deque(maxlen = max_len),
                                             "failed_tunit": deque(maxlen = max_len),
@@ -75,6 +76,7 @@ class StokeCostManager:
 
     def update_buffers(self, hash_stats_list: Tuple[str, Dict]):
 
+        batch_cost = 0
         for h, stats in hash_stats_list:
             normalized_advantage = stats["normalized_advantage"]
             effective_cost = stats["cost"]
@@ -86,6 +88,10 @@ class StokeCostManager:
             self.trailing_stats_dict[h]["costs"].append(effective_cost)
             self.trailing_stats_dict[h]["failed_tunit"].append(failed_tunit)
             self.trailing_stats_dict[h]["failed_cost"].append(failed_cost)
+
+            batch_cost += effective_cost
+        batch_cost /= len(hash_stats_list)
+        return batch_cost
 
     def log_buffer_stats(self):
 
@@ -101,11 +107,23 @@ class StokeCostManager:
             step_no = self.trailing_stats_dict[h]["n_steps"]
             self.trailing_stats_dict[h]["n_steps"] += 1
 
-            self.tb_writer(f"{name}/normalized_advantage", mean_normalized_advantage, step_no)
-            self.tb_writer(f"{name}/trailing_cost", trailing_cost_mean, step_no)
-            self.tb_writer(f"{name}/trailing_std", trailing_cost_std, step_no)
-            self.tb_writer(f"{name}/trailing_failed_tunit", trailing_failed_tunit, step_no)
-            self.tb_writer(f"{name}/trailing_failed_cost", trailing_failed_cost, step_no)
+            self.tb_writer.add_scalar(f"{name}/normalized_advantage", mean_normalized_advantage, step_no)
+            self.tb_writer.add_scalar(f"{name}/trailing_cost", trailing_cost_mean, step_no)
+            self.tb_writer.add_scalar(f"{name}/trailing_std", trailing_cost_std, step_no)
+            self.tb_writer.add_scalar(f"{name}/trailing_failed_tunit", trailing_failed_tunit, step_no)
+            self.tb_writer.add_scalar(f"{name}/trailing_failed_cost", trailing_failed_cost, step_no)
+
+    def log_validation_stats(self, hash2val_results):
+        for h, val_dict in hash2val_results.items():
+            name = self.hash2metadata[h]["name"]
+            self.tb_writer.add_scalar(f"{name}/val_cost", val_dict["cost"], self.val_step)
+            self.tb_writer.add_text(f"{name}/val_output", val_dict["text"], self.val_step)
+
+        self.val_step+=1
+
+
+
+
 
 
 def get_stoke_cost(bpe_string: str,

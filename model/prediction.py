@@ -12,13 +12,14 @@ import torch
 from torchtext.data import Dataset, Field
 
 from helpers import bpe_postprocess, load_config, make_logger,\
-    get_latest_checkpoint, load_checkpoint, store_attention_plots
+    get_latest_checkpoint, load_checkpoint, store_attention_plots, bpe2formatted
 from metrics import bleu, chrf, token_accuracy, sequence_accuracy
 from modeling import build_model, Model
 from batch import Batch
 from data import load_data, make_data_iter, MonoDataset
 from constants import UNK_TOKEN, PAD_TOKEN, EOS_TOKEN
 from vocabulary import Vocabulary
+from loss import StokeCostManager
 
 # pylint: disable=too-many-arguments,too-many-locals,no-member
 def validate_on_data(model: Model, data: Dataset,
@@ -26,6 +27,7 @@ def validate_on_data(model: Model, data: Dataset,
                      batch_size: int,
                      use_cuda: bool, max_output_length: int,
                      level: str, eval_metric: Optional[str],
+                     cost_manager: StokeCostManager = None,
                      loss_function: torch.nn.Module = None,
                      beam_size: int = 1, beam_alpha: int = -1,
                      batch_type: str = "sentence"
@@ -140,10 +142,24 @@ def validate_on_data(model: Model, data: Dataset,
                                 v in valid_hypotheses]
 
         # if references are given, evaluate against them
-        if valid_references:
+        if eval_metric.lower() == "stoke":
+
+            hashes_advantages_stats = cost_manager.parallel_get_rl_cost(zip(valid_sources, valid_hypotheses))
+            hash2val_results = {}
+            c = 0
+            for hyp, (h, advantages, stats) in zip(valid_hypotheses, hashes_advantages_stats):
+                hash2val_results[h] = {"cost": stats["cost"],
+                                   "text": bpe2formatted(assembly_string=hyp, remove_footer=True)}
+                c += stats["cost"]
+            current_valid_score = c / len(valid_hypotheses)
+            cost_manager.log_validation_stats(hash2val_results)
+
+
+        elif valid_references:
             assert len(valid_hypotheses) == len(valid_references)
 
             current_valid_score = 0
+
             if eval_metric.lower() == 'bleu':
                 # this version does not use any tokenization
                 current_valid_score = bleu(valid_hypotheses, valid_references)

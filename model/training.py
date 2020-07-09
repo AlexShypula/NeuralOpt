@@ -53,7 +53,6 @@ class TrainManager:
             self.hash2metadata = json.load(fh)
 
 
-
         # files for logging and storing
         self.model_dir = make_model_dir(train_config["model_dir"],
                                         overwrite=train_config.get(
@@ -73,6 +72,7 @@ class TrainManager:
                                              max_score=data_config.get("max_score"),
                                              n_workers=data_config.get("n_workers"))
 
+
         # model
         self.model = model
         self.pad_index = self.model.pad_index
@@ -81,8 +81,7 @@ class TrainManager:
 
         # objective
         self.label_smoothing = train_config.get("label_smoothing", 0.0)
-        self.loss = XentLoss(pad_index=self.pad_index,
-                             smoothing=self.label_smoothing)
+        self.loss = None #XentLoss(pad_index=self.pad_index, smoothing=self.label_smoothing)
         self.normalization = train_config.get("normalization", "batch")
         if self.normalization not in ["batch", "tokens", "none"]:
             raise ConfigurationError("Invalid normalization option."
@@ -151,6 +150,15 @@ class TrainManager:
 
         self.batch_multiplier = train_config.get("batch_multiplier", 1)
         self.current_batch_multiplier = self.batch_multiplier
+        self.sentence_samples = train_config.get("sentence_samples", 1)
+
+        # init attributes for batch training
+        self.log_batch_score = 0
+        self.multi_batch_loss = 0
+        self.multi_batch_score = 0
+        # self.epoch_loss = 0 already initialized in the epoch loop
+        self.update = False
+        #self.count = self.current_batch_multiplier - 1
 
         # generation
         self.max_output_length = train_config.get("max_output_length", None)
@@ -313,10 +321,8 @@ class TrainManager:
             total_valid_duration = 0
             start_tokens = self.total_tokens
             self.current_batch_multiplier = self.batch_multiplier
-            count = self.current_batch_multiplier - 1
-            epoch_loss = 0
-            multi_batch_loss = 0
-            multi_batch_bleu = 0
+            self.count = self.current_batch_multiplier - 1
+            self.epoch_loss = 0
 
             for i, batch in enumerate(iter(train_iter)):
                 # reactivate training
@@ -324,67 +330,17 @@ class TrainManager:
                 # create a Batch object from torchtext batch
                 batch = Batch(batch, self.pad_index, use_cuda=self.use_cuda)
 
-                # only update every batch_multiplier batches
-                # see https://medium.com/@davidlmorton/
-                # increasing-mini-batch-size-without-increasing-
-                # memory-6794e10db672
-
-                # Set current_batch_mutliplier to fit
-                # number of leftover examples for last batch in epoch
-                #if self.batch_multiplier > 1 and i == len(train_iter) - \
-                #        math.ceil(leftover_batch_size / self.batch_size):
-                #    self.current_batch_multiplier = math.ceil(
-                #        leftover_batch_size / self.batch_size)
-                #    count = self.current_batch_multiplier - 1
-
-                update = count == 0
-                # print(count, update, self.steps)
-                batch_loss, batch_bleu = self._train_batch(
-                    batch, update=update, count=count)
-               
-
-                multi_batch_loss += batch_loss
-                multi_batch_bleu += batch_bleu
-                #torch.cuda.empty_cache()
-
-                del batch_loss
-                # Only save finaly computed batch_loss of full batch
-                if update:
-                    #breakpoint()
-                    self.tb_writer.add_scalar("train/train_batch_loss",
-                                              multi_batch_loss, self.steps)
-                    self.tb_writer.add_scalar("train/train_batch_avg_bleu", 
-                            multi_batch_bleu, self.steps)
-                    self.tb_writer.add_scalar("train/baseline", 
-                                                self.model.baseline, self.steps)
-                    epoch_loss+=multi_batch_loss
-                    del multi_batch_loss
-                    del multi_batch_bleu
-                    gc.collect()
-
-                    multi_batch_loss = 0
-                    multi_batch_bleu = 0
-                                                
-
-                count = self.batch_multiplier if update else count
-                count -= 1
-
-                # Only add complete batch_loss of full mini-batch to epoch_loss
-                #if update:
-                #    epoch_loss += batch_loss.detach().cpu().numpy()
-
-                if self.scheduler is not None and \
-                        self.scheduler_step_at == "step" and update:
-                    self.scheduler.step()
+                # calculate grads, accumulate, and step
+                self._train_batch(batch)
 
                 # log learning progress
-                if self.steps % self.logging_freq == 0 and update:
+                if self.steps % self.logging_freq == 0 and self.update:
                     elapsed = time.time() - start - total_valid_duration
                     elapsed_tokens = self.total_tokens - start_tokens
                     self.logger.info(
                         "Epoch %3d Step: %8d Batch Loss: %12.6f "
                         "Tokens per Sec: %8.0f, Lr: %.6f",
-                        epoch_no + 1, self.steps, multi_batch_loss,
+                        epoch_no + 1, self.steps, self.multi_batch_score,
                         elapsed_tokens / elapsed,
                         self.optimizer.param_groups[0]["lr"])
                     start = time.time()
@@ -392,7 +348,7 @@ class TrainManager:
                     start_tokens = self.total_tokens
 
                 # validate on the entire dev set
-                if self.steps % self.validation_freq == 0 and update:
+                if self.steps % self.validation_freq == 0 and self.update:
                     valid_start_time = time.time()
 
                     valid_score, valid_loss, valid_ppl, valid_sources, \
@@ -403,6 +359,7 @@ class TrainManager:
                             batch_size=self.eval_batch_size,
                             data=valid_data,
                             eval_metric=self.eval_metric,
+                            cost_manager = self.cost_manager,
                             level=self.level, model=self.model,
                             use_cuda=self.use_cuda,
                             max_output_length=self.max_output_length,
@@ -468,6 +425,7 @@ class TrainManager:
                     self._store_outputs(valid_hypotheses)
 
                     # store attention plots for selected valid sentences
+                    breakpoint()
                     if valid_attention_scores:
                         store_attention_plots(
                             attentions=valid_attention_scores,
@@ -487,7 +445,7 @@ class TrainManager:
                 break
 
             self.logger.info('Epoch %3d: total training loss %.2f',
-                             epoch_no + 1, epoch_loss)
+                             epoch_no + 1, self.epoch_loss)
         else:
             self.logger.info('Training ended after %3d epochs.', epoch_no + 1)
         self.logger.info('Best validation result (greedy) at step '
@@ -497,8 +455,7 @@ class TrainManager:
 
         self.tb_writer.close()  # close Tensorboard writer
 
-    def _train_batch(self, batch: Batch, update: bool = True,
-                     count: int = 1, mode = "RL") -> Tensor:
+    def _train_batch(self, batch: Batch):
         """
         Train the model on one batch: Compute the loss, make a gradient step.
 
@@ -508,12 +465,13 @@ class TrainManager:
         :return: loss for batch (sum)
         """
 
-        hash_stats_list = []
-        for sample_no in range(sentence_samples):
+        # the logic here will only update when count == 0, else we accumulate gradients
 
-        #if mode == "RL":
+        hash_stats_list = []
+        for sample_no in range(self.sentence_samples):
+
             # returns batch-loss calculated by a normalized advantage function
-            # and a dictionary of hashes to calculated costs
+            # and a list of tuples of of hashes to a stats dictionary
             # we should cache the costs and then update the buffers for trailing costs after all samples are taken
             batch_loss, hash_stats = self.model.get_rl_loss_for_batch(batch = batch,
                                                                       cost_manager = self.cost_manager,
@@ -522,7 +480,7 @@ class TrainManager:
                                                                       max_output_length = self.max_output_length,
                                                                       level = self.level)
 
-            hash_stats_list.extend(hash_stats) # list of tupled (h, {"cost": , "tunit_fail":, "cost_fail"}
+            hash_stats_list.extend(hash_stats) # list of tuples (h, {"cost": , "tunit_fail":, "cost_fail"}
 
             if self.normalization == "batch":
                 normalizer = batch.nseqs
@@ -539,25 +497,22 @@ class TrainManager:
             if self.current_batch_multiplier > 1:
                 norm_batch_loss = norm_batch_loss/self.current_batch_multiplier \
                         if self.normalization != "none" else norm_batch_loss
-                norm_batch_bleu = batch_bleu / self.current_batch_multiplier \
-                        if self.normalization != "none" else batch_bleu
-
+                norm_batch_loss/=self.sentence_samples # normalize again for # samples taken
+                self.multi_batch_loss += norm_batch_loss.detach() # accumulate loss for batch
 
             norm_batch_loss.backward()
+            del norm_batch_loss # explicitly deleting
+            # end sampling loop
 
-        self.cost_manager.update_buffers(hash_stats_list)
+        # update buffers after sampling
+        batch_score = self.cost_manager.update_buffers(hash_stats_list)
 
-        if update:
-            #if self.current_batch_multiplier > 1:
-            #    norm_batch_loss = self.norm_batch_loss_accumulated + \
-            #        norm_batch_loss
-            #    norm_batch_loss = norm_batch_loss / \
-            #        self.current_batch_multiplier if \
-            #        self.normalization != "none" else \
-            #        norm_batch_loss
+        if self.current_batch_multiplier > 1:
+            self.multi_batch_score += (batch_score / self.current_batch_multiplier \
+                    if self.normalization != "none" else batch_score)
 
-            #norm_batch_loss.backward()
-
+        self.update = (self.count == 0)
+        if self.update:
             if self.clip_grad_fun is not None:
                 # clip gradients (in-place)
                 self.clip_grad_fun(params=self.model.parameters())
@@ -566,20 +521,30 @@ class TrainManager:
             self.optimizer.step()
             self.optimizer.zero_grad()
 
+            if self.scheduler is not None and \
+                    self.scheduler_step_at == "step":
+                self.scheduler.step()
+
             # increment step counter
-            self.steps += 1
+
             self.cost_manager.log_buffer_stats()
 
-        #else:
-        #    if count == self.current_batch_multiplier - 1:
-        #        self.norm_batch_loss_accumulated = norm_batch_loss
-        #    else:
-        #        # accumulate loss of current batch_size * batch_multiplier loss
-        #        self.norm_batch_loss_accumulated += norm_batch_loss
-        # increment token counter
-        self.total_tokens += batch.ntokens
+            self.tb_writer.add_scalar("train/multi_batch_loss",
+                                      self.multi_batch_loss, self.steps)
+            self.tb_writer.add_scalar("train/multi_batch_score",
+                                      self.multi_batch_score, self.steps)
 
-        return norm_batch_loss.detach(), norm_batch_bleu
+            self.epoch_loss += self.multi_batch_loss
+            self.log_batch_score += self.multi_batch_score
+
+            self.multi_batch_loss = 0
+            self.multi_batch_score = 0
+            self.count = self.batch_multiplier - 1
+            self.steps += 1
+
+        else:
+            self.count -= 1
+
 
     def _add_report(self, valid_score: float, valid_ppl: float,
                     valid_loss: float, eval_metric: str,
