@@ -104,7 +104,8 @@ class TrainManager:
         if self.eval_metric not in ['bleu',
                                     'chrf',
                                     'token_accuracy',
-                                    'sequence_accuracy']:
+                                    'sequence_accuracy', 
+                                    'stoke']:
             raise ConfigurationError("Invalid setting for 'eval_metric', "
                                      "valid options: 'bleu', 'chrf', "
                                      "'token_accuracy', 'sequence_accuracy'.")

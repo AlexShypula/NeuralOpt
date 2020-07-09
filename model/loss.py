@@ -42,8 +42,8 @@ class StokeCostManager:
         h = hash_file(source_bpe_string)
         metadata = self.hash2metadata[h]
         cost_conf = metadata["cost_conf"]
-        target_asbly_path = metadata["base_asbly_path"]
-        testcase_path = metadata["testcase_path"]
+        target_asbly_path = join(self.data_path, metadata["base_asbly_path"])
+        testcase_path = join(self.data_path, metadata["testcase_path"])
         name = metadata["name"]
         cost, failed_tunit, failed_cost = get_stoke_cost(bpe_string=hypothesis_bpe_string,
                                                             orig_file_path=target_asbly_path,
@@ -52,10 +52,10 @@ class StokeCostManager:
                                                             name = name,
                                                             cost_conf = cost_conf,
                                                             max_cost=self.max_score)
-        effective_cost = min(cost, self.max_cost)
+        effective_cost = min(cost, self.max_score)
         # get trailing stats for advantage
-        cost_std = np.std(self.trailing_stats_dict[h]["costs"])
-        cost_mean = np.mean(self.trailing_stats_dict[h]["costs"])
+        cost_std = 1 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.std(self.trailing_stats_dict[h]["costs"])
+        cost_mean = 0 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.mean(self.trailing_stats_dict[h]["costs"])
 
         normalized_advantage = (effective_cost - cost_mean) / (cost_std if cost_std != 0 else 1)
 
@@ -70,8 +70,10 @@ class StokeCostManager:
     def parallel_get_rl_cost(self, bpe_strings: List[Tuple[str, str]]):
         arg_list = []
         for (source_bpe_str, hypothesis_bpe_str) in bpe_strings:
-            arg_list.append({"source_bpe_string": source_bpe_str, "hyothesis_bpe_string": hypothesis_bpe_str})
-        hash_cost_list = list(ThreadPool(self.n_workers).map(self.get_rl_cost_wrapper, arg_list))
+            arg_list.append({"source_bpe_string": source_bpe_str, "hypothesis_bpe_string": hypothesis_bpe_str})
+        #breakpoint()
+        hash_cost_list = list(map(self.get_rl_cost_wrapper, arg_list))
+#list(ThreadPool(self.n_workers).map(self.get_rl_cost_wrapper, arg_list))
         return hash_cost_list
 
     def update_buffers(self, hash_stats_list: Tuple[str, Dict]):
@@ -133,7 +135,7 @@ def get_stoke_cost(bpe_string: str,
                    name: str,
                    cost_conf,
                    max_cost = 9999) -> float:
-    formatted_string = bpe2formatted(bpe_string)
+    formatted_string, _ = bpe2formatted(bpe_string, remove_footer = True)
     tmp_name = name + str(time())
     raw_path = join(tmp_folder, tmp_name + ".tmp")
     asbly_path = join(tmp_folder, tmp_name + ".s")
@@ -156,9 +158,9 @@ def get_stoke_cost(bpe_string: str,
             live_dangerously=True)
 
     tunit_failed = False if tunit_rc == 0 else True
-    cost_failed = False if cost_rc and cost_rc == 0 else True
+    cost_failed = False if tunit_rc == 0 and cost_rc == 0 else True
 
-    if cost_rc == 0 and tunit_rc == 0:
+    if tunit_rc == 0 and cost_rc == 0:
         return float(cost), tunit_failed, cost_failed
     else:
         return float(max_cost), tunit_failed, cost_failed

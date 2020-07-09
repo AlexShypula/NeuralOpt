@@ -149,7 +149,7 @@ def validate_on_data(model: Model, data: Dataset,
             c = 0
             for hyp, (h, advantages, stats) in zip(valid_hypotheses, hashes_advantages_stats):
                 hash2val_results[h] = {"cost": stats["cost"],
-                                   "text": bpe2formatted(assembly_string=hyp, remove_footer=True)}
+                                   "text": bpe2formatted(assembly_string=hyp, remove_footer=True)[0]}
                 c += stats["cost"]
             current_valid_score = c / len(valid_hypotheses)
             cost_manager.log_validation_stats(hash2val_results)
