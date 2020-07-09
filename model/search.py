@@ -223,7 +223,8 @@ def sample_rl_transformer(
         )
 
         logits = logits[:, -1]
-        probs = F.softmax(logits)
+        breakpoint()
+        probs = F.softmax(logits, dim=1)
         m = Categorical(probs)
         next_word = m.sample()
         log_probs = m.log_prob(next_word)

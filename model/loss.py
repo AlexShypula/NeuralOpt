@@ -54,6 +54,7 @@ class StokeCostManager:
                                                             max_cost=self.max_score)
         effective_cost = min(cost, self.max_score)
         # get trailing stats for advantage
+        breakpoint()
         cost_std = 1 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.std(self.trailing_stats_dict[h]["costs"])
         cost_mean = 0 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.mean(self.trailing_stats_dict[h]["costs"])
 
@@ -101,6 +102,7 @@ class StokeCostManager:
             name = self.hash2metadata[h]["name"]
 
             # re-calculate stats for logger
+            breakpoint()
             mean_normalized_advantage = np.mean(self.trailing_stats_dict[h]["normalized_advantage"])
             trailing_cost_mean = np.mean(self.trailing_stats_dict[h]["costs"])
             trailing_cost_std = np.std(self.trailing_stats_dict[h]["costs"])
@@ -159,6 +161,11 @@ def get_stoke_cost(bpe_string: str,
 
     tunit_failed = False if tunit_rc == 0 else True
     cost_failed = False if tunit_rc == 0 and cost_rc == 0 else True
+
+
+    if name != "p01": 
+        os.remove(raw_path)
+        os.remove(asbly_path)
 
     if tunit_rc == 0 and cost_rc == 0:
         return float(cost), tunit_failed, cost_failed
