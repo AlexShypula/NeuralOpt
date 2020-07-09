@@ -51,6 +51,7 @@ def create_header_footer(assembly_string: str):
     match = FUNCTION_NAME_REGEX.search(assembly_string)
     if match == None:
         print(assembly_string)
+        function_name = 'NA'
     else:
         function_name = match.group()
     header = f'''  .text\n  .global {function_name}\n  .type {function_name}, @function\n\n'''
