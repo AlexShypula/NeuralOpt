@@ -79,7 +79,7 @@ def make_tunit_file(container_name: str, in_f: str, out_f: str, fun_dir: str, li
         with open(out_f, "w") as f:
             tunit_proc = subprocess.run(
                 ['sudo', 'docker', 'exec', container_name,
-                 'stoke', 'debug', 'tunit', '--target', in_f,'--functions', fun_dir, "--prune", live_dangerously_str],
+                 '/home/stoke/stoke/bin/stoke', 'debug', 'tunit', '--target', in_f,'--functions', fun_dir, "--prune", live_dangerously_str],
                 stdout=f,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -102,7 +102,7 @@ def test_costfn(container_name: str,
 	try:
 		cost_test = subprocess.run(
 			['sudo', 'docker', 'exec', container_name,
-             'stoke', 'debug', 'cost',
+             '/home/stoke/stoke/bin/stoke', 'debug', 'cost',
              '--target', target_f,
              '--rewrite', rewrite_f,
              '--testcases', testcases_f,

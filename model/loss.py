@@ -59,7 +59,6 @@ class StokeCostManager:
 
         effective_cost = min(cost, self.max_score)
         # get trailing stats for advantage
-        breakpoint()
         cost_std = 1 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.std(self.trailing_stats_dict[h]["costs"])
         cost_mean = 0 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.mean(self.trailing_stats_dict[h]["costs"])
 
@@ -107,7 +106,6 @@ class StokeCostManager:
             name = self.hash2metadata[h]["name"]
 
             # re-calculate stats for logger
-            breakpoint()
             mean_normalized_advantage = np.mean(self.trailing_stats_dict[h]["normalized_advantage"])
             trailing_cost_mean = np.mean(self.trailing_stats_dict[h]["costs"])
             trailing_cost_std = np.std(self.trailing_stats_dict[h]["costs"])
@@ -152,12 +150,11 @@ def get_stoke_cost(bpe_string: str,
     container_abs_path_to_functions = dirname(join(container_path_to_volume, volume_path_to_data, data_path_to_target))
     container_abs_path_to_target = join(container_path_to_volume, volume_path_to_data, data_path_to_target)
     container_abs_path_to_testcases = join(container_path_to_volume, volume_path_to_data, data_path_to_testcases)
-
-    with open(os.open(host_abs_path_raw_rewrite, os.O_CREAT | os.O_WRONLY, 0o777)) as fh: # allows full permissions
+    with open(os.open(host_abs_path_raw_rewrite, os.O_CREAT | os.O_WRONLY, 0o777), "w+") as fh: # allows full permissions
         fh.write(formatted_string)
     tunit_rc, tunit_stdout = make_tunit_file(container_name=container_name,
                                              in_f=container_abs_path_raw_rewrite,
-                                             out_f=container_abs_path_asbly_rewrite,
+                                             out_f=host_abs_path_asbly_rewrite,
                                              fun_dir=container_abs_path_to_functions,
                                              live_dangerously=True)
 

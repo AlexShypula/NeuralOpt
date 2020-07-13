@@ -3,17 +3,20 @@ name: "transformer"
 data:
     src: "src"
     trg: "tgt"
-    train: "../training/hackers_delight/model_data/train"
-    dev:    "../training/hackers_delight/model_data/val"
-    test:   "../training/hackers_delight/model_data/test"
+    train: "../docker/hackers_delight/model_data/train"
+    dev:    "../docker/hackers_delight/model_data/val"
+    test:   "../docker/hackers_delight/model_data/test"
     level: "word"
     lowercase: False
     max_sent_length: 200
     src_vocab:  "../training/bpe/vocab.txt"
     trg_vocab: "../training/bpe/vocab.txt"
-    hash2metadata: "../training/hackers_delight/train_data.json"
-    tmp_folder_path: "../train_results/hackers_delight_0"
-    data_path: "../training/" # path to where the train_data.json config tells what the relative path is to the assembly
+    hash2metadata: "/home/alexshypula/stoke_training/docker/hackers_delight/train_data.json"
+    container_name: "stoke_train"
+    host_path_to_volume: "/home/alexshypula/stoke_training/docker" #suggested to use abs path
+    container_path_to_volume: "/home/stoke/docker" #suggested to use abs path
+    volume_path_to_data: "" # make empty string if the train_data.json provides the full path relative to the volume
+    volume_path_to_tmp: "tmp_train"
     max_score: 9999
     n_workers: 2
 
@@ -48,7 +51,7 @@ training:
     validation_freq: 50
     logging_freq: 10
     eval_metric: "stoke"
-    model_dir: "../train_results/hackers_delight_0"
+    model_dir: "../train_results"
     overwrite: True
     shuffle: True
     use_cuda: False #True
