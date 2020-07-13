@@ -64,13 +64,16 @@ class TrainManager:
             log_dir=self.model_dir + "/tensorboard/")
 
         # cost_manager
-        self.cost_manager = StokeCostManager(self.hash2metadata,
-                                             data_config.get("tmp_folder_path"),
-                                             data_config.get("data_path"),
-                                             self.tb_writer,
-                                             max_len=data_config.get("max_len"),
-                                             max_score=data_config.get("max_score"),
-                                             n_workers=data_config.get("n_workers"))
+        self.cost_manager = StokeCostManager(hash2metadata = self.hash2metadata,
+                                             container_name = data_config.get("container_name"),
+                                             host_path_to_volume = data_config.get("host_path_to_volume"),
+                                             container_path_to_volume = data_config.get("container_path_to_volume"),
+                                             volume_path_to_data = data_config.get("volume_path_to_data"),
+                                             volume_path_to_tmp = data_config.get("volume_path_to_tmp"),
+                                             tb_writer = self.tb_writer,
+                                             max_len = data_config.get("max_len"),
+                                             max_score = data_config.get("max_score"),
+                                             n_workers = data_config.get("n_workers"))
 
 
         # model

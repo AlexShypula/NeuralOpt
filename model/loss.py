@@ -14,16 +14,20 @@ from helpers import mkdir, hash_file, make_tunit_file, test_costfn, bpe2formatte
 from collections import deque
 from multiprocessing.pool import ThreadPool
 from typing import List, Tuple, Dict
+import os
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
 
 class StokeCostManager:
-    def __init__(self, hash2metadata, tmp_folder_path, data_path, tb_writer, max_len = 256,
-                 max_score = 9999, n_workers=8):
-        mkdir(tmp_folder_path)
-        self.tmp_folder_path = tmp_folder_path
-        self.data_path = data_path
+    def __init__(self, hash2metadata, container_name, host_path_to_volume, container_path_to_volume,
+                 volume_path_to_data, volume_path_to_tmp, tb_writer, max_len = 256, max_score = 9999, n_workers=8):
+        self.container_name = container_name
+        self.host_path_to_volume = host_path_to_volume
+        self.container_path_to_volume = container_path_to_volume
+        self.volume_path_to_data = volume_path_to_data
+        self.volume_path_to_tmp = volume_path_to_tmp
+        mkdir(join(self.host_path_to_volume, self.volume_path_to_tmp))
         self.tb_writer = tb_writer
         self.hash2metadata = hash2metadata
         self.n_workers = n_workers
@@ -41,17 +45,18 @@ class StokeCostManager:
     def get_rl_cost(self, source_bpe_string: str, hypothesis_bpe_string: str):
         h = hash_file(source_bpe_string)
         metadata = self.hash2metadata[h]
-        cost_conf = metadata["cost_conf"]
-        target_asbly_path = join(self.data_path, metadata["base_asbly_path"])
-        testcase_path = join(self.data_path, metadata["testcase_path"])
-        name = metadata["name"]
         cost, failed_tunit, failed_cost = get_stoke_cost(bpe_string=hypothesis_bpe_string,
-                                                            orig_file_path=target_asbly_path,
-                                                            testcase_path = testcase_path,
-                                                            tmp_folder=self.tmp_folder_path,
-                                                            name = name,
-                                                            cost_conf = cost_conf,
+                                                            container_name=self.container_name,
+                                                            host_path_to_volume=self.host_path_to_volume,
+                                                            container_path_to_volume=self.container_path_to_volume,
+                                                            volume_path_to_data=self.volume_path_to_data,
+                                                            volume_path_to_tmp=self.volume_path_to_tmp,
+                                                            data_path_to_target=metadata["base_asbly_path"],
+                                                            data_path_to_testcases=metadata["testcase_path"],
+                                                            assembly_name=metadata["name"],
+                                                            cost_conf=metadata["cost_conf"],
                                                             max_cost=self.max_score)
+
         effective_cost = min(cost, self.max_score)
         # get trailing stats for advantage
         breakpoint()
@@ -126,36 +131,44 @@ class StokeCostManager:
         self.val_step+=1
 
 
-
-
-
-
 def get_stoke_cost(bpe_string: str,
-                   orig_file_path: str,
-                   testcase_path: str,
-                   tmp_folder: str,
-                   name: str,
+                   container_name: str,
+                   host_path_to_volume: str,
+                   container_path_to_volume: str,
+                   volume_path_to_data: str,
+                   volume_path_to_tmp: str,
+                   data_path_to_target: str,
+                   data_path_to_testcases: str,
+                   assembly_name: str,
                    cost_conf,
                    max_cost = 9999) -> float:
+
     formatted_string, _ = bpe2formatted(bpe_string, remove_footer = True)
-    tmp_name = name + str(time())
-    raw_path = join(tmp_folder, tmp_name + ".tmp")
-    asbly_path = join(tmp_folder, tmp_name + ".s")
-    fun_dir = dirname(orig_file_path)
-    with open(raw_path, "w") as fh:
+    rewrite_id = assembly_name + str(time())
+    host_abs_path_raw_rewrite = join(host_path_to_volume, volume_path_to_tmp, rewrite_id + ".tmp")
+    host_abs_path_asbly_rewrite = join(host_path_to_volume, volume_path_to_tmp, rewrite_id + ".s")
+    container_abs_path_raw_rewrite = join(container_path_to_volume, volume_path_to_tmp, rewrite_id + ".tmp")
+    container_abs_path_asbly_rewrite = join(container_path_to_volume, volume_path_to_tmp, rewrite_id + ".s")
+    container_abs_path_to_functions = dirname(join(container_path_to_volume, volume_path_to_data, data_path_to_target))
+    container_abs_path_to_target = join(container_path_to_volume, volume_path_to_data, data_path_to_target)
+    container_abs_path_to_testcases = join(container_path_to_volume, volume_path_to_data, data_path_to_testcases)
+
+    with open(os.open(host_abs_path_raw_rewrite, os.O_CREAT | os.O_WRONLY, 0o777)) as fh: # allows full permissions
         fh.write(formatted_string)
-    tunit_rc, tunit_stdout = make_tunit_file(raw_path,
-                                             asbly_path,
-                                             fun_dir,
+    tunit_rc, tunit_stdout = make_tunit_file(container_name=container_name,
+                                             in_f=container_abs_path_raw_rewrite,
+                                             out_f=container_abs_path_asbly_rewrite,
+                                             fun_dir=container_abs_path_to_functions,
                                              live_dangerously=True)
 
     if tunit_rc == 0:
 
         cost_rc, cost_stdout, cost, correct = test_costfn(
-            target_f=orig_file_path,
-            rewrite_f=asbly_path,
-            testcases_f=testcase_path,
-            fun_dir=fun_dir,
+            container_name = container_name,
+            target_f=container_abs_path_to_target,
+            rewrite_f=container_abs_path_asbly_rewrite,
+            testcases_f=container_abs_path_to_testcases,
+            fun_dir=container_abs_path_to_functions,
             settings_conf=cost_conf,
             live_dangerously=True)
 
@@ -163,37 +176,15 @@ def get_stoke_cost(bpe_string: str,
     cost_failed = False if tunit_rc == 0 and cost_rc == 0 else True
 
 
-    if name != "p01": 
-        os.remove(raw_path)
-        os.remove(asbly_path)
+    if assembly_name != "p01":
+        os.remove(host_abs_path_raw_rewrite)
+        os.remove(host_abs_path_asbly_rewrite)
 
     if tunit_rc == 0 and cost_rc == 0:
         return float(cost), tunit_failed, cost_failed
     else:
         return float(max_cost), tunit_failed, cost_failed
 
-# def parallel_stoke_cost(bpe_strings: List[str],
-#                         orig_file_paths: List[str],
-#                         fun_dirs: List[str],
-#                         tmp_folder: str,
-#                         live_dangerously: bool = True,
-#                         n_workers: int = 1):
-#     assert len(bpe_strings) == len(orig_file_paths) == len(fun_dirs), "cost list has different lengths of args"
-#
-#     jobs = []
-#     for i in range(len(bpe_strings)):
-#         job = {"bpe_string": bpe_strings[i],
-#                "orig_file_path":orig_file_paths[i],
-#                "tmp_folder": tmp_folder,
-#                "fun_dir": fun_dirs[i],
-#                "live_dangerously": live_dangerously}
-#         jobs.append(job)
-#
-#     cost_list = list(ThreadPool(n_workers).map(get_stoke_cost_parallel, jobs))
-#     return cost_list
-#
-# def get_stoke_cost_parallel(args_dict):
-# 	return get_stoke_cost(**args_dict)
 
 class XentLoss(nn.Module):
     """

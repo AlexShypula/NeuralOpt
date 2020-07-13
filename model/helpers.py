@@ -73,12 +73,13 @@ def hash_file(file_string: str, encoding: str = "utf-8") -> str:
     m.update(bytes(file_string, encoding))
     return m.hexdigest()
 
-def make_tunit_file(in_f: str, out_f: str, fun_dir: str, live_dangerously: bool = False):
+def make_tunit_file(container_name: str, in_f: str, out_f: str, fun_dir: str, live_dangerously: bool = False):
     live_dangerously_str = "--live_dangerously" if live_dangerously else ""
     try:
         with open(out_f, "w") as f:
             tunit_proc = subprocess.run(
-                ['stoke', 'debug', 'tunit', '--target', in_f,'--functions', fun_dir, "--prune", live_dangerously_str],
+                ['sudo', 'docker', 'exec', container_name,
+                 'stoke', 'debug', 'tunit', '--target', in_f,'--functions', fun_dir, "--prune", live_dangerously_str],
                 stdout=f,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -90,7 +91,8 @@ def make_tunit_file(in_f: str, out_f: str, fun_dir: str, live_dangerously: bool 
     return tunit_proc.returncode, tunit_proc.stdout
 
 
-def test_costfn(target_f: str,
+def test_costfn(container_name: str,
+                target_f: str,
                 rewrite_f: str,
                 testcases_f: str,
                 fun_dir: str,
@@ -99,7 +101,8 @@ def test_costfn(target_f: str,
 	live_dangerously_str = "--live_dangerously" if live_dangerously else ""
 	try:
 		cost_test = subprocess.run(
-			['stoke', 'debug', 'cost',
+			['sudo', 'docker', 'exec', container_name,
+             'stoke', 'debug', 'cost',
              '--target', target_f,
              '--rewrite', rewrite_f,
              '--testcases', testcases_f,
