@@ -1,0 +1,82 @@
+name: "transformer"
+
+data:
+    src: "src"
+    trg: "tgt"
+    train: "../maxlen200_nmt_430stoke/train_small"
+    dev:   "../maxlen200_nmt_430stoke/dev_small_rl"
+    test:   "../maxlen200_nmt_430stoke/test_small_rl"
+    level: "word"
+    lowercase: False
+    max_sent_length: 200
+    src_vocab:  "../maxlen200_nmt_430stoke/bpe/vocab.txt"
+    trg_vocab: "../maxlen200_nmt_430stoke/bpe/vocab.txt"
+
+testing:
+    beam_size: 5
+    alpha: 0.7
+
+training:
+    random_seed: 42
+    optimizer: "adam"
+    normalization: "tokens"
+    adam_betas: [0.9, 0.999]
+    scheduling: "plateau"
+    patience: 5
+    decrease_factor: 0.7
+    loss: "crossentropy"
+    learning_rate: 0.0003
+    learning_rate_min: 0.00000001
+    weight_decay: 0.0
+    label_smoothing: 0.1
+    batch_size: 1
+    batch_type: "sentence"
+    eval_batch_size: 1
+    eval_batch_type: "sentence"
+    batch_multiplier: 2
+    early_stopping_metric: "eval_metric"
+    epochs: 3
+    validation_freq: 300
+    logging_freq: 20
+    eval_metric: "bleu"
+    model_dir: "models_stoke/4_30_stoke_rl"
+    overwrite: True
+    shuffle: True
+    use_cuda: True
+    max_output_length: 200
+    print_valid_sents: [0, 1, 2, 3]
+    keep_last_ckpts: 3
+    label_smoothing: 0.02
+    
+model:
+    initializer: "xavier"
+    bias_initializer: "zeros"
+    init_gain: 1.0
+    embed_initializer: "xavier"
+    embed_init_gain: 1.0
+    tied_embeddings: True
+    tied_softmax: True
+    encoder:
+        type: "transformer"
+        num_layers: 3
+        num_heads: 8
+        embeddings:
+            embedding_dim: 256
+            scale: True
+            dropout: 0.
+        # typically ff_size = 4 x hidden_size
+        hidden_size: 256
+        ff_size: 1024
+        dropout: 0.1
+    decoder:
+        type: "transformer"
+        num_layers: 3
+        num_heads: 8
+        embeddings:
+            embedding_dim: 256
+            scale: True
+            dropout: 0.
+        # typically ff_size = 4 x hidden_size
+        hidden_size: 256
+        ff_size: 1024
+        dropout: 0.1

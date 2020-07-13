@@ -1,0 +1,91 @@
+name: "transformer"
+
+data:
+    src: "src"
+    trg: "tgt"
+    train: "../training/hackers_delight/model_data/train"
+    dev:    "../training/hackers_delight/model_data/val"
+    test:   "../training/hackers_delight/model_data/test"
+    level: "word"
+    lowercase: False
+    max_sent_length: 200
+    src_vocab:  "../training/bpe/vocab.txt"
+    trg_vocab: "../training/bpe/vocab.txt"
+    hash2metadata: "../training/hackers_delight/train_data.json"
+    tmp_folder_path: "../train_results/hackers_delight_0"
+    data_path: "../training/" # path to where the train_data.json config tells what the relative path is to the assembly
+    max_score: 9999
+    n_workers: 2
+
+testing:
+    beam_size: 1 #5
+    #alpha: -1 #1 defaults to negative 1, not using alpha
+
+training:
+    load_model: "../training/4_30_stoke/best.ckpt"
+    reset_scheduler: True # if True, overwrite scheduler in loaded checkpoint with parameters specified in this config. Use for domain adaptation or fine-tuning.
+    reset_optimizer: True # if True, overwrite optimizer in loaded checkpoint with parameters specified in this config. Use for domain adaptation or fine-tuning.    
+    random_seed: 42
+    optimizer: "adam"
+    normalization: "tokens"
+    adam_betas: [0.9, 0.999]
+    scheduling: "plateau"
+    patience: 5
+    decrease_factor: 0.7
+    loss: "crossentropy"
+    learning_rate: 0.0001
+    learning_rate_min: 0.00000001
+    weight_decay: 0.0
+    label_smoothing: 0.1
+    sentence_samples: 2 # n times to sample each sentence
+    batch_size: 2 # effective batch size after sampling n times, will get batch_size / sentence_samples sentences per batch
+    batch_type: "sentence"
+    eval_batch_size: 2
+    eval_batch_type: "sentence"
+    batch_multiplier: 4 # number of batches you need to repeat 
+    early_stopping_metric: "eval_metric"
+    epochs: 1000
+    validation_freq: 50
+    logging_freq: 10
+    eval_metric: "stoke"
+    model_dir: "../train_results/hackers_delight_0"
+    overwrite: True
+    shuffle: True
+    use_cuda: False #True
+    max_output_length: 200 
+    print_valid_sents: [0, 1, 2, 3]
+    keep_last_ckpts: 3
+    label_smoothing: 0.02
+    
+model:
+    initializer: "xavier"
+    bias_initializer: "zeros"
+    init_gain: 1.0
+    embed_initializer: "xavier"
+    embed_init_gain: 1.0
+    tied_embeddings: True
+    tied_softmax: True
+    encoder:
+        type: "transformer"
+        num_layers: 6
+        num_heads: 8
+        embeddings:
+            embedding_dim: 512
+            scale: True
+            dropout: 0.
+        # typically ff_size = 4 x hidden_size
+        hidden_size: 512
+        ff_size: 2048
+        dropout: 0.1
+    decoder:
+        type: "transformer"
+        num_layers: 6
+        num_heads: 8
+        embeddings:
+            embedding_dim: 512
+            scale: True
+            dropout: 0.
+        # typically ff_size = 4 x hidden_size
+        hidden_size: 512
+        ff_size: 2048
+        dropout: 0.1
