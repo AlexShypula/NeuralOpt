@@ -10,7 +10,7 @@ from torch import nn, Tensor
 from torch.autograd import Variable
 from time import time
 from os.path import join, basename, dirname
-from helpers import mkdir, hash_file, make_tunit_file, test_costfn, bpe2formatted
+from helpers import mkdir, hash_file, make_tunit_file, test_costfn, bpe2formatted, PriorityQueue
 from collections import deque
 from multiprocessing.pool import ThreadPool
 from typing import List, Tuple, Dict
@@ -21,7 +21,8 @@ CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
 
 class StokeCostManager:
     def __init__(self, hash2metadata, container_name, host_path_to_volume, container_path_to_volume,
-                 volume_path_to_data, volume_path_to_tmp, tb_writer, max_len = 256, max_score = 9999, n_workers=8):
+                 volume_path_to_data, volume_path_to_tmp, tb_writer, n_best_seq_dir,
+                 max_len = 256, max_score = 9999, n_workers=8, keep_n_best_seqs=5):
         self.container_name = container_name
         self.host_path_to_volume = host_path_to_volume
         self.container_path_to_volume = container_path_to_volume
@@ -29,16 +30,20 @@ class StokeCostManager:
         self.volume_path_to_tmp = volume_path_to_tmp
         mkdir(join(self.host_path_to_volume, self.volume_path_to_tmp))
         self.tb_writer = tb_writer
+        self.n_best_seq_dir = n_best_seq_dir
+        mkdir(self.n_best_seq_dir)
         self.hash2metadata = hash2metadata
         self.n_workers = n_workers
         self.trailing_stats_dict = dict()
         self.val_step = 0
+        self.priority_queue_length = keep_n_best_seqs
         for h in hash2metadata.keys():
             self.trailing_stats_dict[h] = {"costs": deque(maxlen = max_len),
                                             "failed_tunit": deque(maxlen = max_len),
                                             "failed_cost": deque(maxlen = max_len),
                                             "normalized_advantage": deque(maxlen = max_len),
-                                            "n_steps": 0}
+                                            "n_steps": 0,
+                                            "best_sequence_priority_queue": PriorityQueue(maxlen=self.priority_queue_length)}
             self.hash2metadata[h]["name"] = basename(self.hash2metadata[h]["base_asbly_path"])
         self.max_score = max_score
 
@@ -67,7 +72,8 @@ class StokeCostManager:
         return h, normalized_advantage, {"normalized_advantage": normalized_advantage,
                                          "cost": effective_cost,
                                          "failed_tunit": failed_tunit,
-                                         "failed_cost": failed_cost}
+                                         "failed_cost": failed_cost,
+                                         "hypothesis_string": hypothesis_bpe_string}
 
     def get_rl_cost_wrapper(self, args):
         return self.get_rl_cost(**args)
@@ -89,12 +95,14 @@ class StokeCostManager:
             effective_cost = stats["cost"]
             failed_tunit = stats["failed_tunit"]
             failed_cost = stats["failed_cost"]
+            hypothesis_string = stats["hypothesis_string"]
 
             # update the buffers
             self.trailing_stats_dict[h]["normalized_advantage"].append(normalized_advantage)
             self.trailing_stats_dict[h]["costs"].append(effective_cost)
             self.trailing_stats_dict[h]["failed_tunit"].append(failed_tunit)
             self.trailing_stats_dict[h]["failed_cost"].append(failed_cost)
+            self.training_stats_dict[h]["best_sequence_priority_queue"].append(hypothesis_string)
 
             batch_cost += effective_cost
         batch_cost /= len(hash_stats_list)
@@ -103,28 +111,49 @@ class StokeCostManager:
     def log_buffer_stats(self):
 
         for h in self.trailing_stats_dict.keys():
-            name = self.hash2metadata[h]["name"]
 
-            # re-calculate stats for logger
-            mean_normalized_advantage = np.mean(self.trailing_stats_dict[h]["normalized_advantage"])
-            trailing_cost_mean = np.mean(self.trailing_stats_dict[h]["costs"])
-            trailing_cost_std = np.std(self.trailing_stats_dict[h]["costs"])
-            trailing_failed_tunit = np.mean(self.trailing_stats_dict[h]["failed_tunit"])
-            trailing_failed_cost = np.mean(self.trailing_stats_dict[h]["failed_cost"])
-            step_no = self.trailing_stats_dict[h]["n_steps"]
-            self.trailing_stats_dict[h]["n_steps"] += 1
+            if len(self.trailing_stats_dict[h]["costs"]) > 0:
 
-            self.tb_writer.add_scalar(f"{name}/normalized_advantage", mean_normalized_advantage, step_no)
-            self.tb_writer.add_scalar(f"{name}/trailing_cost", trailing_cost_mean, step_no)
-            self.tb_writer.add_scalar(f"{name}/trailing_std", trailing_cost_std, step_no)
-            self.tb_writer.add_scalar(f"{name}/trailing_failed_tunit", trailing_failed_tunit, step_no)
-            self.tb_writer.add_scalar(f"{name}/trailing_failed_cost", trailing_failed_cost, step_no)
+                name = self.hash2metadata[h]["name"]
+                # re-calculate stats for logger
+                mean_normalized_advantage = np.mean(self.trailing_stats_dict[h]["normalized_advantage"])
+                trailing_cost_mean = np.mean(self.trailing_stats_dict[h]["costs"])
+                trailing_cost_std = np.std(self.trailing_stats_dict[h]["costs"])
+                trailing_failed_tunit = np.mean(self.trailing_stats_dict[h]["failed_tunit"])
+                trailing_failed_cost = np.mean(self.trailing_stats_dict[h]["failed_cost"])
+                step_no = self.trailing_stats_dict[h]["n_steps"]
+
+                self.tb_writer.add_scalar(f"{name}/normalized_advantage", mean_normalized_advantage, step_no)
+                self.tb_writer.add_scalar(f"{name}/trailing_cost", trailing_cost_mean, step_no)
+                self.tb_writer.add_scalar(f"{name}/trailing_std", trailing_cost_std, step_no)
+                self.tb_writer.add_scalar(f"{name}/trailing_failed_tunit", trailing_failed_tunit, step_no)
+                self.tb_writer.add_scalar(f"{name}/trailing_failed_cost", trailing_failed_cost, step_no)
+
+                self.trailing_stats_dict[h]["n_steps"] += 1
+
+    def _write_n_best(self, name: str , priority_queue: PriorityQueue):
+        with open(join(self.n_best_seq_dir, name + "_best.txt"), "w") as fh:
+            fh.write(f"Last val step updated: {self.val_step}\n")
+            for i, (neg_cost, sequence) in enumerate(sorted(priority_queue.queue, reverse=True)):
+                fh.write(f"\n\nRank {i} best sequence for problem {name} has cost: {-neg_cost}\n{'-'*40}\n\n")
+                fh.write(f"{bpe2formatted(sequence, remove_footer=True)}\n{'-'*40}\n{'-'*40}")
 
     def log_validation_stats(self, hash2val_results):
         for h, val_dict in hash2val_results.items():
             name = self.hash2metadata[h]["name"]
             self.tb_writer.add_scalar(f"{name}/val_cost", val_dict["cost"], self.val_step)
             self.tb_writer.add_text(f"{name}/val_output", val_dict["text"], self.val_step)
+
+        for h in self.trailing_stats_dict.keys():
+            priority_queue = self.trailing_stats_dict[h]["best_sequence_priority_queue"]
+            if len(priority_queue.queue)>0:
+                name = self.hash2metadata[h]["name"]
+                cost, best_sequence = priority_queue.peek_best()
+                self.tb_writer.add_text(f"{name}/best_sequence",
+                                        f"best cost is: {cost}\n{bpe2formatted(best_sequence, remove_footer=True)}",
+                                        self.val_step)
+                self._write_n_best(name=name, priority_queue=priority_queue)
+
 
         self.val_step+=1
 

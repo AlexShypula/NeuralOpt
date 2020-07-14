@@ -13,6 +13,7 @@ import logging
 import hashlib
 import subprocess
 import re
+import heapq
 from logging import Logger
 from typing import Callable, Optional, List, Dict, Tuple
 import numpy as np
@@ -36,6 +37,28 @@ REMOVE_FOOTER_REGEX = re.compile(".size [\w_\s\-\.,]+")
 
 class ConfigurationError(Exception):
     """ Custom exception for misspecifications of configuration """
+
+class PriorityQueue:
+    def __init__(self, maxlen):
+        self.maxlen = maxlen
+        self.queue = []
+        heapq.heapify(self.queue)
+
+    def append(self, cost: int, sequence: str):
+        if (-cost, sequence) in self.queue:
+            return None, None
+        elif len(self.queue) >= self.maxlen:
+            neg_cost, worst_seq = heapq.heappushpop(self.queue, (-cost, sequence))
+            return -neg_cost, worst_seq
+        else:
+            heapq.heappush(self.queue, (-cost, sequence))
+            return None, None
+    def peek_best(self):
+        neg_cost, best_seq = sorted(self.queue, reverse=True)[0]
+        return -neg_cost, best_seq
+    def peek_worst(self):
+        neg_cost, worst_seq = self.queue[0]
+        return -neg_cost, worst_seq
 
 
 def mkdir(dir:str):

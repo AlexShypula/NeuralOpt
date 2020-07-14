@@ -71,9 +71,12 @@ class TrainManager:
                                              volume_path_to_data = data_config.get("volume_path_to_data"),
                                              volume_path_to_tmp = data_config.get("volume_path_to_tmp"),
                                              tb_writer = self.tb_writer,
+                                             n_best_seq_dir="{}/best_seqs/".format(self.model_dir),
                                              max_len = data_config.get("max_len"),
                                              max_score = data_config.get("max_score"),
-                                             n_workers = data_config.get("n_workers"))
+                                             n_workers = data_config.get("n_workers"),
+                                             keep_n_best_seqs=data_config.get("keep_n_best_seqs", 10),
+                                             )
 
 
         # model
@@ -155,6 +158,12 @@ class TrainManager:
         self.batch_multiplier = train_config.get("batch_multiplier", 1)
         self.current_batch_multiplier = self.batch_multiplier
         self.sentence_samples = train_config.get("sentence_samples", 1)
+
+        #running starts
+        self.no_running_starts = train_config.get("no_running_starts", 0)
+        self.running_starts_multiplier = train_config.get("running_starts_multiplier", 1)
+        self.running_starts_batch_size = train_config.get("running_starts_batch_size", self.batch_size)
+        self.running_starts_batch_type = train_config.get("running_starts_batch_type", self.batch_type)
 
         # init attributes for batch training
         self.log_batch_score = 0
@@ -293,7 +302,26 @@ class TrainManager:
 
     # pylint: disable=unnecessary-comprehension
     # pylint: disable=too-many-branches
-    # pylint: disable=too-many-statements
+    # pylint: disable=too-many-statement
+
+    def _do_running_starts(self, train_data: Dataset) -> None:
+
+        running_starts_iter = make_data_iter(train_data,
+                                             batch_size=self.running_starts_batch_size,
+                                             batch_type=self.running_starts_batch_type,
+                                             train=True, shuffle=False)
+        hash_stats_list = []
+        self.model.eval()
+        for sample_no in range(self.no_running_starts):
+            for batch in iter(running_starts_iter):
+                _, hash_stats = self.model.get_rl_loss_for_batch(batch)
+                hash_stats_list.extend(hash_stats)
+
+        hash_stats_list*=self.running_starts_multiplier # will duplicate the list by this constant times -  1
+        running_starts_avg_score = self.cost_manager.update_buffers(hash_stats_list)
+        print(f"Average score during running starts was {running_starts_avg_score:.2f}")
+        self.model.train()
+
     def train_and_validate(self, train_data: Dataset, valid_data: Dataset) \
             -> None:
         """
@@ -302,6 +330,10 @@ class TrainManager:
         :param train_data: training data
         :param valid_data: validation data
         """
+
+        if self.no_running_starts > 0:
+            self._do_running_starts(train_data)
+
         train_iter = make_data_iter(train_data,
                                     batch_size=self.batch_size,
                                     batch_type=self.batch_type,
