@@ -171,7 +171,7 @@ class TrainManager:
         self.use_cuda = train_config["use_cuda"]
         if self.use_cuda:
             self.model.cuda()
-            self.loss.cuda()
+            #self.loss.cuda()
 
         # initialize accumalted batch loss (needed for batch_multiplier)
         self.norm_batch_loss_accumulated = 0
@@ -429,7 +429,7 @@ class TrainManager:
                     self._store_outputs(valid_hypotheses)
 
                     # store attention plots for selected valid sentences
-                    breakpoint()
+                    #breakpoint()
                     if valid_attention_scores:
                         store_attention_plots(
                             attentions=valid_attention_scores,

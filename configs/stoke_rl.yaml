@@ -41,11 +41,11 @@ training:
     weight_decay: 0.0
     label_smoothing: 0.1
     sentence_samples: 2 # n times to sample each sentence
-    batch_size: 2 # effective batch size after sampling n times, will get batch_size / sentence_samples sentences per batch
+    batch_size: 1 # effective batch size after sampling n times, will get batch_size / sentence_samples sentences per batch
     batch_type: "sentence"
     eval_batch_size: 2
     eval_batch_type: "sentence"
-    batch_multiplier: 4 # number of batches you need to repeat 
+    batch_multiplier: 8 # number of batches you need to repeat 
     early_stopping_metric: "eval_metric"
     epochs: 1000
     validation_freq: 50
@@ -54,7 +54,7 @@ training:
     model_dir: "../train_results"
     overwrite: True
     shuffle: True
-    use_cuda: False #True
+    use_cuda: True
     max_output_length: 200 
     print_valid_sents: [0, 1, 2, 3]
     keep_last_ckpts: 3
