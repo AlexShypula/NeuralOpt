@@ -309,13 +309,20 @@ class TrainManager:
         running_starts_iter = make_data_iter(train_data,
                                              batch_size=self.running_starts_batch_size,
                                              batch_type=self.running_starts_batch_type,
-                                             train=True, shuffle=False)
+                                             train=True, shuffle=self.shuffle)
         hash_stats_list = []
         self.model.eval()
-        for sample_no in range(self.no_running_starts):
-            for batch in iter(running_starts_iter):
-                _, hash_stats = self.model.get_rl_loss_for_batch(batch)
-                hash_stats_list.extend(hash_stats)
+        with torch.no_grad(): 
+            for sample_no in range(self.no_running_starts):
+                for batch in iter(running_starts_iter):
+                    batch = Batch(batch, self.pad_index, use_cuda=self.use_cuda)
+                    _, hash_stats = self.model.get_rl_loss_for_batch(batch = batch,
+                                                                          cost_manager = self.cost_manager,
+                                                                          loss_function = self.loss,
+                                                                          use_cuda = self.use_cuda,
+                                                                          max_output_length = self.max_output_length,
+                                                                          level = self.level)
+                    hash_stats_list.extend(hash_stats)
 
         hash_stats_list*=self.running_starts_multiplier # will duplicate the list by this constant times -  1
         running_starts_avg_score = self.cost_manager.update_buffers(hash_stats_list)
@@ -330,7 +337,7 @@ class TrainManager:
         :param train_data: training data
         :param valid_data: validation data
         """
-
+        breakpoint()
         if self.no_running_starts > 0:
             self._do_running_starts(train_data)
 

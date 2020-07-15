@@ -102,7 +102,7 @@ class StokeCostManager:
             self.trailing_stats_dict[h]["costs"].append(effective_cost)
             self.trailing_stats_dict[h]["failed_tunit"].append(failed_tunit)
             self.trailing_stats_dict[h]["failed_cost"].append(failed_cost)
-            self.training_stats_dict[h]["best_sequence_priority_queue"].append(hypothesis_string)
+            self.trailing_stats_dict[h]["best_sequence_priority_queue"].append(effective_cost, hypothesis_string)
 
             batch_cost += effective_cost
         batch_cost /= len(hash_stats_list)
@@ -136,7 +136,7 @@ class StokeCostManager:
             fh.write(f"Last val step updated: {self.val_step}\n")
             for i, (neg_cost, sequence) in enumerate(sorted(priority_queue.queue, reverse=True)):
                 fh.write(f"\n\nRank {i} best sequence for problem {name} has cost: {-neg_cost}\n{'-'*40}\n\n")
-                fh.write(f"{bpe2formatted(sequence, remove_footer=True)}\n{'-'*40}\n{'-'*40}")
+                fh.write(f"{bpe2formatted(sequence, remove_footer=True)[0]}\n{'-'*40}\n{'-'*40}")
 
     def log_validation_stats(self, hash2val_results):
         for h, val_dict in hash2val_results.items():
@@ -150,7 +150,7 @@ class StokeCostManager:
                 name = self.hash2metadata[h]["name"]
                 cost, best_sequence = priority_queue.peek_best()
                 self.tb_writer.add_text(f"{name}/best_sequence",
-                                        f"best cost is: {cost}\n{bpe2formatted(best_sequence, remove_footer=True)}",
+                                        f"best cost is: {cost}\n{bpe2formatted(best_sequence, remove_footer=True)[0]}",
                                         self.val_step)
                 self._write_n_best(name=name, priority_queue=priority_queue)
 
