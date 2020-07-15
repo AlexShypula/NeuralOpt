@@ -11,6 +11,7 @@ from typing import List
 import os
 import queue
 import json
+import math
 
 # import math
 import numpy as np
@@ -337,7 +338,7 @@ class TrainManager:
         :param train_data: training data
         :param valid_data: validation data
         """
-        breakpoint()
+        #breakpoint()
         if self.no_running_starts > 0:
             self._do_running_starts(train_data)
 
@@ -372,6 +373,10 @@ class TrainManager:
                 self.model.train()
                 # create a Batch object from torchtext batch
                 batch = Batch(batch, self.pad_index, use_cuda=self.use_cuda)
+                if self.batch_type == "sentence":
+                    if self.batch_multiplier > 1 and i == len(train_iter) - math.ceil(leftover_batch_size / self.batch_size):
+                        self.current_batch_multiplier = math.ceil(leftover_batch_size / self.batch_size)
+                        self.count = self.current_batch_multiplier - 1
 
                 # calculate grads, accumulate, and step
                 self._train_batch(batch)
@@ -550,10 +555,13 @@ class TrainManager:
         # update buffers after sampling
         batch_score = self.cost_manager.update_buffers(hash_stats_list)
 
+
         if self.current_batch_multiplier > 1:
             self.multi_batch_score += (batch_score / self.current_batch_multiplier \
                     if self.normalization != "none" else batch_score)
-
+            #print(f"multi_batch_score is {self.multi_batch_score} and batch_score is {batch_score} and multiplier is {self.current_batch_multiplier} and count is {self.count}")
+        #if batch_score > 9999 or self.multi_batch_score > 9999: 
+            #breakpoint()
         self.update = (self.count == 0)
         if self.update:
             if self.clip_grad_fun is not None:

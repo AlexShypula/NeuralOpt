@@ -83,8 +83,7 @@ class StokeCostManager:
         for (source_bpe_str, hypothesis_bpe_str) in bpe_strings:
             arg_list.append({"source_bpe_string": source_bpe_str, "hypothesis_bpe_string": hypothesis_bpe_str})
         #breakpoint()
-        hash_cost_list = list(map(self.get_rl_cost_wrapper, arg_list))
-#list(ThreadPool(self.n_workers).map(self.get_rl_cost_wrapper, arg_list))
+        hash_cost_list = list(ThreadPool(self.n_workers).map(self.get_rl_cost_wrapper, arg_list))
         return hash_cost_list
 
     def update_buffers(self, hash_stats_list: Tuple[str, Dict]):
