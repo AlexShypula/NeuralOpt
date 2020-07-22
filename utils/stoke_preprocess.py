@@ -324,6 +324,8 @@ def merge_registers(a):
         else:
             res.append(''.join([last, current]))
             last = None
+    if last != '▁%' and last != '%' and last != None:
+        res.append(last)
     return res
 
 def parallel_bpe_process_wrapper(args_dict: Dict[str, str]):
