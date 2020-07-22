@@ -40,8 +40,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
     spm_model = spm.SentencePieceProcessor()
     spm_model.Load(args.path_to_spm_model)
+    with open(args.path_to_in_file, "r") as in_f:
+        pbar = tqdm(total=len(in_f.readlines()), smoothing=.1)
     with open(args.path_to_in_file, "r") as in_f, open(args.path_to_out_file, "w") as out_f:
-        pbar = tqdm(total = len(in_f.readlines()), smoothing=.1, )
         for line in in_f:
             bpe_string, _ = strip_and_retokenize(line.strip(), spm_model)
             out_string = " ".join(bpe_string)
