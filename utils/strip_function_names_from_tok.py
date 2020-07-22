@@ -5,6 +5,7 @@ from stoke_preprocess import merge_registers, stitch_together, _spec_char_rep, N
 from stoke_test_costfn import FUNCTION_NAME_REGEX
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
+from tqdm import tqdm
 
 
 @dataclass
@@ -40,7 +41,9 @@ if __name__ == "__main__":
     spm_model = spm.SentencePieceProcessor()
     spm_model.Load(args.path_to_spm_model)
     with open(args.path_to_in_file, "r") as in_f, open(args.path_to_out_file, "w") as out_f:
+        pbar = tqdm(total = len(in_f.readlines()), smoothing=.1, )
         for line in in_f:
             bpe_string, _ = strip_and_retokenize(line.strip(), spm_model)
             out_string = " ".join(bpe_string)
             out_f.write(out_string + "\n")
+            pbar.update()
