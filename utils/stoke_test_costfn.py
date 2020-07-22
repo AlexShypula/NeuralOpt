@@ -8,7 +8,7 @@ from tqdm import tqdm
 from os.path import join, splitext, isfile
 from os import listdir
 from multiprocessing.pool import ThreadPool
-from stoke_preprocess import hash_file, mkdir, process_raw_assembly, merge_registers, stitch_together
+from stoke_preprocess import hash_file, mkdir, process_raw_assembly, merge_registers, stitch_together, FINDALL_FUNCTIONS_PATTERN
 from typing import List, Tuple
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
@@ -95,6 +95,8 @@ TUNITORIGFIELDS = ["orig_tunit_rc",
 "opt_tunit_unopt_bpe_cost",
 "opt_tunit_unopt_bpe_correctness"
 ]
+
+SPMMODELFIELDS = ["unopt_full_canon_hash", "opt_full_canon_hash"]
 
 @dataclass
 class ParseOptions:
@@ -219,6 +221,8 @@ def parallel_eval_cost(path_list: List[str],
 		field_names.extend(BPETESTFIELDS)
 	if tunit_on_orig:
 		field_names.extend(TUNITORIGFIELDS)
+	if spm_model_path:
+		field_names.extend(SPMMODELFIELDS)
 	print(field_names)
 	dict_writer = csv.DictWriter(stats_csv_fh,
 								 fieldnames=field_names,
@@ -410,14 +414,16 @@ def test_indiv_function(fun_dir: str, fun_file: str, tc_dir: str,  asbly_hash_se
 	assembly_length = len(assembly)
 	result_dictionary[f"{flag}_length"] = assembly_length
 
-
 	if spm_model:
-		asbly, _, _, _ = process_raw_assembly(raw_assembly=assembly, preserve_fun_names=True, preserve_semantics=True)
+		asbly, _, function_name_list, _ = process_raw_assembly(raw_assembly=assembly, preserve_fun_names=True, preserve_semantics=True)
+		full_canon_asbly = strip_function_names(asbly, function_name_list)
+		assembly_hash = hash_file(full_canon_asbly) # used for deduplicating, following global convention
 		tokenized_asbly = merge_registers(spm_model.EncodeAsPieces(asbly.strip()))
 		result_dictionary[f"{flag}_bpe_len"] = len(tokenized_asbly)
 		tokenized_asbly_string = " ".join(tokenized_asbly)
-		assembly_hash = hash_file(tokenized_asbly_string)
-		result_dictionary[f"{flag}_hash"] = assembly_hash
+		bpe_hash = hash_file(tokenized_asbly_string) # has other purposes (i.e. use in training)
+		result_dictionary[f"{flag}_hash"] = bpe_hash
+		result_dictionary[f"{flag}_full_canon_hash"] = assembly_hash
 		if write_asbly:
 			result_dictionary[f"{flag}_assembly"] = " ".join(tokenized_asbly)
 		if max_seq_len:
@@ -680,6 +686,13 @@ def test_bpe_cost(fun_file: str, unopt_fun_dir: str, opt_fun_dir: str, tc_dir: s
 		result_dict["opt_tunit_unopt_bpe_correctness"] = opt_tunit_correct
 
 	return result_dict
+
+
+def strip_function_names(assembly_text: str, function_name_list: List[str]):
+	for function_name in function_name_list:
+		assembly_text = re.sub(f"\.{function_name}:[^\n]*\n", "", assembly_text)
+		assembly_text = re.sub(f"\.size\s+{function_name},\s+.-.*", "", assembly_text)
+	return assembly_text
 
 
 def create_header_footer(assembly_string: str):
