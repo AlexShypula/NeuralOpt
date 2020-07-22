@@ -736,7 +736,8 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str, l
 	try:
 		cost_test = subprocess.run(
 			['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
-			 testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str],
+			 testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set', '{ 0 1 ... 31 }',
+			 '--cost', '100*correctness+measured+latency', '--heap_out', '--stack_out'],
 			stdout=subprocess.PIPE,
 			stderr=subprocess.STDOUT,
 			text=True,
