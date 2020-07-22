@@ -5,6 +5,7 @@ import os
 import shutil
 import re
 import json
+from tqdm import tqdm
 from multiprocessing.pool import ThreadPool
 from os.path import dirname, join, basename
 from stoke_preprocess import hash_file, mkdir, process_raw_assembly, merge_registers, stitch_together
@@ -156,10 +157,12 @@ def make_data(path_to_destination_data: str, path_to_source_data: str,
     test_tgt = open(join(path_to_model_data, "test.tgt"), "w")
 
     hash2metadata_dict = {}
+    pbar = tqdm(total = len(stats_dataframe), smoothing = 0)
 
     for unopt_asbly, opt_asbly, asbly_hash, metadata_dict in ThreadPool(n_threads).imap(individual_make_data_wrapper,
                                                                                         jobs, chunksize=88):
         hash2metadata_dict[asbly_hash] = metadata_dict
+        pbar.update()
 
         r = random.random()
 
@@ -179,8 +182,8 @@ def make_data(path_to_destination_data: str, path_to_source_data: str,
     val_tgt.close()
     test_src.close()
 
-    with open(join(path_to_model_data, "train_data.json")) as fh:
-        json.dump(hash2metadata_dict, fh)
+    with open(join(path_to_model_data, "train_data.json"), "w") as fh:
+        json.dump(hash2metadata_dict, fh, indent=4)
 
 if __name__ == "__main__":
     parser = ArgumentParser(ParseOptions)
@@ -191,6 +194,7 @@ if __name__ == "__main__":
 
     stats_dataframe = pd.read_csv(args.path_to_stats_csv)
     args.stats_dataframe = stats_dataframe[stats_dataframe["opt_unopt_correctness"] == "yes"][stats_dataframe["unopt_unopt_correctness"] == "yes"]
+    args.stats_dataframe = args.stats_dataframe.reindex()
 
     make_data(**vars(args))
 
