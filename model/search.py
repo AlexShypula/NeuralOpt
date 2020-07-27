@@ -44,6 +44,43 @@ def greedy(src_mask: Tensor, embed: Embeddings, bos_index: int, eos_index: int,
         src_mask, embed, bos_index, eos_index, max_output_length,
         decoder, encoder_output, encoder_hidden)
 
+sample_rl_transformer(
+                encoder_hidden=encoder_hidden,
+                encoder_output=encoder_output, eos_index=self.eos_index,
+                src_mask=batch.src_mask, embed=self.trg_embed,
+                bos_index=self.bos_index, decoder=self.decoder,
+                max_output_length=max_output_length)
+
+def sample_rl(src_mask: Tensor, embed: Embeddings, bos_index: int, eos_index: int,
+           max_output_length: int, decoder: Decoder,
+           encoder_output: Tensor, encoder_hidden: Tensor): # has 3 return values
+    """
+    Greedy decoding. Select the token word highest probability at each time
+    step. This function is a wrapper that calls recurrent_greedy for
+    recurrent decoders and transformer_greedy for transformer decoders.
+
+    :param src_mask: mask for source inputs, 0 for positions after </s>
+    :param embed: target embedding
+    :param bos_index: index of <s> in the vocabulary
+    :param eos_index: index of </s> in the vocabulary
+    :param max_output_length: maximum length for the hypotheses
+    :param decoder: decoder to use for greedy decoding
+    :param encoder_output: encoder hidden states for attention
+    :param encoder_hidden: encoder last state for decoder initialization
+    :return:
+    """
+
+    if isinstance(decoder, TransformerDecoder):
+        # Transformer greedy decoding
+        greedy_fun = sample_rl_transformer
+    else:
+        # Recurrent greedy decoding
+        greedy_fun = sample_rl_recurrent
+
+    return greedy_fun(
+        src_mask, embed, bos_index, eos_index, max_output_length,
+        decoder, encoder_output, encoder_hidden)
+
 
 def recurrent_greedy(
         src_mask: Tensor, embed: Embeddings, bos_index: int, eos_index: int,
@@ -104,6 +141,75 @@ def recurrent_greedy(
     stacked_output = np.stack(output, axis=1)  # batch, time
     stacked_attention_scores = np.stack(attention_scores, axis=1)
     return stacked_output, stacked_attention_scores
+
+
+# pylint: disable=unused-argument
+def sample_rl_recurrent(
+        src_mask: Tensor, embed: Embeddings, bos_index: int, eos_index: int,
+        max_output_length: int, decoder: Decoder,
+        encoder_output: Tensor, encoder_hidden: Tensor):
+    """
+    Special greedy function for transformer, since it works differently.
+    The transformer remembers all previous states and attends to them.
+
+    :param src_mask: mask for source inputs, 0 for positions after </s>
+    :param embed: target embedding layer
+    :param bos_index: index of <s> in the vocabulary
+    :param eos_index: index of </s> in the vocabulary
+    :param max_output_length: maximum length for the hypotheses
+    :param decoder: decoder to use for greedy decoding
+    :param encoder_output: encoder hidden states for attention
+    :param encoder_hidden: encoder final state (unused in Transformer)
+    :return:
+        - stacked_output: output hypotheses (2d array of indices),
+        - stacked_attention_scores: attention scores (3d array)
+    """
+
+    batch_size = src_mask.size(0)
+    prev_y = src_mask.new_full(size=[batch_size, 1], fill_value=bos_index,
+                               dtype=torch.long)
+
+    log_probs_saved = []
+    output = []
+    attention_scores = []
+    hidden = None
+    prev_att_vector = None
+    finished = src_mask.new_zeros((batch_size, 1)).byte()
+
+    # pylint: disable=unused-variable
+    for t in range(max_output_length):
+        # decode one single step
+        logits, hidden, att_probs, prev_att_vector = decoder(
+            encoder_output=encoder_output,
+            encoder_hidden=encoder_hidden,
+            src_mask=src_mask,
+            trg_embed=embed(prev_y),
+            hidden=hidden,
+            prev_att_vector=prev_att_vector,
+            unroll_steps=1)
+        # logits: batch x time=1 x vocab (logits)
+        probs = F.softmax(logits.squeeze(1), dim=1)  # now batch x vocab
+        m = Categorical(probs)
+        next_word = m.sample()
+        log_probs = m.log_prob(next_word)
+        log_probs_saved.append(log_probs)
+
+        output.append(next_word.squeeze(1).detach().cpu().numpy())
+        prev_y = next_word
+        attention_scores.append(att_probs.squeeze(1).detach().cpu().numpy())
+        # batch, max_src_lengths
+
+        # check if previous symbol was <eos>
+        is_eos = torch.eq(next_word, eos_index)
+        finished += is_eos
+        # stop predicting if <eos> reached for all elements in batch
+        if (finished >= 1).sum() == batch_size:
+            break
+
+    stacked_output = np.stack(output, axis=1)  # batch, time
+    stacked_attention_scores = np.stack(attention_scores, axis=1)
+
+    return stacked_output, log_probs_saved, stacked_attention_scores
 
 
 # pylint: disable=unused-argument
@@ -176,7 +282,7 @@ def sample_rl_transformer(
         src_mask: Tensor, embed: Embeddings,
         bos_index: int, eos_index: int,
         max_output_length: int, decoder: Decoder,
-        encoder_output: Tensor, encoder_hidden: Tensor) -> (np.array, None):
+        encoder_output: Tensor, encoder_hidden: Tensor):
     """
     Special greedy function for transformer, since it works differently.
     The transformer remembers all previous states and attends to them.
@@ -240,7 +346,7 @@ def sample_rl_transformer(
             break
 
     ys = ys[:, 1:]  # remove BOS-symbol
-    return ys.detach().cpu().numpy(), log_probs_saved
+    return ys.detach().cpu().numpy(), log_probs_saved, None
 
 
 # pylint: disable=too-many-statements,too-many-branches

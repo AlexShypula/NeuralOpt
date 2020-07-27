@@ -10,7 +10,8 @@ from torch import nn, Tensor
 from torch.autograd import Variable
 from time import time
 from os.path import join, basename, dirname
-from helpers import mkdir, hash_file, make_tunit_file, test_costfn, bpe2formatted, PriorityQueue
+from helpers import mkdir, hash_file, make_tunit_file, test_costfn, bpe2formatted, PriorityQueue, \
+    verify_and_rewrite_testcase, make_verify_rewrite_paths, make_cost_paths
 from collections import deque
 from multiprocessing.pool import ThreadPool
 from typing import List, Tuple, Dict
@@ -19,10 +20,16 @@ import os
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
 
+STOKE_TRAINING_SET_REGEX = re.compile("(?=})") # when you do sub, you need to include an extra space after the integer
+
 class StokeCostManager:
     def __init__(self, hash2metadata, container_name, host_path_to_volume, container_path_to_volume,
                  volume_path_to_data, volume_path_to_tmp, tb_writer, n_best_seq_dir,
-                 max_len = 256, max_score = 9999, n_workers=8, keep_n_best_seqs=5):
+                 asm_names_to_save: List[str] = [], verifiction_strategy: str = "hold_out",
+                 new_testcase_beginning_index: int = 2000, max_len = 256, max_score = 9999,
+                 n_workers=8, keep_n_best_seqs=5, n_testcases = 32):
+
+        self.hash2metadata = hash2metadata
         self.container_name = container_name
         self.host_path_to_volume = host_path_to_volume
         self.container_path_to_volume = container_path_to_volume
@@ -32,11 +39,14 @@ class StokeCostManager:
         self.tb_writer = tb_writer
         self.n_best_seq_dir = n_best_seq_dir
         mkdir(self.n_best_seq_dir)
-        self.hash2metadata = hash2metadata
+        self.asm_names_to_save = asm_names_to_save,
+        self.verifiction_strategy = verifiction_strategy
+        self.new_testcase_beginning_index = new_testcase_beginning_index
         self.n_workers = n_workers
         self.trailing_stats_dict = dict()
         self.val_step = 0
         self.priority_queue_length = keep_n_best_seqs
+        self.n_testcases = n_testcases
         for h in hash2metadata.keys():
             self.trailing_stats_dict[h] = {"costs": deque(maxlen = max_len),
                                             "failed_tunit": deque(maxlen = max_len),
@@ -45,24 +55,71 @@ class StokeCostManager:
                                             "n_steps": 0,
                                             "best_sequence_priority_queue": PriorityQueue(maxlen=self.priority_queue_length)}
             self.hash2metadata[h]["name"] = basename(self.hash2metadata[h]["base_asbly_path"])
+            self.hash2metadata[h]["cost_conf"]["training_set"] = f"{{ 0 ... {n_testcases-1} }}"
         self.max_score = max_score
 
     def get_rl_cost(self, source_bpe_string: str, hypothesis_bpe_string: str):
         h = hash_file(source_bpe_string)
         metadata = self.hash2metadata[h]
+
+        cost_path_dict = make_cost_paths(host_path_to_volume=self.host_path_to_volume,
+                                            container_path_to_volume=self.container_path_to_volume,
+                                            volume_path_to_data=self.volume_path_to_data,
+                                            volume_path_to_tmp=self.volume_path_to_tmp,
+                                            data_path_to_target=metadata["base_asbly_path"],
+                                            data_path_to_testcases=metadata["testcase_path"],
+                                            assembly_name=metadata["name"])
+
         cost, failed_tunit, failed_cost = get_stoke_cost(bpe_string=hypothesis_bpe_string,
                                                             container_name=self.container_name,
-                                                            host_path_to_volume=self.host_path_to_volume,
-                                                            container_path_to_volume=self.container_path_to_volume,
-                                                            volume_path_to_data=self.volume_path_to_data,
-                                                            volume_path_to_tmp=self.volume_path_to_tmp,
-                                                            data_path_to_target=metadata["base_asbly_path"],
-                                                            data_path_to_testcases=metadata["testcase_path"],
+                                                            cost_path_dict=cost_path_dict,
                                                             assembly_name=metadata["name"],
                                                             cost_conf=metadata["cost_conf"],
                                                             max_cost=self.max_score)
 
         effective_cost = min(cost, self.max_score)
+
+        if effective_cost < metadata["reference_score"]:
+            host_abs_path_machine_output, container_abs_path_machine_output = make_verify_rewrite_paths(
+                host_path_to_volume=self.host_path_to_volume,
+                container_path_to_volume=self.container_path_to_volume,
+                volume_path_to_tmp=self.volume_path_to_tmp,
+                rewrite_id=cost_path_dict["rewrite_id"])
+
+            next_index = metadata.get("new_testcase_index", self.new_testcase_beginning_index)
+
+            is_verified_correct, counter_examples_available = verify_and_rewrite_testcase(
+                container_name = self.container_name,
+                cost_path_dict = cost_path_dict,
+                container_path_to_machine_output = container_abs_path_machine_output,
+                settings_conf = metadata["cost_conf"],
+                new_testcase_idx = next_index,
+                strategy = self.verification_strategy,
+                live_dangerously = True)
+
+            if is_verified_correct:
+                print(f"New record set for {metadata['name']} with cost: {effective_cost}, and verified correct",
+                      flush = True)
+                self.hash2metadata[h]["reference_score"] = cost
+
+            elif counter_examples_available:
+                print(f"New testcases added for {metadata['name']} at index {next_index}", flush=True)
+                # inserts in, because the regular expression is simply a lookahead
+                # whitespace is necessary here for the STOKE argument parser
+                self.hash2metadata[h]["cost_conf"]["training_set"] = STOKE_TRAINING_SET_REGEX.sub(
+                    str(next_index) + " ", self.hash2metadata[h]["cost_conf"]["training_set"])
+                self.hash2metadata[h]["new_testcase_index"] = next_index + 1
+
+            else:
+                print(f"{metadata['name']} beat the baseline, but did not verify", flush=True)
+
+            if metadata["name"] not in self.asm_names_to_save:
+                os.remove(host_abs_path_machine_output)
+
+        if metadata["name"] not in self.asm_names_to_save:
+            os.remove(cost_path_dict["host_abs_path_raw_rewrite"])
+            os.remove(cost_path_dict["host_abs_path_asbly_rewrite"])
+
         # get trailing stats for advantage
         cost_std = 1 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.std(self.trailing_stats_dict[h]["costs"])
         cost_mean = 0 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.mean(self.trailing_stats_dict[h]["costs"])
@@ -156,28 +213,46 @@ class StokeCostManager:
 
         self.val_step+=1
 
+    def log_reference_baselines(self, bpe_strings: List[Tuple[str, str]]):
+        for source_bpe_string, target_bpe_string in bpe_strings:
+
+            h = hash_file(source_bpe_string)
+            metadata = self.hash2metadata[h]
+            cost_path_dict = make_cost_paths(host_path_to_volume=self.host_path_to_volume,
+                                             container_path_to_volume=self.container_path_to_volume,
+                                             volume_path_to_data=self.volume_path_to_data,
+                                             volume_path_to_tmp=self.volume_path_to_tmp,
+                                             data_path_to_target=metadata["base_asbly_path"],
+                                             data_path_to_testcases=metadata["testcase_path"],
+                                             assembly_name=metadata["name"])
+
+            cost, failed_tunit, failed_cost = get_stoke_cost(bpe_string=target_bpe_string,
+                                                             container_name=self.container_name,
+                                                             cost_path_dict=cost_path_dict,
+                                                             assembly_name=metadata["name"],
+                                                             cost_conf=metadata["cost_conf"],
+                                                             max_cost=self.max_score)
+
+            effective_cost = min(cost, self.max_score)
+            # get trailing stats for advantage
+            self.hash2metadata[h]["reference_score"] = effective_cost
 
 def get_stoke_cost(bpe_string: str,
                    container_name: str,
-                   host_path_to_volume: str,
-                   container_path_to_volume: str,
-                   volume_path_to_data: str,
-                   volume_path_to_tmp: str,
-                   data_path_to_target: str,
-                   data_path_to_testcases: str,
+                   cost_path_dict: Dict[str, str],
                    assembly_name: str,
                    cost_conf,
-                   max_cost = 9999) -> float:
+                   max_cost = 9999) -> (float, bool, bool, Dict[str, str]):
 
-    formatted_string, _ = bpe2formatted(bpe_string, remove_footer = True)
-    rewrite_id = assembly_name + str(time())
-    host_abs_path_raw_rewrite = join(host_path_to_volume, volume_path_to_tmp, rewrite_id + ".tmp")
-    host_abs_path_asbly_rewrite = join(host_path_to_volume, volume_path_to_tmp, rewrite_id + ".s")
-    container_abs_path_raw_rewrite = join(container_path_to_volume, volume_path_to_tmp, rewrite_id + ".tmp")
-    container_abs_path_asbly_rewrite = join(container_path_to_volume, volume_path_to_tmp, rewrite_id + ".s")
-    container_abs_path_to_functions = dirname(join(container_path_to_volume, volume_path_to_data, data_path_to_target))
-    container_abs_path_to_target = join(container_path_to_volume, volume_path_to_data, data_path_to_target)
-    container_abs_path_to_testcases = join(container_path_to_volume, volume_path_to_data, data_path_to_testcases)
+    formatted_string, _ = bpe2formatted(bpe_string, function_name = assembly_name, remove_footer = True)
+    host_abs_path_raw_rewrite = cost_path_dict["host_abs_path_raw_rewrite"]
+    host_abs_path_asbly_rewrite = cost_path_dict["host_abs_path_asbly_rewrite"]
+    container_abs_path_raw_rewrite = cost_path_dict["container_abs_path_raw_rewrite"]
+    container_abs_path_asbly_rewrite = cost_path_dict["container_abs_path_asbly_rewrite"]
+    container_abs_path_to_functions = cost_path_dict["container_abs_path_to_functions"]
+    container_abs_path_to_target = cost_path_dict["container_abs_path_to_target"]
+    container_abs_path_to_testcases = cost_path_dict["container_abs_path_to_testcases"]
+
     with open(os.open(host_abs_path_raw_rewrite, os.O_CREAT | os.O_WRONLY, 0o777), "w+") as fh: # allows full permissions
         fh.write(formatted_string)
     tunit_rc, tunit_stdout = make_tunit_file(container_name=container_name,
@@ -199,11 +274,6 @@ def get_stoke_cost(bpe_string: str,
 
     tunit_failed = False if tunit_rc == 0 else True
     cost_failed = False if tunit_rc == 0 and cost_rc == 0 else True
-
-
-    if assembly_name != "p01":
-        os.remove(host_abs_path_raw_rewrite)
-        os.remove(host_abs_path_asbly_rewrite)
 
     if tunit_rc == 0 and cost_rc == 0:
         return float(cost), tunit_failed, cost_failed

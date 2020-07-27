@@ -14,6 +14,7 @@ import hashlib
 import subprocess
 import re
 import heapq
+import json
 from logging import Logger
 from typing import Callable, Optional, List, Dict, Tuple
 import numpy as np
@@ -27,6 +28,10 @@ import yaml
 from vocabulary import Vocabulary
 from plotting import plot_heatmap
 from os import makedirs
+from time import time
+from os.path import join, dirname
+
+from typing import Union
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
@@ -70,24 +75,32 @@ def stitch_together(string):
     l = string.split()
     return ''.join(l).replace('▁', ' ').replace('</n>', '\n').replace('</->', '_')
 
-def create_header_footer(assembly_string: str):
-    match = FUNCTION_NAME_REGEX.search(assembly_string)
-    if match == None:
-        print(assembly_string)
-        function_name = 'NA'
-    else:
-        function_name = match.group()
+def create_header_footer(assembly_string: str, function_name = None):
+    if function_name == None:
+        match = FUNCTION_NAME_REGEX.search(assembly_string)
+        if match == None:
+            print(assembly_string)
+            function_name = 'default_function_name'
+        else:
+            function_name = match.group()
     header = f'''  .text\n  .global {function_name}\n  .type {function_name}, @function\n\n'''
     footer = f".size {function_name}, .-{function_name}"
     return header, footer
 
-def bpe2formatted(assembly_string: str, header_footer : Tuple[str, str] = None, remove_footer: bool = False):
-    # header is the zeroth indexed value in header_footer, and footer should be the fist indexed value
+
+REMOVE_HEADER_REGEX = re.compile('(\s+.text\s*\n)|(\s+.global\s+[^\n]+\n)|(\s+.type\s+[^\n]+,\s+@function\s*\n\n)|(\s*\.[^\n:]+:\s*\n)')
+
+
+def bpe2formatted(assembly_string: str, function_name = None, header_footer : Tuple[str, str] = None, remove_header: bool = True,
+                            remove_footer: bool = True):
     un_bpe_string = stitch_together(assembly_string)
     if remove_footer:
         un_bpe_string = REMOVE_FOOTER_REGEX.sub("", un_bpe_string)
+    if remove_header:
+        assert function_name, "in order to strip the header, you must specify a funciton name"
+        REMOVE_HEADER_REGEX.sub("", un_bpe_string)
     if not header_footer:
-        header_footer = create_header_footer(un_bpe_string)
+        header_footer = create_header_footer(assembly_string=un_bpe_string, function_name=function_name)
     return header_footer[0] + un_bpe_string + header_footer[1], header_footer
 
 
@@ -121,10 +134,10 @@ def test_costfn(container_name: str,
                 fun_dir: str,
                 settings_conf: Dict[str, str],
                 live_dangerously = True):
-	live_dangerously_str = "--live_dangerously" if live_dangerously else ""
-	try:
-		cost_test = subprocess.run(
-			['sudo', 'docker', 'exec', container_name,
+    live_dangerously_str = "--live_dangerously" if live_dangerously else ""
+    try:
+        cost_test = subprocess.run(
+            ['sudo', 'docker', 'exec', container_name,
              '/home/stoke/stoke/bin/stoke', 'debug', 'cost',
              '--target', target_f,
              '--rewrite', rewrite_f,
@@ -136,21 +149,154 @@ def test_costfn(container_name: str,
              "--distance", settings_conf["distance"],
              "--misalign_penalty", settings_conf["misalign_penalty"],
              "--sig_penalty", settings_conf["sig_penalty"],
-             "--cost", settings_conf["costfn"]] ,
-			stdout=subprocess.PIPE,
-			stderr=subprocess.STDOUT,
-			text=True,
-			timeout=25)
-		if cost_test.returncode == 0:
-			cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
-			correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
-		else:
-			cost = -10701
-			correct = "failed"
-		return cost_test.returncode, cost_test.stdout, cost, correct
+             "--cost", settings_conf["costfn"],
+             "--training_set", settings_conf["training_set"]] ,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=25)
+        if cost_test.returncode == 0:
+            cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
+            correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
+        else:
+            cost = -10701
+            correct = "failed"
+        return cost_test.returncode, cost_test.stdout, cost, correct
 
-	except subprocess.TimeoutExpired as err:
-		return -11785, err, -11785, "timeout"
+    except subprocess.TimeoutExpired as err:
+        return -11785, err, -11785, "timeout"
+
+
+def verify_rewrite(container_name: str,
+                target_f: str,
+                rewrite_f: str,
+                testcases_f: str,
+                fun_dir: str,
+                settings_conf: Dict[str, str],
+                machine_output_f: str,
+                strategy: str = "hold_out",
+                live_dangerously = True) -> int:
+    live_dangerously_str = "--live_dangerously" if live_dangerously else ""
+    try:
+        verify_test = subprocess.run(
+            ['sudo', 'docker', 'exec', container_name,
+             '/home/stoke/stoke/bin/stoke', 'debug', 'verify',
+             '--target', target_f,
+             '--rewrite', rewrite_f,
+             '--machine_output', machine_output_f,
+             '--strategy', strategy,
+             '--testcases', testcases_f,
+             '--functions', fun_dir,
+             "--prune", live_dangerously_str,
+             "--def_in", settings_conf["def_in"],
+             "--live_out", settings_conf["live_out"],
+             "--distance", settings_conf["distance"],
+             "--misalign_penalty", settings_conf["misalign_penalty"],
+             "--sig_penalty", settings_conf["sig_penalty"],
+             "--cost", settings_conf["costfn"]],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=25)
+        return verify_test.returncode
+    except subprocess.TimeoutExpired as err:
+        print(f"verify timed out with error {err}")
+        return -1
+
+
+def parse_verify_machine_output(machine_output_f: str) -> (bool, bool, Union[None, str]):
+    with open(machine_output_f) as fh:
+        machine_output_dict = json.load(fh)
+
+    verified_str = machine_output_dict["verified"]
+    counter_examples_available_str = machine_output_dict["counter_examples_available"]
+    if verified_str == "false":
+        verified_flag = False
+        if counter_examples_available_str == "true":
+            counter_examples_available_flag = True
+            counterexample_str = machine_output_dict["counterexample"]
+        else:
+            counter_examples_available_flag = False
+            counterexample_str = None
+    else:
+        verified_flag = True
+        counter_examples_available_flag = False
+        counterexample_str = None
+    return verified_flag, counter_examples_available_flag, counterexample_str
+
+
+def add_counterexample_to_testcases(counterexample_str: str, path_to_testcases: str, new_testcase_idx: int):
+    with open(path_to_testcases, "a") as fh:
+        fh.write(f"\n\n\nTestcase {str(new_testcase_idx)}\n\n:")
+        fh.write(counterexample_str)
+
+def make_verify_rewrite_paths(host_path_to_volume: str,
+                               container_path_to_volume: str,
+                               volume_path_to_tmp: str,
+                               rewrite_id: str):
+
+    machine_output_filename = rewrite_id + ".verify"
+
+    host_abs_path_machine_output = join(host_path_to_volume, volume_path_to_tmp, machine_output_filename)
+    container_abs_path_machine_output = join(container_path_to_volume, volume_path_to_tmp, machine_output_filename)
+
+    return host_abs_path_machine_output, container_abs_path_machine_output
+
+
+def verify_and_rewrite_testcase(container_name: str,
+                                cost_path_dict: Dict[str, str],
+                container_path_to_machine_output: str,
+                settings_conf: Dict[str, str],
+                new_testcase_idx: int,
+                strategy: str = "hold_out",
+                live_dangerously = True):
+
+    container_path_to_target = cost_path_dict["container_abs_path_to_target"],
+    container_path_to_rewrite = cost_path_dict["container_abs_path_asbly_rewrite"],
+    container_path_to_testcases = cost_path_dict["container_abs_path_to_testcases"]
+    container_path_to_functions = cost_path_dict["container_abs_path_to_functions"]
+    host_path_to_testcases = cost_path_dict["host_abs_path_to_testcases"],
+
+    verify_returncode =  verify_rewrite(container_name = container_name,
+                                        target_f=container_path_to_target,
+                                        rewrite_f=container_path_to_rewrite,
+                                        testcases_f=container_path_to_testcases,
+                                        fun_dir=container_path_to_functions,
+                                        settings_conf=settings_conf,
+                                        machine_output_f=container_path_to_machine_output,
+                                        strategy=strategy,
+                                        live_dangerously=live_dangerously)
+    if verify_returncode == 0:
+        is_verified_correct, counter_examples_available, counterexample_str = parse_verify_machine_output(container_path_to_machine_output)
+
+        if is_verified_correct and counter_examples_available:
+            add_counterexample_to_testcases(counterexample_str=counterexample_str,
+                                            path_to_testcases=host_path_to_testcases,
+                                            new_testcase_idx=new_testcase_idx)
+    else:
+        is_verified_correct = counter_examples_available = False
+
+
+    return is_verified_correct, counter_examples_available
+
+
+def make_cost_paths(host_path_to_volume: str,
+                    container_path_to_volume: str,
+                    volume_path_to_data: str,
+                    volume_path_to_tmp: str,
+                    data_path_to_target: str,
+                    data_path_to_testcases: str,
+                    assembly_name: str) -> Dict[str, str]:
+    rewrite_id = (assembly_name + "_" + str(time())).replace(".", "_"),
+    return {"rewrite_id": rewrite_id,
+    "host_abs_path_raw_rewrite": join(host_path_to_volume, volume_path_to_tmp, rewrite_id + ".tmp"),
+    "host_abs_path_asbly_rewrite": join(host_path_to_volume, volume_path_to_tmp, rewrite_id + ".s"),
+    "host_abs_path_to_testcases": join(host_path_to_volume, volume_path_to_data, data_path_to_testcases),
+    "container_abs_path_raw_rewrite": join(container_path_to_volume, volume_path_to_tmp, rewrite_id + ".tmp"),
+    "container_abs_path_asbly_rewrite": join(container_path_to_volume, volume_path_to_tmp, rewrite_id + ".s"),
+    "container_abs_path_to_functions": dirname(join(container_path_to_volume, volume_path_to_data, data_path_to_target)),
+    "container_abs_path_to_target": join(container_path_to_volume, volume_path_to_data, data_path_to_target),
+    "container_abs_path_to_testcases": join(container_path_to_volume, volume_path_to_data, data_path_to_testcases)}
 
 
 

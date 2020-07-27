@@ -162,7 +162,7 @@ class Model(nn.Module):
             max_output_length = int(max(batch.src_lengths.cpu().numpy()) * 1.5)
 
         # greedy decoding
-        stacked_output, transposed_log_probs = sample_rl_transformer(
+        stacked_output, transposed_log_probs, stacked_attention_scores = sample_rl_transformer(
                 encoder_hidden=encoder_hidden,
                 encoder_output=encoder_output, eos_index=self.eos_index,
                 src_mask=batch.src_mask, embed=self.trg_embed,
