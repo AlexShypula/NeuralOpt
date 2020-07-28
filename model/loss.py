@@ -16,6 +16,7 @@ from collections import deque
 from multiprocessing.pool import ThreadPool
 from typing import List, Tuple, Dict
 import os
+from copy import copy
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
@@ -24,7 +25,7 @@ STOKE_TRAINING_SET_REGEX = re.compile("(?=})") # when you do sub, you need to in
 
 class StokeCostManager:
     def __init__(self, hash2metadata, container_name, host_path_to_volume, container_path_to_volume,
-                 volume_path_to_data, volume_path_to_tmp, tb_writer, n_best_seq_dir,
+                 volume_path_to_data, volume_path_to_tmp, tb_writer, n_best_seq_dir, baseline_cost_key: str,
                  asm_names_to_save: List[str] = [], verifiction_strategy: str = "hold_out",
                  new_testcase_beginning_index: int = 2000, max_len = 256, max_score = 9999,
                  n_workers=8, keep_n_best_seqs=5, n_testcases = 32):
@@ -39,6 +40,7 @@ class StokeCostManager:
         self.tb_writer = tb_writer
         self.n_best_seq_dir = n_best_seq_dir
         mkdir(self.n_best_seq_dir)
+        self.baseline_cost_key = baseline_cost_key,
         self.asm_names_to_save = asm_names_to_save,
         self.verification_strategy = verifiction_strategy
         self.new_testcase_beginning_index = new_testcase_beginning_index
@@ -56,6 +58,7 @@ class StokeCostManager:
                                             "best_sequence_priority_queue": PriorityQueue(maxlen=self.priority_queue_length)}
             self.hash2metadata[h]["name"] = basename(self.hash2metadata[h]["base_asbly_path"])
             self.hash2metadata[h]["cost_conf"]["training_set"] = f"{{ 0 ... {n_testcases-1} }}"
+            self.hash2metadata[h]["rolling_baseline_cost"] = copy(self.hash2metadata[h][self.baseline_cost_key])
         self.max_score = max_score
 
     def get_rl_cost(self, source_bpe_string: str, hypothesis_bpe_string: str):
@@ -79,7 +82,7 @@ class StokeCostManager:
 
         effective_cost = min(cost, self.max_score)
 
-        if effective_cost < metadata["reference_score"] and not failed_tunit and not failed_cost:
+        if effective_cost < metadata["rolling_baseline_cost"] and not failed_tunit and not failed_cost:
             host_abs_path_machine_output, container_abs_path_machine_output = make_verify_rewrite_paths(
                 host_path_to_volume=self.host_path_to_volume,
                 container_path_to_volume=self.container_path_to_volume,
@@ -100,7 +103,7 @@ class StokeCostManager:
             if is_verified_correct:
                 print(f"New record set for {metadata['name']} with cost: {effective_cost}, and verified correct",
                       flush = True)
-                self.hash2metadata[h]["reference_score"] = cost
+                self.hash2metadata[h]["rolling_baseline_cost"] = cost
 
             elif counter_examples_available:
                 print(f"New testcases added for {metadata['name']} at index {next_index}", flush=True)

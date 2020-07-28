@@ -76,9 +76,10 @@ class TrainManager:
                                              volume_path_to_tmp = data_config.get("volume_path_to_tmp"),
                                              tb_writer = self.tb_writer,
                                              n_best_seq_dir="{}/best_seqs/".format(self.model_dir),
+                                             baseline_cost_key= data_config.get("baseline_cost_key", "O0"),
                                              asm_names_to_save = asm_names_to_save,
-                                            verifiction_strategy = data_config.get("verification_strategy", "hold_out"),
-                                            new_testcase_beginning_index = data_config.get(
+                                             verifiction_strategy = data_config.get("verification_strategy", "hold_out"),
+                                             new_testcase_beginning_index = data_config.get(
                                                 "new_testcase_beginning_index", 2000),
                                              max_len = data_config.get("max_len"),
                                              max_score = data_config.get("max_score"),
@@ -368,8 +369,9 @@ class TrainManager:
         :param train_data: training data
         :param valid_data: validation data
         """
-        #breakpoint()
-        self._get_reference_baseline(train_data, self.model)
+
+        #self._get_reference_baseline(train_data, self.model)
+
         if self.no_running_starts > 0:
             self._do_running_starts(train_data)
 
