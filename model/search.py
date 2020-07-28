@@ -10,7 +10,7 @@ from helpers import tile
 from torch.distributions.categorical import Categorical
 
 
-__all__ = ["greedy", "transformer_greedy", "beam_search"]
+__all__ = ["greedy", "transformer_greedy", "beam_search", "sample_rl_transformer", "sample_rl_recurrent"]
 
 
 def greedy(src_mask: Tensor, embed: Embeddings, bos_index: int, eos_index: int,
@@ -44,12 +44,6 @@ def greedy(src_mask: Tensor, embed: Embeddings, bos_index: int, eos_index: int,
         src_mask, embed, bos_index, eos_index, max_output_length,
         decoder, encoder_output, encoder_hidden)
 
-sample_rl_transformer(
-                encoder_hidden=encoder_hidden,
-                encoder_output=encoder_output, eos_index=self.eos_index,
-                src_mask=batch.src_mask, embed=self.trg_embed,
-                bos_index=self.bos_index, decoder=self.decoder,
-                max_output_length=max_output_length)
 
 def sample_rl(src_mask: Tensor, embed: Embeddings, bos_index: int, eos_index: int,
            max_output_length: int, decoder: Decoder,
@@ -82,6 +76,7 @@ def sample_rl(src_mask: Tensor, embed: Embeddings, bos_index: int, eos_index: in
         decoder, encoder_output, encoder_hidden)
 
 
+# pylint: disable=unused-argument
 def recurrent_greedy(
         src_mask: Tensor, embed: Embeddings, bos_index: int, eos_index: int,
         max_output_length: int, decoder: Decoder,
