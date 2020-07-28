@@ -14,7 +14,7 @@ from embeddings import Embeddings
 from encoders import Encoder, RecurrentEncoder, TransformerEncoder
 from decoders import Decoder, RecurrentDecoder, TransformerDecoder
 from constants import PAD_TOKEN, EOS_TOKEN, BOS_TOKEN
-from search import beam_search, greedy, sample_rl_transformer
+from search import beam_search, greedy, sample_rl
 from vocabulary import Vocabulary
 from batch import Batch
 from helpers import ConfigurationError, bpe_postprocess
@@ -162,7 +162,7 @@ class Model(nn.Module):
             max_output_length = int(max(batch.src_lengths.cpu().numpy()) * 1.5)
 
         # greedy decoding
-        stacked_output, transposed_log_probs, stacked_attention_scores = sample_rl_transformer(
+        stacked_output, transposed_log_probs, stacked_attention_scores = sample_rl(
                 encoder_hidden=encoder_hidden,
                 encoder_output=encoder_output, eos_index=self.eos_index,
                 src_mask=batch.src_mask, embed=self.trg_embed,

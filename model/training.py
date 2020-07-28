@@ -33,6 +33,7 @@ from data import load_data, make_data_iter
 from builders import build_optimizer, build_scheduler, \
     build_gradient_clipper
 from prediction import test
+from tqdm import tqdm
 import gc
 
 # pylint: disable=too-many-instance-attributes
@@ -319,6 +320,7 @@ class TrainManager:
                                              train=True, shuffle=self.shuffle)
         hash_stats_list = []
         self.model.eval()
+        pbar = tqdm(total = len(train_data) * self.no_running_starts, smoothing = 0, position = 0)
         with torch.no_grad(): 
             for sample_no in range(self.no_running_starts):
                 for batch in iter(running_starts_iter):
@@ -330,6 +332,7 @@ class TrainManager:
                                                                           max_output_length = self.max_output_length,
                                                                           level = self.level)
                     hash_stats_list.extend(hash_stats)
+                    pbar.update(len(hash_stats))
 
         hash_stats_list*=self.running_starts_multiplier # will duplicate the list by this constant times -  1
         running_starts_avg_score = self.cost_manager.update_buffers(hash_stats_list)
@@ -342,7 +345,7 @@ class TrainManager:
                                              batch_size=self.running_starts_batch_size,
                                              batch_type=self.running_starts_batch_type,
                                              train=True, shuffle=self.shuffle)
-
+        pbar = tqdm(total = len(train_data), smoothing = 0, position=0)
         for batch in iter(reference_baseline_iter):
             batch = Batch(batch, self.pad_index, use_cuda=self.use_cuda)
             decoded_src = model.trg_vocab.arrays_to_sentences(arrays=batch.src, cut_at_eos=True)
@@ -354,6 +357,7 @@ class TrainManager:
                 train_sources = [bpe_postprocess(s) for s in train_sources]
                 train_references = [bpe_postprocess(s) for s in train_references]
             self.cost_manager.log_reference_baselines(zip(train_sources, train_references))
+            pbar.update(len(train_sources))
 
 
     def train_and_validate(self, train_data: Dataset, valid_data: Dataset) \
@@ -365,6 +369,7 @@ class TrainManager:
         :param valid_data: validation data
         """
         #breakpoint()
+        self._get_reference_baseline(train_data, self.model)
         if self.no_running_starts > 0:
             self._do_running_starts(train_data)
 

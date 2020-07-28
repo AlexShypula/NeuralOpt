@@ -189,13 +189,12 @@ def sample_rl_recurrent(
         log_probs = m.log_prob(next_word)
         log_probs_saved.append(log_probs)
 
-        output.append(next_word.squeeze(1).detach().cpu().numpy())
-        prev_y = next_word
+        output.append(next_word.detach().cpu().numpy())
+        prev_y = next_word.unsqueeze(1)
         attention_scores.append(att_probs.squeeze(1).detach().cpu().numpy())
         # batch, max_src_lengths
-
         # check if previous symbol was <eos>
-        is_eos = torch.eq(next_word, eos_index)
+        is_eos = torch.eq(next_word.unsqueeze(1), eos_index)
         finished += is_eos
         # stop predicting if <eos> reached for all elements in batch
         if (finished >= 1).sum() == batch_size:

@@ -40,7 +40,7 @@ class StokeCostManager:
         self.n_best_seq_dir = n_best_seq_dir
         mkdir(self.n_best_seq_dir)
         self.asm_names_to_save = asm_names_to_save,
-        self.verifiction_strategy = verifiction_strategy
+        self.verification_strategy = verifiction_strategy
         self.new_testcase_beginning_index = new_testcase_beginning_index
         self.n_workers = n_workers
         self.trailing_stats_dict = dict()
@@ -79,7 +79,7 @@ class StokeCostManager:
 
         effective_cost = min(cost, self.max_score)
 
-        if effective_cost < metadata["reference_score"]:
+        if effective_cost < metadata["reference_score"] and not failed_tunit and not failed_cost:
             host_abs_path_machine_output, container_abs_path_machine_output = make_verify_rewrite_paths(
                 host_path_to_volume=self.host_path_to_volume,
                 container_path_to_volume=self.container_path_to_volume,
@@ -87,10 +87,10 @@ class StokeCostManager:
                 rewrite_id=cost_path_dict["rewrite_id"])
 
             next_index = metadata.get("new_testcase_index", self.new_testcase_beginning_index)
-
             is_verified_correct, counter_examples_available = verify_and_rewrite_testcase(
                 container_name = self.container_name,
                 cost_path_dict = cost_path_dict,
+                host_path_to_machine_output = host_abs_path_machine_output, 
                 container_path_to_machine_output = container_abs_path_machine_output,
                 settings_conf = metadata["cost_conf"],
                 new_testcase_idx = next_index,
@@ -140,7 +140,8 @@ class StokeCostManager:
         for (source_bpe_str, hypothesis_bpe_str) in bpe_strings:
             arg_list.append({"source_bpe_string": source_bpe_str, "hypothesis_bpe_string": hypothesis_bpe_str})
         #breakpoint()
-        hash_cost_list = list(ThreadPool(self.n_workers).map(self.get_rl_cost_wrapper, arg_list))
+        #hash_cost_list = list(ThreadPool(self.n_workers).map(self.get_rl_cost_wrapper, arg_list))
+        hash_cost_list = list(map(self.get_rl_cost_wrapper, arg_list))
         return hash_cost_list
 
     def update_buffers(self, hash_stats_list: Tuple[str, Dict]):
@@ -243,7 +244,6 @@ def get_stoke_cost(bpe_string: str,
                    assembly_name: str,
                    cost_conf,
                    max_cost = 9999) -> (float, bool, bool, Dict[str, str]):
-
     formatted_string, _ = bpe2formatted(bpe_string, function_name = assembly_name, remove_footer = True)
     host_abs_path_raw_rewrite = cost_path_dict["host_abs_path_raw_rewrite"]
     host_abs_path_asbly_rewrite = cost_path_dict["host_abs_path_asbly_rewrite"]

@@ -83,8 +83,8 @@ def create_header_footer(assembly_string: str, function_name = None):
             function_name = 'default_function_name'
         else:
             function_name = match.group()
-    header = f'''  .text\n  .global {function_name}\n  .type {function_name}, @function\n\n'''
-    footer = f".size {function_name}, .-{function_name}"
+    header = f'''  .text\n  .global {function_name}\n  .type {function_name}, @function\n\n.{function_name}:\n'''
+    footer = f"\n\n.size {function_name}, .-{function_name}"
     return header, footer
 
 
@@ -147,7 +147,7 @@ def test_costfn(container_name: str,
              "--def_in", settings_conf["def_in"],
              "--live_out", settings_conf["live_out"],
              "--distance", settings_conf["distance"],
-             "--misalign_penalty", settings_conf["misalign_penalty"],
+             "--misalign_penalty", str(settings_conf["misalign_penalty"]),
              "--sig_penalty", settings_conf["sig_penalty"],
              "--cost", settings_conf["costfn"],
              "--training_set", settings_conf["training_set"]] ,
@@ -191,7 +191,7 @@ def verify_rewrite(container_name: str,
              "--def_in", settings_conf["def_in"],
              "--live_out", settings_conf["live_out"],
              "--distance", settings_conf["distance"],
-             "--misalign_penalty", settings_conf["misalign_penalty"],
+             "--misalign_penalty", str(settings_conf["misalign_penalty"]),
              "--sig_penalty", settings_conf["sig_penalty"],
              "--cost", settings_conf["costfn"]],
             stdout=subprocess.PIPE,
@@ -208,21 +208,16 @@ def parse_verify_machine_output(machine_output_f: str) -> (bool, bool, Union[Non
     with open(machine_output_f) as fh:
         machine_output_dict = json.load(fh)
 
-    verified_str = machine_output_dict["verified"]
-    counter_examples_available_str = machine_output_dict["counter_examples_available"]
-    if verified_str == "false":
-        verified_flag = False
-        if counter_examples_available_str == "true":
-            counter_examples_available_flag = True
+    verified_correct = machine_output_dict["verified"]
+    counter_examples_available = machine_output_dict["counter_examples_available"]
+    if not verified_correct:
+        if counter_examples_available:
             counterexample_str = machine_output_dict["counterexample"]
         else:
-            counter_examples_available_flag = False
             counterexample_str = None
     else:
-        verified_flag = True
-        counter_examples_available_flag = False
         counterexample_str = None
-    return verified_flag, counter_examples_available_flag, counterexample_str
+    return verified_correct, counter_examples_available, counterexample_str
 
 
 def add_counterexample_to_testcases(counterexample_str: str, path_to_testcases: str, new_testcase_idx: int):
@@ -246,16 +241,16 @@ def make_verify_rewrite_paths(host_path_to_volume: str,
 def verify_and_rewrite_testcase(container_name: str,
                                 cost_path_dict: Dict[str, str],
                 container_path_to_machine_output: str,
+                host_path_to_machine_output: str, 
                 settings_conf: Dict[str, str],
                 new_testcase_idx: int,
                 strategy: str = "hold_out",
                 live_dangerously = True):
-
-    container_path_to_target = cost_path_dict["container_abs_path_to_target"],
-    container_path_to_rewrite = cost_path_dict["container_abs_path_asbly_rewrite"],
+    container_path_to_target = cost_path_dict["container_abs_path_to_target"]
+    container_path_to_rewrite = cost_path_dict["container_abs_path_asbly_rewrite"]
     container_path_to_testcases = cost_path_dict["container_abs_path_to_testcases"]
     container_path_to_functions = cost_path_dict["container_abs_path_to_functions"]
-    host_path_to_testcases = cost_path_dict["host_abs_path_to_testcases"],
+    host_path_to_testcases = cost_path_dict["host_abs_path_to_testcases"]
 
     verify_returncode =  verify_rewrite(container_name = container_name,
                                         target_f=container_path_to_target,
@@ -267,7 +262,7 @@ def verify_and_rewrite_testcase(container_name: str,
                                         strategy=strategy,
                                         live_dangerously=live_dangerously)
     if verify_returncode == 0:
-        is_verified_correct, counter_examples_available, counterexample_str = parse_verify_machine_output(container_path_to_machine_output)
+        is_verified_correct, counter_examples_available, counterexample_str = parse_verify_machine_output(host_path_to_machine_output)
 
         if is_verified_correct and counter_examples_available:
             add_counterexample_to_testcases(counterexample_str=counterexample_str,
@@ -287,7 +282,7 @@ def make_cost_paths(host_path_to_volume: str,
                     data_path_to_target: str,
                     data_path_to_testcases: str,
                     assembly_name: str) -> Dict[str, str]:
-    rewrite_id = (assembly_name + "_" + str(time())).replace(".", "_"),
+    rewrite_id = (assembly_name + "_" + str(time())).replace(".", "_")
     return {"rewrite_id": rewrite_id,
     "host_abs_path_raw_rewrite": join(host_path_to_volume, volume_path_to_tmp, rewrite_id + ".tmp"),
     "host_abs_path_asbly_rewrite": join(host_path_to_volume, volume_path_to_tmp, rewrite_id + ".s"),
