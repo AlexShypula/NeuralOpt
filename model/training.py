@@ -76,7 +76,7 @@ class TrainManager:
                                              volume_path_to_tmp = data_config.get("volume_path_to_tmp"),
                                              tb_writer = self.tb_writer,
                                              n_best_seq_dir="{}/best_seqs/".format(self.model_dir),
-                                             baseline_cost_key= data_config.get("baseline_cost_key", "O0"),
+                                             baseline_cost_key= data_config.get("baseline_cost_key", "O0_cost"),  
                                              asm_names_to_save = asm_names_to_save,
                                              verifiction_strategy = data_config.get("verification_strategy", "hold_out"),
                                              new_testcase_beginning_index = data_config.get(

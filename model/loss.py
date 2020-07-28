@@ -29,7 +29,6 @@ class StokeCostManager:
                  asm_names_to_save: List[str] = [], verifiction_strategy: str = "hold_out",
                  new_testcase_beginning_index: int = 2000, max_len = 256, max_score = 9999,
                  n_workers=8, keep_n_best_seqs=5, n_testcases = 32):
-
         self.hash2metadata = hash2metadata
         self.container_name = container_name
         self.host_path_to_volume = host_path_to_volume
@@ -40,8 +39,8 @@ class StokeCostManager:
         self.tb_writer = tb_writer
         self.n_best_seq_dir = n_best_seq_dir
         mkdir(self.n_best_seq_dir)
-        self.baseline_cost_key = baseline_cost_key,
-        self.asm_names_to_save = asm_names_to_save,
+        self.baseline_cost_key = baseline_cost_key
+        self.asm_names_to_save = asm_names_to_save
         self.verification_strategy = verifiction_strategy
         self.new_testcase_beginning_index = new_testcase_beginning_index
         self.n_workers = n_workers
