@@ -24,9 +24,9 @@ class ParseOptions:
     percent_train: float = field(metadata=dict(args=["-pct_train", "--percent_train"]), default=0.90)
     percent_val: float = field(metadata=dict(args=["-pct_val", "--percent_val"]), default=0.05)
     live_out_str: str = field(metadata=dict(args=["-live_out", "--live_out_str"]),
-                                 default="{ % rax % rdx % rbx % rsp % rbp % r12 % r13 % r14 % r15 % xmm0 % xmm1}")
+                                 default="{ %rax %rdx %rbx %rsp %rbp %r12 %r13 %r14 %r15 %xmm0 %xmm1 }")
     def_in_str: str = field(metadata=dict(args=["-def_in", "--def_in_str"]),
-                    default="{ % rdx % rbx % rsp % rbp % rdi % r12 % r13 % r14 % r15 % xmm0 % xmm1 % mxcsr::rc[0]}")
+                    default="{ %rdx %rbx %rsp %rbp %rdi %r12 %r13 %r14 %r15 %xmm0 %xmm1 %mxcsr::rc[0] }")
 
 
 
