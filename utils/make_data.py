@@ -15,14 +15,19 @@ from argparse_dataclass import ArgumentParser
 
 @dataclass
 class ParseOptions:
-	path_to_destination_data: str = field(metadata=dict(args=["-dest", "--path_to_destination_data"]))
-	path_to_source_data: str = field(metadata=dict(args=["-src", "--path_to_source_data"]))
-	path_to_stats_csv: str = field(metadata=dict(args=["-stats_csv", "--path_to_stats_csv"]))
-	path_to_model_data: str = field(metadata=dict(args=["-model_data_path", "--path_to_model_data"]))
-	path_to_spm_model: str =  field(metadata=dict(args=["-spm_model", "--path_to_spm_model"]))
-	n_threads: int = field(metadata=dict(args=["-n_threads"]), default=16)
-	percent_train: float = field(metadata=dict(args=["-pct_train", "--percent_train"]), default=0.90)
-	percent_val: float = field(metadata=dict(args=["-pct_val", "--percent_val"]), default=0.05)
+    path_to_destination_data: str = field(metadata=dict(args=["-dest", "--path_to_destination_data"]))
+    path_to_source_data: str = field(metadata=dict(args=["-src", "--path_to_source_data"]))
+    path_to_stats_csv: str = field(metadata=dict(args=["-stats_csv", "--path_to_stats_csv"]))
+    path_to_model_data: str = field(metadata=dict(args=["-model_data_path", "--path_to_model_data"]))
+    path_to_spm_model: str =  field(metadata=dict(args=["-spm_model", "--path_to_spm_model"]))
+    n_threads: int = field(metadata=dict(args=["-n_threads"]), default=16)
+    percent_train: float = field(metadata=dict(args=["-pct_train", "--percent_train"]), default=0.90)
+    percent_val: float = field(metadata=dict(args=["-pct_val", "--percent_val"]), default=0.05)
+    live_out_str: str = field(metadata=dict(args=["-live_out", "--live_out_str"]),
+                                 default="{ % rax % rdx % rbx % rsp % rbp % r12 % r13 % r14 % r15 % xmm0 % xmm1}")
+    def_in_str: str = field(metadata=dict(args=["-def_in", "--def_in_str"]),
+                    default="{ % rdx % rbx % rsp % rbp % rdi % r12 % r13 % r14 % r15 % xmm0 % xmm1 % mxcsr::rc[0]}")
+
 
 
 def function_path_to_functions_folder(path: str):
@@ -80,7 +85,9 @@ def replace_first_n_dirs(path: str, path_to_destination_directory: str, n_dirs_t
 
 def individual_make_data(path_to_destination_data: str, path_to_source_data: str,
                          stats_dataframe: pd.DataFrame, index: int,
-                         sent_piece_model: spm.SentencePieceProcessor):
+                         sent_piece_model: spm.SentencePieceProcessor,
+                         live_out_str: str, def_in_str: str):
+
     data_path_to_function = stats_dataframe.iloc[index]["path_to_function"]
     unopt_cost = stats_dataframe.iloc[index]["unopt_unopt_cost"]
     opt_cost = stats_dataframe.iloc[index]["opt_unopt_cost"]
@@ -127,8 +134,8 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
                     "O0_cost": unopt_cost,
                     "Og_cost": opt_cost,
                     "name": unique_name,
-                    "cost_conf": {"def_in": None,
-                                  "live_out": None,
+                    "cost_conf": {"def_in": def_in_str,
+                                  "live_out": live_out_str,
                                   "distance": "hamming",
                                   "misalign_penalty": 1,
                                   "sig_penalty": "9999",
@@ -141,12 +148,14 @@ def individual_make_data_wrapper(arg_dict):
 
 def make_data(path_to_destination_data: str, path_to_source_data: str,
               stats_dataframe: pd.DataFrame, path_to_model_data: str, sent_piece_model: spm.SentencePieceProcessor,
-              n_threads: int = 16, percent_train: float = 0.9, percent_val: float = 0.05, **kwargs):
+              live_out_str: str, def_in_str: str, n_threads: int = 16, percent_train: float = 0.9,
+              percent_val: float = 0.05, **kwargs):
     jobs = []
     for i in range(len(stats_dataframe)):
         arg_dict = {"path_to_destination_data": path_to_destination_data,
                     "path_to_source_data": path_to_source_data,
-                    "stats_dataframe": stats_dataframe, "index": i, "sent_piece_model": sent_piece_model}
+                    "stats_dataframe": stats_dataframe, "index": i, "sent_piece_model": sent_piece_model,
+                    "live_out_str": live_out_str, "def_in_str": def_in_str}
         jobs.append(arg_dict)
 
     train_src = open(join(path_to_model_data, "train.src"), "w")
