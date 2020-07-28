@@ -25,7 +25,7 @@ from modeling import build_model
 from batch import Batch
 from helpers import log_data_info, load_config, log_cfg, \
     store_attention_plots, load_checkpoint, make_model_dir, \
-    make_logger, set_seed, symlink_update, ConfigurationError
+    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess
 from modeling import Model
 from prediction import validate_on_data
 from loss import XentLoss, StokeCostManager
@@ -65,6 +65,8 @@ class TrainManager:
             log_dir=self.model_dir + "/tensorboard/")
 
         # cost_manager
+        asm_names_to_save = data_config.get("asm_names_to_save")
+        asm_names_to_save = asm_names_to_save.split(":") if asm_names_to_save else []
         self.cost_manager = StokeCostManager(hash2metadata = self.hash2metadata,
                                              container_name = data_config.get("container_name"),
                                              host_path_to_volume = data_config.get("host_path_to_volume"),
@@ -73,6 +75,10 @@ class TrainManager:
                                              volume_path_to_tmp = data_config.get("volume_path_to_tmp"),
                                              tb_writer = self.tb_writer,
                                              n_best_seq_dir="{}/best_seqs/".format(self.model_dir),
+                                             asm_names_to_save = asm_names_to_save,
+                                            verifiction_strategy = data_config.get("verification_strategy", "hold_out"),
+                                            new_testcase_beginning_index = data_config.get(
+                                                "new_testcase_beginning_index", 2000),
                                              max_len = data_config.get("max_len"),
                                              max_score = data_config.get("max_score"),
                                              n_workers = data_config.get("n_workers"),
@@ -329,6 +335,26 @@ class TrainManager:
         running_starts_avg_score = self.cost_manager.update_buffers(hash_stats_list)
         print(f"Average score during running starts was {running_starts_avg_score:.2f}")
         self.model.train()
+
+
+    def _get_reference_baseline(self, train_data: Dataset, model: Model):
+        reference_baseline_iter = make_data_iter(train_data,
+                                             batch_size=self.running_starts_batch_size,
+                                             batch_type=self.running_starts_batch_type,
+                                             train=True, shuffle=self.shuffle)
+
+        for batch in iter(reference_baseline_iter):
+            batch = Batch(batch, self.pad_index, use_cuda=self.use_cuda)
+            decoded_src = model.trg_vocab.arrays_to_sentences(arrays=batch.src, cut_at_eos=True)
+            decoded_trg = model.trg_vocab.arrays_to_sentences(arrays = batch.trg, cut_at_eos=True)
+            join_char = " " if self.level in ["word", "bpe"] else ""
+            train_sources = [join_char.join(t) for t in decoded_src]
+            train_references = [join_char.join(t) for t in decoded_trg]
+            if self.level == "bpe":
+                train_sources = [bpe_postprocess(s) for s in train_sources]
+                train_references = [bpe_postprocess(s) for s in train_references]
+            self.cost_manager.log_reference_baselines(zip(train_sources, train_references))
+
 
     def train_and_validate(self, train_data: Dataset, valid_data: Dataset) \
             -> None:
