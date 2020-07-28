@@ -111,7 +111,7 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
     else:
         assert os.path.exists(destination_path_to_function)
     mkdir(dirname(destination_path_to_optimized_function))
-    mkdir(destination_path_to_testcases)
+    mkdir(dirname(destination_path_to_testcases))
     shutil.copy2(join(path_to_source_data, data_path_to_optimized_function), destination_path_to_optimized_function)
     shutil.copy2(join(path_to_source_data, data_path_to_testcases), destination_path_to_testcases)
 
