@@ -1,0 +1,101 @@
+name: "transformer"
+
+data:
+    src: "src"
+    trg: "tgt"
+    train: "../docker/7_20_data/training/train"
+    dev:    "../docker/7_20_data/training/val"
+    test:   "../docker/7_20_data/training/test"
+    level: "word"
+    lowercase: False
+    max_sent_length: 256
+    src_vocab:  "../maxlen200_nmt/bpe/vocab.txt"
+    trg_vocab: "../maxlen200_nmt/bpe/vocab.txt"
+    hash2metadata: "/home/ashypula/docker/7_20_data/training/train_data.json"
+    container_name: "TorchStoke"
+    host_path_to_volume: "/home/ashypula/docker" #suggested to use abs path
+    container_path_to_volume: "/home/stoke/docker" #suggested to use abs path
+    volume_path_to_data: "" # make empty string if the train_data.json provides the full path relative to the volume
+    volume_path_to_tmp: "tmp_train"
+    max_score: 9999
+    n_workers: 4
+    keep_n_best_seqs: 10 # for each training example, how many of the best decoded outputs found to cache
+    baseline_cost_key: "Og_cost" # should be _cost as per the format of the json output
+
+testing:
+    beam_size: 1 #5
+    #alpha: -1 #1 defaults to negative 1, not using alpha
+
+training:
+    load_model: "../joeynmt/models_stoke/7_20_asm_0/best.ckpt"
+    reset_scheduler: True # if True, overwrite scheduler in loaded checkpoint with parameters specified in this config. Use for domain adaptation or fine-tuning.
+    reset_optimizer: True # if True, overwrite optimizer in loaded checkpoint with parameters specified in this config. Use for domain adaptation or fine-tuning.    
+    random_seed: 42
+    optimizer: "adam"
+    normalization: "tokens"
+    adam_betas: [0.9, 0.999]
+    scheduling: "plateau"
+    patience: 5
+    decrease_factor: 0.7
+    loss: "crossentropy"
+    learning_rate: 0.0001
+    learning_rate_min: 0.00000001
+    weight_decay: 0
+    #label_smoothing: 0.1
+    sentence_samples: 2 # n times to sample each sentence
+    batch_size: 2 # effective batch size after sampling n times, will get batch_size / sentence_samples sentences per batch
+    batch_type: "sentence"
+    eval_batch_size: 2
+    eval_batch_type: "sentence"
+    batch_multiplier: 8 # number of batches you need to repeat 
+    early_stopping_metric: "eval_metric"
+    epochs: 1000
+    validation_freq: 50
+    logging_freq: 10
+    eval_metric: "stoke"
+    model_dir: "../train_results"
+    overwrite: True
+    shuffle: True
+    use_cuda: True
+    max_output_length: 176 
+    print_valid_sents: [0, 1, 2, 3]
+    keep_last_ckpts: 3
+    label_smoothing: 0.02
+    no_running_starts: 3
+    running_starts_multiplier: 3
+    running_starts_batch_size: 4
+    running_starts_batch_type: "sentence"
+
+model:
+    initializer: "xavier"
+    bias_initializer: "zeros"
+    init_gain: 1.0
+    embed_initializer: "xavier"
+    embed_init_gain: 1.0
+    tied_embeddings: True
+    tied_softmax: False
+    encoder:
+        type: "transformer"
+        num_layers: 3
+        num_heads: 8
+        embeddings:
+            embedding_dim: 512
+            scale: True
+            dropout: 0.
+        # typically ff_size = 4 x hidden_size
+        hidden_size: 512
+        ff_size: 2048
+        dropout: 0.1
+    decoder: 
+        rnn_type: "lstm"
+        embeddings: 
+                embedding_dim: 512
+                scale: False # may want to toggle this to true
+        emb_scale: False
+        hidden_size: 1024
+        dropout: 0.1
+        hidden_dropout: 0.1
+        num_layers: 2
+        input_feeding: True
+        init_hidden: "zero"
+        attention: "bahdanau"
