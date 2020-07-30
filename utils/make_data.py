@@ -21,6 +21,7 @@ class ParseOptions:
     path_to_model_data: str = field(metadata=dict(args=["-model_data_path", "--path_to_model_data"]))
     path_to_spm_model: str =  field(metadata=dict(args=["-spm_model", "--path_to_spm_model"]))
     n_threads: int = field(metadata=dict(args=["-n_threads"]), default=16)
+    optimized_flag: str = field(metadata=dict(args=["-optim_flag", "--optimize_flag"]), default="Og")
     percent_train: float = field(metadata=dict(args=["-pct_train", "--percent_train"]), default=0.90)
     percent_val: float = field(metadata=dict(args=["-pct_val", "--percent_val"]), default=0.05)
     live_out_str: str = field(metadata=dict(args=["-live_out", "--live_out_str"]),
@@ -79,20 +80,21 @@ def function_path_to_optimized_function(path: str, optimized_flag: str = "Og"):
 
 
 def replace_first_n_dirs(path: str, path_to_destination_directory: str, n_dirs_to_remove: int = 1):
-    destination_directory_to_target = remove_first_n_dirs(path)
+    destination_directory_to_target = remove_first_n_dirs(path, n_dirs_to_remove=n_dirs_to_remove)
     return join(path_to_destination_directory, destination_directory_to_target)
 
 
 def individual_make_data(path_to_destination_data: str, path_to_source_data: str,
                          stats_dataframe: pd.DataFrame, index: int,
-                         sent_piece_model: spm.SentencePieceProcessor,
+                         sent_piece_model: spm.SentencePieceProcessor, optimized_flag: str,
                          live_out_str: str, def_in_str: str):
 
     data_path_to_function = stats_dataframe.iloc[index]["path_to_function"]
     unopt_cost = stats_dataframe.iloc[index]["unopt_unopt_cost"]
     opt_cost = stats_dataframe.iloc[index]["opt_unopt_cost"]
 
-    data_path_to_optimized_function = function_path_to_optimized_function(data_path_to_function)
+    data_path_to_optimized_function = function_path_to_optimized_function(data_path_to_function,
+                                                                          optimized_flag=optimized_flag)
     data_path_to_function_folder = function_path_to_functions_folder(data_path_to_function)
     data_path_to_testcases = function_path_to_testcases(data_path_to_function)
     unique_name = function_path_to_unique_name(data_path_to_function)
@@ -148,14 +150,14 @@ def individual_make_data_wrapper(arg_dict):
 
 def make_data(path_to_destination_data: str, path_to_source_data: str,
               stats_dataframe: pd.DataFrame, path_to_model_data: str, sent_piece_model: spm.SentencePieceProcessor,
-              live_out_str: str, def_in_str: str, n_threads: int = 16, percent_train: float = 0.9,
+              optimized_flag: str, live_out_str: str, def_in_str: str, n_threads: int = 16, percent_train: float = 0.9,
               percent_val: float = 0.05, **kwargs):
     jobs = []
     for i in range(len(stats_dataframe)):
         arg_dict = {"path_to_destination_data": path_to_destination_data,
                     "path_to_source_data": path_to_source_data,
                     "stats_dataframe": stats_dataframe, "index": i, "sent_piece_model": sent_piece_model,
-                    "live_out_str": live_out_str, "def_in_str": def_in_str}
+                    "optimized_flag": optimized_flag, "live_out_str": live_out_str, "def_in_str": def_in_str}
         jobs.append(arg_dict)
 
     train_src = open(join(path_to_model_data, "train.src"), "w")
