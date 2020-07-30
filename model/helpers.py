@@ -32,6 +32,12 @@ from time import time
 from os.path import join, dirname
 
 from typing import Union
+from subproc import run
+# monkey patch
+
+subprocess.run(["sudo", "sleep", "3"])
+
+subprocess.run = run
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")

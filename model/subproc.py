@@ -76,14 +76,15 @@ def run(*popenargs,
                 process.wait()
             raise
         except:  # Including KeyboardInterrupt, communicate handled that.
-            process.poll()
-            if process.returncode is not None:
-                # Skip signalling a process that we know has already died.
-                return
-            pgid = os.getpgid(process.pid)
-            subprocess.check_output(["sudo", "kill", str(pgid)])
+            process.kill()
+            #process.poll()
+            #if process.returncode is not None:
+            #    # Skip signalling a process that we know has already died.
+            #    return
+            #pgid = os.getpgid(process.pid)
+            #subprocess.check_output(["sudo", "kill", str(pgid)])
             # We don't call process.wait() as .__exit__ does that for us.
-            raise
+            #raise
         retcode = process.poll()
         if check and retcode:
             raise CalledProcessError(retcode, process.args,

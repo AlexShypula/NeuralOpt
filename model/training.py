@@ -36,6 +36,8 @@ from prediction import test
 from tqdm import tqdm
 import gc
 
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
+
 # pylint: disable=too-many-instance-attributes
 class TrainManager:
     """ Manages training loop, validations, learning rate scheduling
@@ -371,7 +373,6 @@ class TrainManager:
         """
 
         #self._get_reference_baseline(train_data, self.model)
-
         if self.no_running_starts > 0:
             self._do_running_starts(train_data)
 
