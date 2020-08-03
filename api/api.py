@@ -1,10 +1,6 @@
 from flask import Flask, request #import main Flask class and request object
-import math
-import pdb
-from multiprocessing.pool import ThreadPool
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
-# from stoke_helpers import get_rl_cost_wrapper
 from stoke import stoke_pipeline
 
 
@@ -37,7 +33,7 @@ if __name__ == "__main__":
     print(parser.parse_args())
     args = parser.parse_args()
     global pipeline
-    pipeline = stoke_pipeline(n_woekers = args.n_workers,
+    pipeline = stoke_pipeline(n_workers = args.n_workers,
                                      max_cost = args.max_cost,
                                      verification_strategy = args.verification_strategy,
                                      path_to_volume = args.path_to_volume,
