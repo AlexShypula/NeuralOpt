@@ -48,6 +48,7 @@ class StokeCostManager:
         self.val_step = 0
         self.priority_queue_length = keep_n_best_seqs
         self.n_testcases = n_testcases
+        self.step_no=0
         for h in hash2metadata.keys():
             self.trailing_stats_dict[h] = {"costs": deque(maxlen = max_len),
                                             "failed_tunit": deque(maxlen = max_len),
@@ -80,6 +81,8 @@ class StokeCostManager:
                                                             max_cost=self.max_score)
 
         effective_cost = min(cost, self.max_score)
+        if failed_cost: 
+            effective_cost*=2
 
         if effective_cost < metadata["rolling_baseline_cost"] and not failed_tunit and not failed_cost:
             host_abs_path_machine_output, container_abs_path_machine_output = make_verify_rewrite_paths(
@@ -168,7 +171,8 @@ class StokeCostManager:
         return batch_cost
 
     def log_buffer_stats(self):
-
+        pct_fail = 0
+        cts=0
         for h in self.trailing_stats_dict.keys():
 
             if len(self.trailing_stats_dict[h]["costs"]) > 0:
@@ -189,13 +193,19 @@ class StokeCostManager:
                 self.tb_writer.add_scalar(f"{name}/trailing_failed_cost", trailing_failed_cost, step_no)
 
                 self.trailing_stats_dict[h]["n_steps"] += 1
+                pct_fail+=trailing_failed_cost
+                cts+=1
+        pct_fail/=cts
+        self.tb_writer.add_scalar("train/avg_failure_rate", pct_fail*100, self.step_no)
+        self.step_no+=1
+
 
     def _write_n_best(self, name: str , priority_queue: PriorityQueue):
         with open(join(self.n_best_seq_dir, name + "_best.txt"), "w") as fh:
             fh.write(f"Last val step updated: {self.val_step}\n")
             for i, (neg_cost, sequence) in enumerate(sorted(priority_queue.queue, reverse=True)):
                 fh.write(f"\n\nRank {i} best sequence for problem {name} has cost: {-neg_cost}\n{'-'*40}\n\n")
-                fh.write(f"{bpe2formatted(sequence, remove_footer=True)[0]}\n{'-'*40}\n{'-'*40}")
+                fh.write(f"{bpe2formatted(sequence, function_name = name , remove_footer=True)[0]}\n{'-'*40}\n{'-'*40}")
 
     def log_validation_stats(self, hash2val_results):
         for h, val_dict in hash2val_results.items():
@@ -209,7 +219,7 @@ class StokeCostManager:
                 name = self.hash2metadata[h]["name"]
                 cost, best_sequence = priority_queue.peek_best()
                 self.tb_writer.add_text(f"{name}/best_sequence",
-                                        f"best cost is: {cost}\n{bpe2formatted(best_sequence, remove_footer=True)[0]}",
+                                        f"best cost is: {cost}\n{bpe2formatted(best_sequence, function_name = name, remove_footer=True)[0]}",
                                         self.val_step)
                 self._write_n_best(name=name, priority_queue=priority_queue)
 
@@ -246,6 +256,8 @@ def get_stoke_cost(bpe_string: str,
                    assembly_name: str,
                    cost_conf,
                    max_cost = 9999) -> (float, bool, bool, Dict[str, str]):
+    if not assembly_name: 
+        breakpoint()
     formatted_string, _ = bpe2formatted(bpe_string, function_name = assembly_name, remove_footer = True)
     host_abs_path_raw_rewrite = cost_path_dict["host_abs_path_raw_rewrite"]
     host_abs_path_asbly_rewrite = cost_path_dict["host_abs_path_asbly_rewrite"]
