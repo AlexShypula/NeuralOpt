@@ -1,7 +1,7 @@
 from flask import Flask, request #import main Flask class and request object
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
-from stoke import stoke_pipeline
+from stoke import StokePipeline
 
 
 #create the Flask app
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     print(parser.parse_args())
     args = parser.parse_args()
     global pipeline
-    pipeline = stoke_pipeline(n_workers = args.n_workers,
+    pipeline = StokePipeline(n_workers = args.n_workers,
                                      max_cost = args.max_cost,
                                      verification_strategy = args.verification_strategy,
                                      path_to_volume = args.path_to_volume,

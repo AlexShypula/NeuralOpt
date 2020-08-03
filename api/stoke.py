@@ -6,7 +6,7 @@ from os.path import join, dirname
 
 NEW_TESTCASE_BEGINNING_INDEX = 2000
 
-class stoke_pipeline:
+class StokePipeline:
     def __init__(self,  n_workers: int, max_cost: int, verification_strategy: str, path_to_volume: str,
                     volume_path_to_data: str, volume_path_to_tmp: str):
 
