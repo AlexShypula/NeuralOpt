@@ -100,9 +100,13 @@ REMOVE_HEADER_REGEX = re.compile('(\s+.text\s*\n)|(\s+.global\s+[^\n]+\n)|(\s+.t
 def bpe2formatted(assembly_string: str, function_name = None, header_footer : Tuple[str, str] = None, remove_header: bool = True,
                             remove_footer: bool = True):
     un_bpe_string = stitch_together(assembly_string)
+    #if re.search('(?<= \n nop \n nop)', un_bpe_string): 
+    #    un_bpe_string = un_bpe_string[:re.search('(?<= \n nop \n nop)', un_bpe_string).start()]
     if remove_footer:
         un_bpe_string = REMOVE_FOOTER_REGEX.sub("", un_bpe_string)
     if remove_header:
+        if not function_name: 
+            breakpoint()
         assert function_name, "in order to strip the header, you must specify a funciton name"
         REMOVE_HEADER_REGEX.sub("", un_bpe_string)
     if not header_footer:
