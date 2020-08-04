@@ -29,7 +29,7 @@ class StokeCostManager:
                  volume_path_to_data, volume_path_to_tmp, tb_writer, n_best_seq_dir, baseline_cost_key: str,
                  asm_names_to_save: List[str] = [], verifiction_strategy: str = "hold_out",
                  new_testcase_beginning_index: int = 2000, max_len = 256, max_score = 9999,
-                 n_workers=8, keep_n_best_seqs=5, n_testcases = 32, container_port = 6000 ):
+                 n_workers=8, keep_n_best_seqs=5, n_testcases = 32, container_port = "6000" ):
         self.hash2metadata = hash2metadata
         # self.container_name = container_name
         self.container_port = container_port
@@ -70,14 +70,16 @@ class StokeCostManager:
         jobs = {}
         for (source_bpe_str, hypothesis_bpe_str) in bpe_strings:
             h = hash_file(source_bpe_str)
+            if h in jobs: 
+                breakpoint()
             assert h not in jobs, '''batches must only have only one sample for each observation 
                                         in order to include multiple samples, this needs to be done in an outerloop 
                                         with gradient accumulation'''
             metadata = self.hash2metadata[h]
-            formatted_hypothesis = bpe2formatted(assembly_string = hypothesis_bpe_str, function_name = metadata["name"],
+            formatted_hypothesis, _ = bpe2formatted(assembly_string = hypothesis_bpe_str, function_name = metadata["name"],
                                                  remove_header = True, remove_footer = True)
             jobs[h] = {"hypothesis_string": formatted_hypothesis, "metadata": metadata}
-        results = self.requester(jobs)
+        results = self.requester.get(jobs)
         hashes_advantages_stats = []
         for h, result_dict in results.items():
             self.hash2metadata[h] = result_dict["metadata"]
@@ -89,7 +91,7 @@ class StokeCostManager:
             normalized_advantage = (stats["cost"] - cost_mean) / (cost_std if cost_std != 0 else 1)
             stats["normalized_advantage"] = normalized_advantage
             stats["hypothesis_string"] = jobs[h]["hypothesis_string"]
-            hashes_advantages_stats.append(h, normalized_advantage, stats)
+            hashes_advantages_stats.append((h, normalized_advantage, stats))
         return hashes_advantages_stats
 
 

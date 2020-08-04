@@ -3,6 +3,9 @@ from typing import Dict, Tuple
 
 class StokeRequest:
     def __init__(self, base_url: str = "http://127.0.0.1", port: str = "6000"):
+        if type(port) == int:
+            port = str(port)
+
         self.base_url = base_url
         self.port = port
         self.url = base_url + ":" + port + "/"

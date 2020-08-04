@@ -71,7 +71,7 @@ class TrainManager:
         asm_names_to_save = data_config.get("asm_names_to_save")
         asm_names_to_save = asm_names_to_save.split(":") if asm_names_to_save else []
         self.cost_manager = StokeCostManager(hash2metadata = self.hash2metadata,
-                                             container_name = data_config.get("container_name"),
+                                             #container_name = data_config.get("container_name"),
                                              host_path_to_volume = data_config.get("host_path_to_volume"),
                                              container_path_to_volume = data_config.get("container_path_to_volume"),
                                              volume_path_to_data = data_config.get("volume_path_to_data"),
@@ -340,8 +340,8 @@ class TrainManager:
                     pbar.update(len(hash_stats))
 
         hash_stats_list*=self.running_starts_multiplier # will duplicate the list by this constant times -  1
-        running_starts_avg_score = self.cost_manager.update_buffers(hash_stats_list)
-        print(f"Average score during running starts was {running_starts_avg_score:.2f}")
+        running_starts_avg_score, pct_failure = self.cost_manager.update_buffers(hash_stats_list)
+        print(f"Average score during running starts was {running_starts_avg_score:.2f} and percent failure rate was {pct_failure:.2f}")
         self.model.train()
 
 
