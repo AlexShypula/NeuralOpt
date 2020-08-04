@@ -29,7 +29,7 @@ from vocabulary import Vocabulary
 from plotting import plot_heatmap
 from os import makedirs
 from time import time
-from os.path import join, dirname
+from os.path import join, dirname, basename
 
 from typing import Union
 from subproc import run
@@ -303,6 +303,23 @@ def make_cost_paths(host_path_to_volume: str,
     "container_abs_path_to_target": join(container_path_to_volume, volume_path_to_data, data_path_to_target),
     "container_abs_path_to_testcases": join(container_path_to_volume, volume_path_to_data, data_path_to_testcases)}
 
+
+def remove_first_n_dirs(path: str, n_dirs_to_remove: int = 1):
+    return join(*path.split("/")[n_dirs_to_remove:])
+
+def function_path_to_binary_folder(path: str):
+    return dirname(dirname(dirname(path)))
+
+def function_path_to_function_file_name(path: str):
+    return basename(path)
+
+def function_path_to_unique_name(path: str):
+    path = remove_first_n_dirs(path, n_dirs_to_remove=1)
+    filename = function_path_to_function_file_name(path)
+    filename = re.sub("\.s", "", filename)
+    binary_folder_path = function_path_to_binary_folder(path)
+    unique_id = join(binary_folder_path, filename)
+    return re.sub("/", "_", unique_id)
 
 
 def make_model_dir(model_dir: str, overwrite=False) -> str:

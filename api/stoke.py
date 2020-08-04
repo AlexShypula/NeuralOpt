@@ -31,18 +31,21 @@ class StokePipeline:
     def run_pipeline(self, hypothesis_string: str, metadata: Dict):
 
         rewrite_id = (metadata["name"] + "_" + str(time())).replace(".", "_")
+        data_path_to_target = metadata["base_asbly_path"]
+        data_path_to_testcases = metadata["testcase_path"]
 
-        container_abs_path_raw_rewrite = join(path_to_volume, volume_path_to_tmp, rewrite_id + ".tmp"),
-        container_abs_path_asbly_rewrite =  join(path_to_volume, volume_path_to_tmp, rewrite_id + ".s"),
-        container_abs_path_to_functions = dirname(join(path_to_volume, volume_path_to_data, data_path_to_target)),
-        container_abs_path_to_target = join(path_to_volume, volume_path_to_data, data_path_to_target),
-        container_abs_path_to_testcases = join(path_to_volume, volume_path_to_data, data_path_to_testcases)}
+        container_abs_path_raw_rewrite = join(self.path_to_volume, self.volume_path_to_tmp, rewrite_id + ".tmp"),
+        container_abs_path_asbly_rewrite =  join(self.path_to_volume, self.volume_path_to_tmp, rewrite_id + ".s"),
+        container_abs_path_to_functions = dirname(join(self.path_to_volume, self.volume_path_to_data, data_path_to_target)),
+        container_abs_path_to_target = join(self.path_to_volume, self.volume_path_to_data, data_path_to_target),
+        container_abs_path_to_testcases = join(self.path_to_volume, self.volume_path_to_data, data_path_to_testcases)}
 
         cost, failed_tunit, failed_cost = get_stoke_cost(hypothesis_string=hypothesis_string,
                                                             container_abs_path_raw_rewrite=container_abs_path_raw_rewrite
                                                             container_abs_path_asbly_rewrite=container_abs_path_asbly_rewrite,
                                                             container_abs_path_to_functions=container_abs_path_to_functions,
                                                             container_abs_path_to_target=container_abs_path_to_target,
+                                                            container_abs_path_to_testcases=container_abs_path_to_testcases,
                                                             assembly_name=metadata["name"],
                                                             cost_conf=metadata["cost_conf"],
                                                             max_cost=self.max_cost)
@@ -53,10 +56,10 @@ class StokePipeline:
         new_record_returncode = 0
         # 0 -> no new record, 1 -> new record, but doesn't verify, no new testcases
         # 2 -> new record, but doesn't verify, new testcases added, 3 -> verifies correct
-        if effective_cost < metadata["rolling_baseline_cost"] and not failed_tunit and not failed_cost:
+        if effective_cost < metadata.get("rolling_baseline_cost", self.max_cost) and not failed_tunit and not failed_cost:
 
             machine_output_filename = rewrite_id + ".verify"
-            container_abs_path_machine_output = join(path_to_volume, volume_path_to_tmp, machine_output_filename)
+            container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
 
             next_index = metadata.get("new_testcase_index", NEW_TESTCASE_BEGINNING_INDEX) #TODO: INITIALIZE IN NeuralOpt/model/loss.py
 
@@ -93,15 +96,15 @@ class StokePipeline:
             if metadata["name"] not in self.asm_names_to_save:
                 os.remove(host_abs_path_machine_output)
 
-        if metadata["name"] not in self.asm_names_to_save:
+        if not metadata.get("save_intermediate_flag"):
             os.remove(cost_path_dict["host_abs_path_raw_rewrite"])
             os.remove(cost_path_dict["host_abs_path_asbly_rewrite"])
 
-        return metadata, {"cost": effective_cost,
-                             "failed_tunit": failed_tunit,
-                             "failed_cost": failed_cost,
-                             "hypothesis_string": hypothesis_bpe_string,
-                             "new_record_returncode": new_record_returncode} # TODO: NEED TO NORMALIZE COST BACK IN NeuralOpt/model/loss.py
+        return {"metadata": metadata, "stats": {"cost": effective_cost,
+                                                 "failed_tunit": failed_tunit,
+                                                 "failed_cost": failed_cost,
+                                                 "hypothesis_string": hypothesis_bpe_string,
+                                                 "new_record_returncode": new_record_returncode}}
 
 
 def get_stoke_cost(hypothesis_string: str,
@@ -111,13 +114,13 @@ def get_stoke_cost(hypothesis_string: str,
                    container_abs_path_to_target: str,
                    container_abs_path_to_testcases: str,
                    assembly_name: str,
-                   cost_conf,
+                   cost_conf: Dict,
                    max_cost = 9999) -> (float, bool, bool):
 
-    with open(os.open(host_abs_path_raw_rewrite, os.O_CREAT | os.O_WRONLY, 0o777), "w+") as fh: # allows full permissions
+    with open(os.open(container_abs_path_raw_rewrite, os.O_CREAT | os.O_WRONLY, 0o777), "w+") as fh: # allows full permissions
         fh.write(formatted_string)
     tunit_rc, tunit_stdout = make_tunit_file(in_f=container_abs_path_raw_rewrite,
-                                             out_f=host_abs_path_asbly_rewrite,
+                                             out_f=container_abs_path_asbly_rewrite,
                                              fun_dir=container_abs_path_to_functions,
                                              live_dangerously=True)
 

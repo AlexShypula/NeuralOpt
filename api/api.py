@@ -10,10 +10,16 @@ app = Flask(__name__)
 
 @dataclass
 class ParseOptions:
-    n_workers: int = field(metadata=dict(args=["-n_workers", "--number_of_workers"]), default=1)
-    port: int = field(metadata=dict(args=["-port", "--port"]), default=5000)
-    abs_path_to_volume: str = field(metadata=dict(args=["-path_to_volume", "--abs_path_to_volume"]),
+    # stoke pipeline params
+    volume_path_to_data: str = field(metadata=dict(args=["-path_to_data", "--volume_path_to_data"]))
+    volume_path_to_tmp: str = field(metadata=dict(args=["-path_to_tmp", "--volume_path_to_tmp"]))
+    path_to_volume: str = field(metadata=dict(args=["-path_to_volume", "--abs_path_to_volume"]),
                                     default='/home/stoke/docker')
+    n_workers: int = field(metadata=dict(args=["-n_workers", "--number_of_workers"]), default=1)
+    max_cost: float = field(metadata=dict(args=["-max_cost", "--max_cost"]), default = 9999.0)
+    verification_strategy: str = field(metadata=dict(args=["strategy"]), default="hold_out")
+    # flask params
+    port: int = field(metadata=dict(args=["-port", "--port"]), default=5000)
     debug: bool = field(metadata=dict(args=["-d", "--debug_mode"]), default=False)
 
 
@@ -39,5 +45,35 @@ if __name__ == "__main__":
                                      path_to_volume = args.path_to_volume,
                                      volume_path_to_data = args.volume_path_to_data,
                                      volume_path_to_tmp = args.volume_path_to_tmp)
-    app.run(debug=args.debug, port=args.port)
+    app.run(debug=args.debug, host="0.0.0.0", port=args.port)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

@@ -87,6 +87,7 @@ class TrainManager:
                                              max_score = data_config.get("max_score"),
                                              n_workers = data_config.get("n_workers"),
                                              keep_n_best_seqs=data_config.get("keep_n_best_seqs", 10),
+                                             container_port=data_config.get("container_port", 6000)
                                              )
 
 
@@ -180,6 +181,7 @@ class TrainManager:
         self.log_batch_score = 0
         self.multi_batch_loss = 0
         self.multi_batch_score = 0
+        self.multi_batch_pct_failure = 0
         # self.epoch_loss = 0 already initialized in the epoch loop
         self.update = False
         #self.count = self.current_batch_multiplier - 1
@@ -587,12 +589,14 @@ class TrainManager:
             # end sampling loop
 
         # update buffers after sampling
-        batch_score = self.cost_manager.update_buffers(hash_stats_list)
+        batch_score, pct_failures = self.cost_manager.update_buffers(hash_stats_list)
 
 
         if self.current_batch_multiplier > 1:
             self.multi_batch_score += (batch_score / self.current_batch_multiplier \
                     if self.normalization != "none" else batch_score)
+            self.multi_batch_pct_failure += pct_failures / self.current_batch_multiplier \
+                    if self.normalization != "none" else pct_failures
             #print(f"multi_batch_score is {self.multi_batch_score} and batch_score is {batch_score} and multiplier is {self.current_batch_multiplier} and count is {self.count}")
         #if batch_score > 9999 or self.multi_batch_score > 9999: 
             #breakpoint()
@@ -624,6 +628,7 @@ class TrainManager:
 
             self.multi_batch_loss = 0
             self.multi_batch_score = 0
+            self.multi_batch_pct_failure = 0
             self.count = self.batch_multiplier - 1
             self.steps += 1
 
