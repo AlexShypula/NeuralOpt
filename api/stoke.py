@@ -1,5 +1,6 @@
+import os
 from time import time
-from typing import Dict
+from typing import Dict, Union, List, Tuple
 from stoke_helpers import make_tunit_file, test_costfn, verify_and_rewrite_testcase
 from multiprocessing.pool import ThreadPool
 from os.path import join, dirname
@@ -19,14 +20,14 @@ class StokePipeline:
 
         self.pool = ThreadPool(self.n_workers)
 
-    def run_parallel_pipeline(jobs: Union[List, Tuple], debug = False):
+    def run_parallel_pipeline(self, jobs: Union[List, Tuple], debug = False):
         if debug:
-            return self.map(self.run_pipeline_wrapper, jobs)
+            return map(self.run_pipeline_wrapper, jobs)
         else:
             return self.pool.map(self.run_pipeline_wrapper, jobs, chunksize = self.n_workers)
 
-    def run_pipeline_wrapper(kwargs):
-        return run_pipeline(**kwargs)
+    def run_pipeline_wrapper(self, kwargs):
+        return self.run_pipeline(**kwargs)
 
     def run_pipeline(self, hypothesis_string: str, metadata: Dict):
 
@@ -34,14 +35,14 @@ class StokePipeline:
         data_path_to_target = metadata["base_asbly_path"]
         data_path_to_testcases = metadata["testcase_path"]
 
-        container_abs_path_raw_rewrite = join(self.path_to_volume, self.volume_path_to_tmp, rewrite_id + ".tmp"),
-        container_abs_path_asbly_rewrite =  join(self.path_to_volume, self.volume_path_to_tmp, rewrite_id + ".s"),
-        container_abs_path_to_functions = dirname(join(self.path_to_volume, self.volume_path_to_data, data_path_to_target)),
-        container_abs_path_to_target = join(self.path_to_volume, self.volume_path_to_data, data_path_to_target),
-        container_abs_path_to_testcases = join(self.path_to_volume, self.volume_path_to_data, data_path_to_testcases)}
+        container_abs_path_raw_rewrite = join(self.path_to_volume, self.volume_path_to_tmp, rewrite_id + ".tmp")
+        container_abs_path_asbly_rewrite =  join(self.path_to_volume, self.volume_path_to_tmp, rewrite_id + ".s")
+        container_abs_path_to_functions = dirname(join(self.path_to_volume, self.volume_path_to_data, data_path_to_target))
+        container_abs_path_to_target = join(self.path_to_volume, self.volume_path_to_data, data_path_to_target)
+        container_abs_path_to_testcases = join(self.path_to_volume, self.volume_path_to_data, data_path_to_testcases)
 
         cost, failed_tunit, failed_cost = get_stoke_cost(hypothesis_string=hypothesis_string,
-                                                            container_abs_path_raw_rewrite=container_abs_path_raw_rewrite
+                                                            container_abs_path_raw_rewrite=container_abs_path_raw_rewrite, 
                                                             container_abs_path_asbly_rewrite=container_abs_path_asbly_rewrite,
                                                             container_abs_path_to_functions=container_abs_path_to_functions,
                                                             container_abs_path_to_target=container_abs_path_to_target,
@@ -65,9 +66,9 @@ class StokePipeline:
 
             is_verified_correct, counter_examples_available = verify_and_rewrite_testcase(
                 container_path_to_target = container_abs_path_to_target,
-                container_path_to_rewrite = container_path_to_rewrite,
-                container_path_to_testcases = container_path_to_testcases,
-                container_path_to_functions = container_path_to_functions,
+                container_path_to_rewrite = container_abs_path_asbly_rewrite,
+                container_path_to_testcases = container_abs_path_to_testcases,
+                container_path_to_functions = container_abs_path_to_functions,
                 container_path_to_machine_output = container_abs_path_machine_output,
                 settings_conf = metadata["cost_conf"],
                 new_testcase_idx = next_index,
@@ -93,17 +94,17 @@ class StokePipeline:
                 print(f"{metadata['name']} beat the baseline, but did not verify", flush=True)
                 new_record_returncode = 1
 
-            if metadata["name"] not in self.asm_names_to_save:
-                os.remove(host_abs_path_machine_output)
+            if not metadata.get("save_intermediate_flag"):
+                os.remove(container_abs_path_machine_output)
 
         if not metadata.get("save_intermediate_flag"):
-            os.remove(cost_path_dict["host_abs_path_raw_rewrite"])
-            os.remove(cost_path_dict["host_abs_path_asbly_rewrite"])
+            os.remove(container_abs_path_raw_rewrite)
+            os.remove(container_abs_path_asbly_rewrite)
 
         return {"metadata": metadata, "stats": {"cost": effective_cost,
                                                  "failed_tunit": failed_tunit,
                                                  "failed_cost": failed_cost,
-                                                 "hypothesis_string": hypothesis_bpe_string,
+                                                 "hypothesis_string": hypothesis_string,
                                                  "new_record_returncode": new_record_returncode}}
 
 
@@ -118,7 +119,7 @@ def get_stoke_cost(hypothesis_string: str,
                    max_cost = 9999) -> (float, bool, bool):
 
     with open(os.open(container_abs_path_raw_rewrite, os.O_CREAT | os.O_WRONLY, 0o777), "w+") as fh: # allows full permissions
-        fh.write(formatted_string)
+        fh.write(hypothesis_string)
     tunit_rc, tunit_stdout = make_tunit_file(in_f=container_abs_path_raw_rewrite,
                                              out_f=container_abs_path_asbly_rewrite,
                                              fun_dir=container_abs_path_to_functions,

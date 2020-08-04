@@ -17,7 +17,7 @@ class ParseOptions:
                                     default='/home/stoke/docker')
     n_workers: int = field(metadata=dict(args=["-n_workers", "--number_of_workers"]), default=1)
     max_cost: float = field(metadata=dict(args=["-max_cost", "--max_cost"]), default = 9999.0)
-    verification_strategy: str = field(metadata=dict(args=["strategy"]), default="hold_out")
+    verification_strategy: str = field(metadata=dict(args=["-strategy"]), default="hold_out")
     # flask params
     port: int = field(metadata=dict(args=["-port", "--port"]), default=5000)
     debug: bool = field(metadata=dict(args=["-d", "--debug_mode"]), default=False)
