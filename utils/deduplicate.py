@@ -1,4 +1,4 @@
-from stoke_preprocess import hashfile
+from stoke_preprocess import hash_file
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 from tqdm import tqdm
@@ -21,14 +21,16 @@ if __name__ == "__main__":
     with open(args.source) as src, open(args.target) as tgt:
         src_lines = src.readlines()
         tgt_lines = tgt.readlines()
-        for s, t in tqdm(zip(src_lines, tgt_lines)):
-            sha = hashfile(s.strip().lower())
+        pbar = tqdm(total = len(src_lines))
+        for s, t in zip(src_lines, tgt_lines):
+            sha = hash_file(s.strip().lower())
             if sha not in sha_set:
                 src_final.write(s + "\n")
                 tgt_final.write(t + "\n")
                 sha_set.add(sha)
             else:
                 dups += 1
+            pbar.update()
     print(f"total number of lines was {len(src_lines)} and dups were {dups}")
     src_final.close()
     tgt_final.close()
