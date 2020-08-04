@@ -78,6 +78,7 @@ class TrainManager:
                                              volume_path_to_tmp = data_config.get("volume_path_to_tmp"),
                                              tb_writer = self.tb_writer,
                                              n_best_seq_dir="{}/best_seqs/".format(self.model_dir),
+                                             trailing_stats_path="{}/trailing_stats.pkl".format(self.model_dir),
                                              baseline_cost_key= data_config.get("baseline_cost_key", "O0_cost"),  
                                              asm_names_to_save = asm_names_to_save,
                                              verifiction_strategy = data_config.get("verification_strategy", "hold_out"),
@@ -87,7 +88,8 @@ class TrainManager:
                                              max_score = data_config.get("max_score"),
                                              n_workers = data_config.get("n_workers"),
                                              keep_n_best_seqs=data_config.get("keep_n_best_seqs", 10),
-                                             container_port=data_config.get("container_port", 6000)
+                                             container_port=data_config.get("container_port", 6000),
+                                             trailing_stats_in_path=data_config.get("trailing_stats_in_path")
                                              )
 
 
@@ -342,6 +344,8 @@ class TrainManager:
         hash_stats_list*=self.running_starts_multiplier # will duplicate the list by this constant times -  1
         running_starts_avg_score, pct_failure = self.cost_manager.update_buffers(hash_stats_list)
         print(f"Average score during running starts was {running_starts_avg_score:.2f} and percent failure rate was {pct_failure:.2f}")
+        self.cost_manager._save_trailing_stats()
+        print(f"The trailing stats dict has been saved to {self.cost_manager.trailing_stats_out_path}")
         self.model.train()
 
 

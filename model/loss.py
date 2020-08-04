@@ -6,6 +6,7 @@ Module to implement training loss
 import torch
 import numpy as np
 import re
+import pickle
 from torch import nn, Tensor
 from torch.autograd import Variable
 from time import time
@@ -26,10 +27,11 @@ STOKE_TRAINING_SET_REGEX = re.compile("(?=})") # when you do sub, you need to in
 
 class StokeCostManager:
     def __init__(self, hash2metadata, host_path_to_volume, container_path_to_volume,
-                 volume_path_to_data, volume_path_to_tmp, tb_writer, n_best_seq_dir, baseline_cost_key: str,
-                 asm_names_to_save: List[str] = [], verifiction_strategy: str = "hold_out",
+                 volume_path_to_data, volume_path_to_tmp, tb_writer, n_best_seq_dir, trailing_stats_out_path: str,
+                 baseline_cost_key: str, asm_names_to_save: List[str] = [], verifiction_strategy: str = "hold_out",
                  new_testcase_beginning_index: int = 2000, max_len = 256, max_score = 9999,
-                 n_workers=8, keep_n_best_seqs=5, n_testcases = 32, container_port = "6000" ):
+                 n_workers=8, keep_n_best_seqs=5, n_testcases = 32, container_port = "6000",
+                 trailing_stats_in_path: str = None):
         self.hash2metadata = hash2metadata
         # self.container_name = container_name
         self.container_port = container_port
@@ -41,6 +43,7 @@ class StokeCostManager:
         mkdir(join(self.host_path_to_volume, self.volume_path_to_tmp))
         self.tb_writer = tb_writer
         self.n_best_seq_dir = n_best_seq_dir
+        self.trailing_stats_out_path = trailing_stats_out_path
         mkdir(self.n_best_seq_dir)
         self.baseline_cost_key = baseline_cost_key
         self.asm_names_to_save = asm_names_to_save
@@ -51,19 +54,27 @@ class StokeCostManager:
         self.val_step = 0
         self.priority_queue_length = keep_n_best_seqs
         self.n_testcases = n_testcases
+        self.trailing_stats_in_path = trailing_stats_in_path
+        self.max_score = max_score
+
+        if self.trailing_stats_in_path:
+            with open(self.trailing_stats_in_path) as f:
+                self.trailing_stats_dict = pickle.load(f)
+
         for h in hash2metadata.keys():
-            self.trailing_stats_dict[h] = {"costs": deque(maxlen = max_len),
-                                            "failed_tunit": deque(maxlen = max_len),
-                                            "failed_cost": deque(maxlen = max_len),
-                                            "normalized_advantage": deque(maxlen = max_len),
-                                            "n_steps": 0,
-                                            "best_sequence_priority_queue": PriorityQueue(maxlen=self.priority_queue_length)}
             self.hash2metadata[h]["name"] = function_path_to_unique_name(self.hash2metadata[h]["base_asbly_path"]) if \
                 not self.hash2metadata[h].get("name") else self.hash2metadata[h].get("name")
             self.hash2metadata[h]["name"] = basename(self.hash2metadata[h]["base_asbly_path"])
             self.hash2metadata[h]["cost_conf"]["training_set"] = f"{{ 0 ... {n_testcases-1} }}"
             self.hash2metadata[h]["rolling_baseline_cost"] = copy(self.hash2metadata[h][self.baseline_cost_key])
-        self.max_score = max_score
+            if not self.trailing_stats_in_path:
+                self.trailing_stats_dict[h] = {"costs": deque(maxlen = max_len),
+                                                "failed_tunit": deque(maxlen = max_len),
+                                                "failed_cost": deque(maxlen = max_len),
+                                                "normalized_advantage": deque(maxlen = max_len),
+                                                "n_steps": 0,
+                                                "best_sequence_priority_queue": PriorityQueue(maxlen=self.priority_queue_length)}
+
 
 
     def parallel_get_rl_cost(self, bpe_strings: List[Tuple[str, str]]):
@@ -149,6 +160,10 @@ class StokeCostManager:
                 fh.write(f"\n\nRank {i} best sequence for problem {name} has cost: {-neg_cost}\n{'-'*40}\n\n")
                 fh.write(f"{bpe2formatted(sequence, function_name = name , remove_footer=True)[0]}\n{'-'*40}\n{'-'*40}")
 
+    def _save_trailing_stats(self):
+        with open(self.trailing_stats_out_path) as f:
+            pickle.dump(self.trailing_stats_dict, f)
+
     def log_validation_stats(self, hash2val_results):
         for h, val_dict in hash2val_results.items():
             name = self.hash2metadata[h]["name"]
@@ -164,6 +179,7 @@ class StokeCostManager:
                                         f"best cost is: {cost}\n{bpe2formatted(best_sequence, function_name = name, remove_footer=True)[0]}",
                                         self.val_step)
                 self._write_n_best(name=name, priority_queue=priority_queue)
+                self._save_trailing_stats()
 
 
         self.val_step+=1
