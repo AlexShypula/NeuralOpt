@@ -626,6 +626,7 @@ class TrainManager:
                                       self.multi_batch_loss, self.steps)
             self.tb_writer.add_scalar("train/multi_batch_score",
                                       self.multi_batch_score, self.steps)
+            self.tb_writer.add_scalar(("train/multi_batch_failure_rate", self.steps))
 
             self.epoch_loss += self.multi_batch_loss
             self.log_batch_score += self.multi_batch_score

@@ -116,13 +116,30 @@ class StokeCostManager:
             failed_tunit = stats["failed_tunit"]
             failed_cost = stats["failed_cost"]
             hypothesis_string = stats["hypothesis_string"]
+            new_record_returncode = stats["new_record_returncode"]
+            if new_record_returncode == 3:
+                print(f"for {self.hash2metadata[h]['name']} the baseline was beat and verified")
+                print(f"the cost was {stats['cost']} whereas the reference was {self.hash2metadata[h]['reference_score']}")
+                print(f"the rolling baseline is now {self.hash2metadata[h]['rolling_baseline_cost']}")
+                beat_baseline_str = f"Beat Baseline and verified, " \
+                                    f"where reference is {self.hash2metadata[h]['reference_score']}\n"
+            elif new_record_returncode in (1,2):
+                print(f"for {self.hash2metadata[h]['name']} the baseline was beat, but didn't verify")
+                print(f"the cost was {stats['cost']} whereas the reference was {self.hash2metadata[h]['reference_score']}")
+                print(f"the rolling baseline is still {self.hash2metadata[h]['rolling_baseline_cost']}")
+                beat_baseline_str = f"Beat Baseline but didn't verify, " \
+                                    f"where reference is {self.hash2metadata[h]['reference_score']}\n"
+            else:
+                beat_baseline_str = ""
+
 
             # update the buffers
             self.trailing_stats_dict[h]["normalized_advantage"].append(normalized_advantage)
             self.trailing_stats_dict[h]["costs"].append(effective_cost)
             self.trailing_stats_dict[h]["failed_tunit"].append(failed_tunit)
             self.trailing_stats_dict[h]["failed_cost"].append(failed_cost)
-            self.trailing_stats_dict[h]["best_sequence_priority_queue"].append(effective_cost, hypothesis_string)
+            self.trailing_stats_dict[h]["best_sequence_priority_queue"].append(effective_cost,
+                                                                               beat_baseline_str + hypothesis_string)
 
             batch_cost += effective_cost
             pct_failures += failed_cost
@@ -158,7 +175,7 @@ class StokeCostManager:
             fh.write(f"Last val step updated: {self.val_step}\n")
             for i, (neg_cost, sequence) in enumerate(sorted(priority_queue.queue, reverse=True)):
                 fh.write(f"\n\nRank {i} best sequence for problem {name} has cost: {-neg_cost}\n{'-'*40}\n\n")
-                fh.write(f"{bpe2formatted(sequence, function_name = name , remove_footer=True)[0]}\n{'-'*40}\n{'-'*40}")
+                fh.write(f"{sequence}\n{'-'*40}\n{'-'*40}")
 
     def _save_trailing_stats(self):
         with open(self.trailing_stats_out_path) as f:
@@ -176,7 +193,7 @@ class StokeCostManager:
                 name = self.hash2metadata[h]["name"]
                 cost, best_sequence = priority_queue.peek_best()
                 self.tb_writer.add_text(f"{name}/best_sequence",
-                                        f"best cost is: {cost}\n{bpe2formatted(best_sequence, function_name = name, remove_footer=True)[0]}",
+                                        f"best cost is: {cost}\n{best_sequence}",
                                         self.val_step)
                 self._write_n_best(name=name, priority_queue=priority_queue)
                 self._save_trailing_stats()
