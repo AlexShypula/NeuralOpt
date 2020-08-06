@@ -58,7 +58,7 @@ class StokeCostManager:
         self.max_score = max_score
 
         if self.trailing_stats_in_path:
-            with open(self.trailing_stats_in_path) as f:
+            with open(self.trailing_stats_in_path, "wb") as f:
                 self.trailing_stats_dict = pickle.load(f)
 
         for h in hash2metadata.keys():
@@ -80,12 +80,13 @@ class StokeCostManager:
     def parallel_get_rl_cost(self, bpe_strings: List[Tuple[str, str]]):
         jobs = {}
         for (source_bpe_str, hypothesis_bpe_str) in bpe_strings:
-            h = hash_file(source_bpe_str)
-            if h in jobs: 
-                breakpoint()
-            assert h not in jobs, '''batches must only have only one sample for each observation 
-                                        in order to include multiple samples, this needs to be done in an outerloop 
-                                        with gradient accumulation'''
+            h = hash_file(source_bpe_str.strip())
+            if h in jobs:
+                print(f"duplicate for {self.hash2metadata[h]['name']}")
+            #     breakpoint()
+            # assert h not in jobs, '''batches must only have only one sample for each observation
+            #                             in order to include multiple samples, this needs to be done in an outerloop
+            #                             with gradient accumulation'''
             metadata = self.hash2metadata[h]
             formatted_hypothesis, _ = bpe2formatted(assembly_string = hypothesis_bpe_str, function_name = metadata["name"],
                                                  remove_header = True, remove_footer = True)
@@ -178,7 +179,7 @@ class StokeCostManager:
                 fh.write(f"{sequence}\n{'-'*40}\n{'-'*40}")
 
     def _save_trailing_stats(self):
-        with open(self.trailing_stats_out_path) as f:
+        with open(self.trailing_stats_out_path, "wb") as f:
             pickle.dump(self.trailing_stats_dict, f)
 
     def log_validation_stats(self, hash2val_results):
