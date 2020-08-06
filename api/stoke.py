@@ -2,7 +2,8 @@ import os
 from time import time
 from typing import Dict, Union, List, Tuple
 from stoke_helpers import make_tunit_file, test_costfn, verify_and_rewrite_testcase
-from multiprocessing.pool import ThreadPool
+#from multiprocessing.pool import ThreadPool
+from concurrent.futures import ThreadPoolExecutor
 from os.path import join, dirname
 
 NEW_TESTCASE_BEGINNING_INDEX = 2000
@@ -18,7 +19,7 @@ class StokePipeline:
         self.volume_path_to_data = volume_path_to_data
         self.volume_path_to_tmp = volume_path_to_tmp
 
-        self.pool = ThreadPool(self.n_workers)
+        self.pool = ThreadPoolExecutor(self.n_workers)
 
     def run_parallel_pipeline(self, jobs: Union[List, Tuple], debug = False):
         if debug:
