@@ -36,7 +36,7 @@ from prediction import test
 from tqdm import tqdm
 import gc
 
-os.environ["CUDA_VISIBLE_DEVICES"]="2"
+os.environ["CUDA_VISIBLE_DEVICES"]="3"
 
 # pylint: disable=too-many-instance-attributes
 class TrainManager:
@@ -626,7 +626,8 @@ class TrainManager:
                                       self.multi_batch_loss, self.steps)
             self.tb_writer.add_scalar("train/multi_batch_score",
                                       self.multi_batch_score, self.steps)
-            self.tb_writer.add_scalar(("train/multi_batch_failure_rate", self.steps))
+            self.tb_writer.add_scalar("train/multi_batch_failure_rate", 
+                                      self.multi_batch_pct_failure,  self.steps)
 
             self.epoch_loss += self.multi_batch_loss
             self.log_batch_score += self.multi_batch_score
