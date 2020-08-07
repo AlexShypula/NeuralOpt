@@ -30,6 +30,50 @@ class ParseOptions:
 	o: str = field(metadata=dict(args=["-o", "--out_file_name"]), default='succcessful_paths.txt')
 	out_dir: str = field(metadata=dict(args=["-out_dir", "--out_binary_directory"]), default='processed_binaries')
 
+def collect_binaries(database: str, out_file_prefix: str, collection: str = "repos", config_file: str = "./database-config") -> None:
+	"""
+	collects the file names the specified database (i.e. the assembly file, the corresponding ELF file, as well as the corresponding hashes for both)
+
+	database: database to query for results
+
+	returns a dictionary in which the key is the full path to the assembly file and its value is a dictionary with the repo_path, original assembly_file name, corresponding ELF file name, and their respective hashes
+	"""
+
+	config = json.load(config_file)
+
+	client= MongoClient(config['host'], port=config['port'], authSource=config['auth_db_name'],
+						username=config['username'], password=config['password']))
+
+	db_compile_results = client[database][collection]
+
+	file_names_dictionary = {}
+	results = db_compile_results.find()
+	total = results.count()
+
+	for compile_result in tqdm(results, total = total):
+		if compile_result["num_binaries"] > 0:
+			for makefile in compile_result["makefiles"]:
+				# ensure the makefile didn't fail or return no binaries
+				if makefile["success"] == True and makefile["binaries"] != [] and makefile["sha256"] != []:
+					directory = makefile["directory"]
+					orig_files = makefile["binaries"]
+					sha256_files = makefile['sha256']
+					repo_path = "/".join([compile_result["repo_owner"],compile_result["repo_name"]])
+
+					file2sha = {file: sha for file, sha in zip(orig_files, sha256_files)}
+
+					for file_name in orig_files:
+						sha256 = file2sha[filename]
+
+						identifier = "/".join([repo_path, directory, file_name])
+						file_names_dictionary[identifier] = {	"repo_path": repo_path,
+																"directory": directory,
+																"file_name": file_name,
+																"file_hash": file2sha[file_name],
+																}
+
+	return file_names_dictionary
+
 
 def collect_file_names(database: str, out_file_prefix: str, collection: str = "repos") -> None:
 	"""
