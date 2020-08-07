@@ -58,7 +58,7 @@ class StokeCostManager:
         self.max_score = max_score
 
         if self.trailing_stats_in_path:
-            with open(self.trailing_stats_in_path, "wb") as f:
+            with open(self.trailing_stats_in_path, "rb") as f:
                 self.trailing_stats_dict = pickle.load(f)
 
         for h in hash2metadata.keys():
