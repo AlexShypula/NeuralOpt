@@ -68,6 +68,7 @@ class TrainManager:
             log_dir=self.model_dir + "/tensorboard/")
 
         # cost_manager
+        self.max_score = data_config.get("max_score", 9999)
         asm_names_to_save = data_config.get("asm_names_to_save")
         asm_names_to_save = asm_names_to_save.split(":") if asm_names_to_save else []
         self.cost_manager = StokeCostManager(hash2metadata = self.hash2metadata,
@@ -378,6 +379,7 @@ class TrainManager:
         :param valid_data: validation data
         """
 
+        self.rl_adv_list = []
         #self._get_reference_baseline(train_data, self.model)
         if self.no_running_starts > 0:
             self._do_running_starts(train_data)
@@ -556,18 +558,20 @@ class TrainManager:
         # the logic here will only update when count == 0, else we accumulate gradients
 
         hash_stats_list = []
+
         for sample_no in range(self.sentence_samples):
 
             # returns batch-loss calculated by a normalized advantage function
             # and a list of tuples of of hashes to a stats dictionary
             # we should cache the costs and then update the buffers for trailing costs after all samples are taken
-            batch_loss, hash_stats = self.model.get_rl_loss_for_batch(batch = batch,
-                                                                      cost_manager = self.cost_manager,
-                                                                      loss_function = self.loss,
-                                                                      use_cuda = self.use_cuda,
-                                                                      max_output_length = self.max_output_length,
-                                                                      level = self.level)
+            batch_loss, hash_stats, rl_adv = self.model.get_rl_loss_for_batch(batch = batch,
+                                                                              cost_manager = self.cost_manager,
+                                                                              loss_function = self.loss,
+                                                                              use_cuda = self.use_cuda,
+                                                                              max_output_length = self.max_output_length,
+                                                                              level = self.level)
 
+            self.rl_adv_list.extend(rl_adv)
             hash_stats_list.extend(hash_stats) # list of tuples (h, {"cost": , "tunit_fail":, "cost_fail"}
 
             if self.normalization == "batch":
@@ -609,10 +613,17 @@ class TrainManager:
             if self.clip_grad_fun is not None:
                 # clip gradients (in-place)
                 self.clip_grad_fun(params=self.model.parameters())
+            adv_std = np.std(self.rl_adv_list)
+            adv_std = adv_std if adv_std != 0 else self.max_score
+            for param in self.model.parameters():
+                if param.grad:
+                    param.grad.data/=adv_std
 
             # make gradient step
             self.optimizer.step()
             self.optimizer.zero_grad()
+
+            self.rl_adv_list = []
 
             if self.scheduler is not None and \
                     self.scheduler_step_at == "step":

@@ -96,8 +96,9 @@ class StokeCostManager:
         for h, result_dict in results.items():
             self.hash2metadata[h] = result_dict["metadata"]
             stats = result_dict["stats"]
-            cost_std = 1 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.std(
-                self.trailing_stats_dict[h]["costs"])
+            # cost_std = 1 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.std(
+            #     self.trailing_stats_dict[h]["costs"])
+            cost_std = 1
             cost_mean = 0 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.mean(
                 self.trailing_stats_dict[h]["costs"])
             normalized_advantage = (stats["cost"] - cost_mean) / (cost_std if cost_std != 0 else 1)

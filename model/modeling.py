@@ -260,7 +260,7 @@ class Model(nn.Module):
 
         batch_rl_loss = reward_adjusted_log_probs.sum()
         
-        return batch_rl_loss, hash_stats
+        return batch_rl_loss, hash_stats, list(reinforce_scores.squeeze(0).detach().cpu())
 
     def __repr__(self) -> str:
         """
