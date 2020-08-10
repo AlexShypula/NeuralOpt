@@ -6,6 +6,7 @@ import sys
 import os
 import json
 import subprocess
+import shutil
 from multiprocessing.pool import ThreadPool
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
@@ -41,8 +42,9 @@ def collect_binaries(database: str, out_file_prefix: str, collection: str = "rep
 
 	config = json.load(config_file)
 
-	client= MongoClient(config['host'], port=config['port'], authSource=config['auth_db_name'],
-						username=config['username'], password=config['password']))
+
+	client = MongoClient(config['host'], port=config['port'], authSource=config['auth_db_name'],
+						username=config['username'], password=config['password'])
 
 	db_compile_results = client[database][collection]
 
@@ -63,16 +65,79 @@ def collect_binaries(database: str, out_file_prefix: str, collection: str = "rep
 					file2sha = {file: sha for file, sha in zip(orig_files, sha256_files)}
 
 					for file_name in orig_files:
-						sha256 = file2sha[filename]
+						file_hash = file2sha[file_name]
 
 						identifier = "/".join([repo_path, directory, file_name])
 						file_names_dictionary[identifier] = {	"repo_path": repo_path,
 																"directory": directory,
 																"file_name": file_name,
-																"file_hash": file2sha[file_name],
+																"file_hash": file_hash,
 																}
 
 	return file_names_dictionary
+
+
+def parallel_disassemble(compile_path: str, data_dict: Dict[str, Dict], res_folder = "processed_binaries",
+						 prefix = "O0", n_workers = 1, debug = False):
+
+	running_hash_set = set()
+	jobs_list = []
+	for binary_identifier in tqdm(data_dict):
+		file_hash = data_dict[binary_identifier]["file_hash"]
+		if file_hash not in running_hash_set:
+
+			# returns basename or path without ending
+
+			binary_dictionary = data_dict[binary_identifier]
+
+			binary_path = os.path.splitext(binary_identifier)[0]
+			binary_path = collapse_path(binary_path)
+
+			copy_and_disas_dict = {"binary_path": binary_path,
+									   "result_folder": res_folder,
+									   "optimization_prefix": prefix,
+									   "compile_path": compile_path,
+									   "binary_dictionary": binary_dictionary}
+			jobs_list.append(copy_and_disas_dict)
+
+	successful_paths = []
+	with tqdm(total=len(jobs_list), smoothing=0) as pbar:
+		for bin_pth, msg, rc in ThreadPool(n_workers).imap_unordered(copy_and_disas_wrapper, jobs_list):
+			pbar.update()
+			# if rc is False, print error
+			if not rc:
+				print(f"on {bin_pth} the process had error {msg} with code: {rc}")
+			else:
+				successful_paths.append(bin_pth)
+
+	return successful_paths
+
+def copy_and_disas_wrapper(args):
+	return copy_and_disas(**args)
+
+def copy_and_disas(binary_dictionary, compile_path, result_folder, binary_path, optimization_prefix) -> (str, bool, str):
+	try:
+		lcl_bin_fldr = os.path.join(result_folder, binary_path, optimization_prefix, "bin")
+		os.makedirs(lcl_bin_fldr)
+
+		lcl_fun_fldr = os.path.join(result_folder, binary_path, optimization_prefix, "functions")
+		os.makedirs(lcl_fun_fldr)
+
+	except FileExistsError:
+		err = f"path: {os.path.join(result_folder, binary_path, optimization_prefix)} already exists"
+		return binary_path, False, err
+
+	path_to_orig_bin = os.path.join(compile_path, binary_dictionary["repo_path"], binary_dictionary["file_hash"])
+	path_to_local_bin = os.path.join(lcl_bin_fldr, binary_dictionary["file_hash"])
+	shutil.copy2(path_to_orig_bin, path_to_local_bin)
+	try:
+		p = subprocess.run(['stoke', 'extract', '-i', path_to_local_bin, "-o", lcl_fun_fldr], capture_output=True, text=True, timeout=500)
+	except (subprocess.TimeoutExpired, UnicodeDecodeError) as err:
+		return binary_path, False, err
+	if p.returncode!=0:
+		return binary_path, False, p.stderr
+	else:
+		return binary_path, True, "process exited normally"
 
 
 def collect_file_names(database: str, out_file_prefix: str, collection: str = "repos") -> None:
