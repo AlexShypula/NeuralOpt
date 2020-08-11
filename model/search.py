@@ -170,6 +170,7 @@ def sample_rl_recurrent(
     hidden = None
     prev_att_vector = None
     finished = src_mask.new_zeros((batch_size, 1)).byte()
+    entropy = 0
 
     # pylint: disable=unused-variable
     for t in range(max_output_length):
@@ -185,6 +186,7 @@ def sample_rl_recurrent(
         # logits: batch x time=1 x vocab (logits)
         probs = F.softmax(logits.squeeze(1), dim=1)  # now batch x vocab
         m = Categorical(probs)
+        entropy += m.entropy().mean().detach().item()
         next_word = m.sample()
         log_probs = m.log_prob(next_word)
         log_probs_saved.append(log_probs)
@@ -200,10 +202,11 @@ def sample_rl_recurrent(
         if (finished >= 1).sum() == batch_size:
             break
 
+    entropy/=t
     stacked_output = np.stack(output, axis=1)  # batch, time
     stacked_attention_scores = np.stack(attention_scores, axis=1)
 
-    return stacked_output, log_probs_saved, stacked_attention_scores
+    return stacked_output, log_probs_saved, stacked_attention_scores, entropy
 
 
 # pylint: disable=unused-argument
@@ -306,7 +309,9 @@ def sample_rl_transformer(
 
     log_probs_saved = []
 
-    for _ in range(max_output_length):
+    entropy = 0
+
+    for t in range(max_output_length):
 
         trg_embed = embed(ys)  # embed the previous tokens
 
@@ -325,6 +330,7 @@ def sample_rl_transformer(
         logits = logits[:, -1]
         probs = F.softmax(logits, dim=1)
         m = Categorical(probs)
+        entropy += m.entropy().mean().detach().item()
         next_word = m.sample()
         log_probs = m.log_prob(next_word)
         log_probs_saved.append(log_probs)
@@ -339,8 +345,9 @@ def sample_rl_transformer(
         if (finished >= 1).sum() == batch_size:
             break
 
+    entropy/=t
     ys = ys[:, 1:]  # remove BOS-symbol
-    return ys.detach().cpu().numpy(), log_probs_saved, None
+    return ys.detach().cpu().numpy(), log_probs_saved, None, entropy
 
 
 # pylint: disable=too-many-statements,too-many-branches

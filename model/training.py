@@ -185,6 +185,7 @@ class TrainManager:
         self.multi_batch_loss = 0
         self.multi_batch_score = 0
         self.multi_batch_pct_failure = 0
+        self.multi_batch_entropy = 0
         # self.epoch_loss = 0 already initialized in the epoch loop
         self.update = False
         #self.count = self.current_batch_multiplier - 1
@@ -333,7 +334,7 @@ class TrainManager:
             for sample_no in range(self.no_running_starts):
                 for batch in iter(running_starts_iter):
                     batch = Batch(batch, self.pad_index, use_cuda=self.use_cuda)
-                    _, hash_stats = self.model.get_rl_loss_for_batch(batch = batch,
+                    _, hash_stats, _, _ = self.model.get_rl_loss_for_batch(batch = batch,
                                                                           cost_manager = self.cost_manager,
                                                                           loss_function = self.loss,
                                                                           use_cuda = self.use_cuda,
@@ -564,7 +565,7 @@ class TrainManager:
             # returns batch-loss calculated by a normalized advantage function
             # and a list of tuples of of hashes to a stats dictionary
             # we should cache the costs and then update the buffers for trailing costs after all samples are taken
-            batch_loss, hash_stats, rl_adv = self.model.get_rl_loss_for_batch(batch = batch,
+            batch_loss, hash_stats, rl_adv, entropy = self.model.get_rl_loss_for_batch(batch = batch,
                                                                               cost_manager = self.cost_manager,
                                                                               loss_function = self.loss,
                                                                               use_cuda = self.use_cuda,
@@ -591,6 +592,9 @@ class TrainManager:
                         if self.normalization != "none" else norm_batch_loss
                 norm_batch_loss/=self.sentence_samples # normalize again for # samples taken
                 self.multi_batch_loss += norm_batch_loss.detach() # accumulate loss for batch
+                self.multi_batch_entropy += entropy/self.current_batch_multiplier \
+                        if self.normalization != "none" else entropy
+                self.multi_batch_entropy /= self.sentence_samples
 
             norm_batch_loss.backward()
             del norm_batch_loss # explicitly deleting
@@ -637,8 +641,10 @@ class TrainManager:
                                       self.multi_batch_loss, self.steps)
             self.tb_writer.add_scalar("train/multi_batch_score",
                                       self.multi_batch_score, self.steps)
-            self.tb_writer.add_scalar("train/multi_batch_failure_rate", 
+            self.tb_writer.add_scalar("train/multi_batch_failure_rate",
                                       self.multi_batch_pct_failure,  self.steps)
+            self.tb_writer.add_scalar("train/multi_batch_entropy",
+                                      self.multi_batch_entropy, self.steps)
 
             self.epoch_loss += self.multi_batch_loss
             self.log_batch_score += self.multi_batch_score

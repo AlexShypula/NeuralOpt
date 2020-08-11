@@ -67,6 +67,7 @@ class StokeCostManager:
             self.hash2metadata[h]["name"] = basename(self.hash2metadata[h]["base_asbly_path"])
             self.hash2metadata[h]["cost_conf"]["training_set"] = f"{{ 0 ... {n_testcases-1} }}"
             self.hash2metadata[h]["rolling_baseline_cost"] = copy(self.hash2metadata[h][self.baseline_cost_key])
+            self.hash2metadata[h]['reference_score'] = copy(self.hash2metadata[h][self.baseline_cost_key])
             if not self.trailing_stats_in_path:
                 self.trailing_stats_dict[h] = {"costs": deque(maxlen = max_len),
                                                 "failed_tunit": deque(maxlen = max_len),

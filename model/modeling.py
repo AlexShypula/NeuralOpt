@@ -162,7 +162,7 @@ class Model(nn.Module):
             max_output_length = int(max(batch.src_lengths.cpu().numpy()) * 1.5)
 
         # greedy decoding
-        stacked_output, transposed_log_probs, stacked_attention_scores = sample_rl(
+        stacked_output, transposed_log_probs, stacked_attention_scores, entropy = sample_rl(
                 encoder_hidden=encoder_hidden,
                 encoder_output=encoder_output, eos_index=self.eos_index,
                 src_mask=batch.src_mask, embed=self.trg_embed,
@@ -170,7 +170,7 @@ class Model(nn.Module):
                 max_output_length=max_output_length)
             # batch, time, max_src_length
 
-        return stacked_output, transposed_log_probs
+        return stacked_output, transposed_log_probs, entropy
 
     def get_rl_loss_for_batch(self, batch: Batch, cost_manager: StokeCostManager,
                               loss_function, use_cuda: bool, max_output_length: int,
@@ -212,7 +212,7 @@ class Model(nn.Module):
         sort_reverse_index = batch.sort_by_src_lengths()
 
         # run as during inference to produce translations & RL score
-        output, transposed_log_probs = self.run_rl_batch(
+        output, transposed_log_probs, entropy = self.run_rl_batch(
             batch=batch, max_output_length=max_output_length)
 
         # sort outputs back to original order
@@ -260,7 +260,7 @@ class Model(nn.Module):
 
         batch_rl_loss = reward_adjusted_log_probs.sum()
         
-        return batch_rl_loss, hash_stats, list(reinforce_scores.squeeze(0).detach().cpu())
+        return batch_rl_loss, hash_stats, list(reinforce_scores.squeeze(0).detach().cpu()), entropy
 
     def __repr__(self) -> str:
         """
