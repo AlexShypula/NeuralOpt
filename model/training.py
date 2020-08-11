@@ -620,7 +620,7 @@ class TrainManager:
             adv_std = np.std(self.rl_adv_list)
             adv_std = adv_std if adv_std != 0 else self.max_score
             for param in self.model.parameters():
-                if param.grad:
+                if param.grad != None:
                     param.grad.data/=adv_std
 
             # make gradient step
