@@ -40,8 +40,8 @@ def collect_binaries(database_name: str, collection_name: str, config_file: str 
 
     returns a dictionary in which the key is the full path to the assembly file and its value is a dictionary with the repo_path, original assembly_file name, corresponding ELF file name, and their respective hashes
     """
-
-    config = json.load(config_file)
+    with open(config_file, "r") as fh: 
+        config = json.load(fh)
 
     client = MongoClient(config['host'], port=config['port'], authSource=config['auth_db_name'],
                          username=config['username'], password=config['password'])
