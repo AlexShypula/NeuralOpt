@@ -17,7 +17,6 @@ def collapse_path(path_string):
     return COLLAPSE_PATTERN.sub("/", path_string)
     
 
-
 @dataclass
 class ParseOptions:
 
@@ -31,7 +30,8 @@ class ParseOptions:
 	o: str = field(metadata=dict(args=["-o", "--out_file_name"]), default='succcessful_paths.txt')
 	out_dir: str = field(metadata=dict(args=["-out_dir", "--out_binary_directory"]), default='processed_binaries')
 
-def collect_binaries(database: str, out_file_prefix: str, collection: str = "repos", config_file: str = "./database-config") -> None:
+
+def collect_binaries(database: str, collection: str = "repos", config_file: str = "./database-config") -> None:
 	"""
 	collects the file names the specified database (i.e. the assembly file, the corresponding ELF file, as well as the corresponding hashes for both)
 

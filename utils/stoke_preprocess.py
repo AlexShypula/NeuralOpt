@@ -55,6 +55,7 @@ def parallel_pipeline(path_to_bin: str,
                 train_fldr: str = "train",
                 dev_fldr:str = "dev",
                 test_fldr: str = "test",
+                unmatched_fldr: str = "unmatched",
                 model_fldr: str = "bpe",
                 n_workers = 8,
                 n_splits = 16,
@@ -75,6 +76,7 @@ def parallel_pipeline(path_to_bin: str,
                 "train_fldr": train_fldr,
                 "dev_fldr": dev_fldr,
                 "test_fldr": test_fldr,
+                "unmatched_fldr": unmatched_fldr,
                 "suffix": None,
                 "preserve_fun_names": not no_fun_names,
                 "preserve_semantics": not full_canonicalization,
@@ -132,7 +134,18 @@ def parallel_pipeline(path_to_bin: str,
     for tr_hashes, _ in Pool(n_workers).imap_unordered(parallel_bpe_process_wrapper, jobs):
         running_hashes.update(tr_hashes)
 
+    unmatched_dups = 0
+    # process unmatched
+    for i in range(n_splits):
+        hashes, dups = bpe_process_single(in_file= join(unmatched_fldr, f"unmatched_{i}.src"),
+                                          out_file=join(unmatched_fldr, f"unmatched_{i}_fnl.src"),
+                                          spm_model_pth=join(model_fldr, "bpe_1000.model"), threshold = 2056,
+                                          hashes = running_hashes)
+        running_hashes.update(hashes)
+        unmatched_dups += dups
+
     dev_dups = 0
+    # process dev set
     for i in range(n_splits):
         hashes, dups = bpe_process(join(dev_fldr, f"dev_{i}.src"), join(dev_fldr, f"dev_{i}.tgt"),
                                    join(dev_fldr, f"dev_{i}_fnl.src"), join(dev_fldr, f"dev_{i}_fnl.tgt"),
@@ -141,6 +154,7 @@ def parallel_pipeline(path_to_bin: str,
         running_hashes.update(hashes)
         dev_dups += dups
 
+    # process test_set
     test_dups = 0
     for i in range(n_splits):
         hashes, dups = bpe_process(join(test_fldr, f"test_{i}.src"), join(test_fldr, f"test_{i}.tgt"),
@@ -150,15 +164,24 @@ def parallel_pipeline(path_to_bin: str,
         running_hashes.update(hashes)
         test_dups += dups
 
+
     print(f"total number of unique functions (source and target) in train, val, test combined is {len(running_hashes)}")
     print(f"total number of dev duplicates is {dev_dups}")
     print(f"total number of test duplicates is {test_dups}")
+    print(f"total number of unmatched function duplicates is {unmatched_dups}")
 
     print("Now merging all the files and recording vocab...")
 
-    tok_cts = merge_all_files(train_fldr, "train.src", "train.tgt", n_splits, "train", count = True)
-    merge_all_files(dev_fldr, "dev.src", "dev.tgt", n_splits, "dev", count = False)
-    merge_all_files(test_fldr, "test.src", "test.tgt", n_splits, "test", count = False)
+    tok_cts = merge_all_files(fldr_pth=train_fldr, n_splits=n_splits, out_src="train.src", out_tgt="train.tgt",
+                    mode="train", count=True)
+
+    merge_all_files(fldr_pth=dev_fldr, n_splits=n_splits, out_src="dev.src", out_tgt="dev.tgt",
+                    mode="dev", count=False)
+    merge_all_files(fldr_pth=test_fldr, n_splits=n_splits, out_src="test.src", out_tgt="test.tgt",
+                    mode="test", count=False)
+    merge_all_files(fldr_pth=unmatched_fldr, n_splits=n_splits, out_src="unmatched.src", out_tgt=None,
+                    mode="unmatched", count=False)
+
 
     print("Writing out the vocab ...")
     with open(join(model_fldr, "vocab.txt"), "w") as f:
@@ -169,10 +192,12 @@ def parallel_pipeline(path_to_bin: str,
     print("Done ! Nice !!")
 
 
-def merge_all_files(fldr_pth: str, out_src: str, out_tgt: str, n_splits: int, mode: str = "train", count = False):
+def merge_all_files(fldr_pth: str, n_splits: int, out_src: str, out_tgt: str = None,
+                    mode: str = "train", count = False):
     global_counter = Counter()
     src = open(join(fldr_pth, out_src), "w")
-    tgt = open(join(fldr_pth, out_tgt), "w")
+    if out_tgt:
+        tgt = open(join(fldr_pth, out_tgt), "w")
     for i in range(n_splits):
         fn = f"{mode}_{i}_fnl.src"
         with open(join(fldr_pth, fn)) as f:
@@ -181,13 +206,14 @@ def merge_all_files(fldr_pth: str, out_src: str, out_tgt: str, n_splits: int, mo
             if count:
                 c = Counter(tmp.split())
                 global_counter = global_counter + c
-        fn = f"{mode}_{i}_fnl.tgt"
-        with open(join(fldr_pth, fn)) as f:
-            tmp = f.read()
-            tgt.write(tmp)
-            if count:
-                c = Counter(tmp.split())
-                global_counter = global_counter + c
+        if out_tgt:
+            fn = f"{mode}_{i}_fnl.tgt"
+            with open(join(fldr_pth, fn)) as f:
+                tmp = f.read()
+                tgt.write(tmp)
+                if count:
+                    c = Counter(tmp.split())
+                    global_counter = global_counter + c
 
     return global_counter
 
@@ -207,6 +233,7 @@ def process_all(path_to_bin: str,
                 train_fldr: str = "train",
                 dev_fldr:str = "dev",
                 test_fldr: str = "test",
+                unmatched_fldr: str = "unmatched_fldr",
                 suffix: str = "0",
                 preserve_fun_names: bool = True,
                 preserve_semantics: bool = True):
@@ -229,6 +256,8 @@ def process_all(path_to_bin: str,
     test_src_f = open(join(test_fldr, f"test_{suffix}.src"), "w")
     test_tgt_f = open(join(test_fldr, f"test_{suffix}.tgt"), "w")
 
+    unmatched_src_f = open(join(unmatched_fldr, f"unmatched_{suffix}.src"), "w")
+
     for path in tqdm(path_list, position=int(suffix), desc = f"job {suffix}", leave=True):
         unopt_fun_dir = join(path_to_bin, path, unopt_prefix, fun_dir)
         opt_fun_dir = join(path_to_bin, path, opt_prefix, fun_dir)
@@ -237,11 +266,8 @@ def process_all(path_to_bin: str,
         if src_lst == []:
             n_empty += 1
         for f in src_lst:
-            if f not in tgt_lst:
-                n_missing_pair += 1
-                continue
+
             src_pth = join(unopt_fun_dir, f)
-            tgt_pth = join(opt_fun_dir, f)
             with open(src_pth) as file_obj:
                 src_text = file_obj.read()
                 src_hash = hash_file(src_text)
@@ -249,6 +275,15 @@ def process_all(path_to_bin: str,
                 n_dups += 1
                 continue
             src_shas.add(src_hash)
+            src_asbly, _, _, _ = process_raw_assembly(raw_assembly=src_text,
+                                                      preserve_fun_names=preserve_fun_names,
+                                                      preserve_semantics=preserve_semantics)
+            if f not in tgt_lst:
+                unmatched_src_f.write(src_asbly + "\n")
+                n_missing_pair += 1
+                continue
+
+            tgt_pth = join(opt_fun_dir, f)
             with open(tgt_pth) as file_obj:
                 tgt_text = file_obj.read()
                 tgt_hash = hash_file(tgt_text)
@@ -256,10 +291,7 @@ def process_all(path_to_bin: str,
                 n_dups += 1
                 continue
             tgt_shas.add(tgt_hash)
-            # breakpoint()
-            src_asbly, _, _, _ = process_raw_assembly(raw_assembly=src_text,
-                                                      preserve_fun_names=preserve_fun_names,
-                                                      preserve_semantics=preserve_semantics)
+
             tgt_asbly, _, _, _ = process_raw_assembly(raw_assembly=tgt_text,
                                                       preserve_fun_names=preserve_fun_names,
                                                       preserve_semantics=preserve_semantics)
@@ -366,6 +398,33 @@ def bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_f
     src_out.close()
     tgt_out.close()
     return (hashes, dups) if hashes else (set(), dups)
+
+def bpe_process_single(in_file: str, out_file: str, spm_model_pth: str, threshold = 200, hashes = None):
+    job_no = re.findall("\d|$", in_file)[0]
+    dups = 0
+    sent_piece = spm.SentencePieceProcessor()
+    sent_piece.Load(spm_model_pth)
+
+    with open(in_file) as f:
+        data = f.readlines()
+    out_file_handle = open(out_file, "w+")
+
+    for i, asbly in enumerate(tqdm(data, position=int(job_no), desc = f"job no: {job_no}", leave=True)):
+        if type(hashes) == type(set()):
+            asbly_hash = hash_file(asbly.strip())
+            if asbly_hash in hashes:
+                dups += 1
+                continue
+            hashes.add(asbly_hash)
+        tokenized_asbly = merge_registers(sent_piece.EncodeAsPieces(asbly.strip()))
+        if len(tokenized_asbly) < threshold:
+            tokenized_string = " ".join(tokenized_asbly)
+            out_file_handle.write(tokenized_string+"\n")
+
+    out_file_handle.close()
+    return (hashes, dups) if hashes else (set(), dups)
+
+
 
 #
 # def make_vocab(train_dir: str, vocab_out_file: str):
