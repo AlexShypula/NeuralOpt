@@ -168,7 +168,7 @@ def copy_and_disas(path_to_disas_dir: str, path_to_bin_dir: str, rel_path_to_bin
 
 
 if __name__ == "__main__":
-	parser = ArgumentParser(ParseOptions)
-	print(parser.parse_args())
-	args = parser.parse_args()
+    parser = ArgumentParser(ParseOptions)
+    print(parser.parse_args())
+    args = parser.parse_args()
     collect_and_disas(**vars(args))
