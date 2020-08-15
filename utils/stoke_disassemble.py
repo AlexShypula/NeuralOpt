@@ -44,7 +44,8 @@ def load_and_disassemle(binary_info_in_file: str, path_to_bin_dir: str, path_to_
                                             n_workers=n_workers, debug=debug)
 
     with open(successful_path_out_file, "w") as fh:
-        fh.writelines(successful_paths)
+        for p in successful_paths: 
+            fh.write(p+"\n")
 
     return None
 
@@ -70,8 +71,9 @@ def parallel_disassemble(binary_info_dict: Dict[str, Dict], path_to_bin_dir: str
                                    "binary_dictionary": binary_dictionary}
             jobs_list.append(copy_and_disas_dict)
 
+    jobs_list = jobs_list[:3000]
     successful_paths = []
-    breakpoint()
+
     with tqdm(total=len(jobs_list), smoothing=0) as pbar:
         if debug:
             for bin_pth, rc, msg in map(copy_and_disas_wrapper, jobs_list):
@@ -124,7 +126,7 @@ def copy_and_disas(path_to_disas_dir: str, path_to_bin_dir: str, rel_path_to_bin
     shutil.copy2(path_to_orig_bin, path_to_local_bin)
     try:
         p = subprocess.run(['stoke', 'extract', '-i', path_to_local_bin,
-                            "-o", lcl_fun_fldr], capture_output=True, text=True, timeout=500)
+                            "-o", lcl_fun_fldr], capture_output=True, text=True, timeout=300)
     except (subprocess.TimeoutExpired, UnicodeDecodeError) as err:
         return rel_path_to_bin_identifier, False, err
     if p.returncode != 0:
