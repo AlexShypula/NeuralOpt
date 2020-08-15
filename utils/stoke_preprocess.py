@@ -68,6 +68,7 @@ def parallel_pipeline(path_to_bin: str,
     mkdir(train_fldr)
     mkdir(dev_fldr)
     mkdir(test_fldr)
+    mkdir(unmatched_fldr)
 
     args_dict = {"path_to_bin": path_to_bin,
                 "path_list": None,
