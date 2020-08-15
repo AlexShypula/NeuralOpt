@@ -29,6 +29,7 @@ class ParseOptions:
     train_fldr: str = field(metadata=dict(args=["-train_fldr", "--train_working_folder_name"]), default='train')
     dev_fldr: str = field(metadata=dict(args=["-dev_fldr", "--dev_working_folder_name"]), default='dev')
     test_fldr: str = field(metadata=dict(args=["-test_fldr", "--test_working_folder_name"]), default='test')
+    unmatched_fldr: str = field(metadata=dict(args=["-unmatched_fldr", "--unmatched_working_folder_name"]), default='unmatched')
     model_fldr: str = field(metadata=dict(args=["-model_fldr", "--bpe_folder_name"]), default='bpe')
     n_workers: int = 8
     n_splits: int = 16
