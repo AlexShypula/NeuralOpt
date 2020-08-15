@@ -1,14 +1,15 @@
 #!/bin/bash
-python3 utils/stoke_disassemble.py \
-  -binary_dir binaries_O0 \
-  -disas_dir stoke_disassembly \
-  -opt_flag O0 \
+python3 NeuralOpt/utils/stoke_collect_v2.py \
+  -bin_file_out 8_14_O0.json \
   -db_name dire \
-  -successful_path_out successful_paths_O0.txt \
-  -collection_name alex_repos \
-  -config_file ./database-config.json \
-  -n_workers 8 \
-  -debug False
+  -field alex_repos \
+  -config ./database-config.json \
+
+python3 NeuralOpt/utils/stoke_collect_v2.py \
+  -bin_file_out 8_14_Og.json \
+  -db_name dire \
+  -field alex_repos_g \
+  -config ./database-config.json \
 #
 #python3 utils/stoke_preprocess.py \
 #  -path_to_bin stoke \
