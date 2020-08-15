@@ -191,6 +191,19 @@ def parallel_pipeline(path_to_bin: str,
             if tok != " ":
                 f.write(tok + "\n")
 
+    print("now deleting all intermediate files")
+    for split in ["train", "dev", "test", "unmatched"]:
+        for file_ending in ["src", 'tgt']:
+            for i in range(n_splits):
+                file = f"{split}_{i}.{file_ending}"
+                if os.path.exists(file):
+                    os.remove(file)
+                    print(f"deleted {file}")
+                file = f"{split}_{i}_fnl.{file_ending}"
+                if os.path.exists(file):
+                    os.remove(file)
+                    print(f"deleted {file}")
+
     print("Done ! Nice !!")
 
 
