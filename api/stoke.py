@@ -2,6 +2,7 @@ import os
 from time import time
 from typing import Dict, Union, List, Tuple
 from stoke_helpers import make_tunit_file, test_costfn, verify_and_rewrite_testcase
+from utils import STOKE_TRAINING_SET_REGEX
 #from multiprocessing.pool import ThreadPool
 from concurrent.futures import ThreadPoolExecutor
 from os.path import join, dirname
