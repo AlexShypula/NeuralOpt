@@ -56,6 +56,8 @@ class StokeCostManager:
         self.n_testcases = n_testcases
         self.trailing_stats_in_path = trailing_stats_in_path
         self.max_score = max_score
+        self.beat_baselines_hash_set = set()
+        self.no_beat_baselines = 0
 
         if self.trailing_stats_in_path:
             with open(self.trailing_stats_in_path, "rb") as f:
@@ -123,13 +125,16 @@ class StokeCostManager:
             if new_record_returncode == 3:
                 print(f"for {self.hash2metadata[h]['name']} the baseline was beat and verified")
                 print(f"the cost was {stats['cost']} whereas the reference was {self.hash2metadata[h]['reference_score']}")
-                print(f"the rolling baseline is now {self.hash2metadata[h]['rolling_baseline_cost']}")
+                print(f"the rolling baseline is now {self.hash2metadata[h]['rolling_baseline_cost']}", flush = True)
                 beat_baseline_str = f"Beat Baseline and verified, " \
                                     f"where reference is {self.hash2metadata[h]['reference_score']}\n"
+                if h not in self.beat_baselines_hash_set:
+                    self.beat_baselines_hash_set.add(h)
+                    self.no_beat_baselines+=1
             elif new_record_returncode in (1,2):
                 print(f"for {self.hash2metadata[h]['name']} the baseline was beat, but didn't verify")
                 print(f"the cost was {stats['cost']} whereas the reference was {self.hash2metadata[h]['reference_score']}")
-                print(f"the rolling baseline is still {self.hash2metadata[h]['rolling_baseline_cost']}")
+                print(f"the rolling baseline is still {self.hash2metadata[h]['rolling_baseline_cost']}", flush = True)
                 beat_baseline_str = f"Beat Baseline but didn't verify, " \
                                     f"where reference is {self.hash2metadata[h]['reference_score']}\n"
             else:
