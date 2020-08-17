@@ -19,6 +19,7 @@ from typing import List, Tuple, Dict
 import os
 from copy import copy
 from req import StokeRequest
+import warnings
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
@@ -155,9 +156,14 @@ class StokeCostManager:
         pct_failures /= len(hash_stats_list)
         return batch_cost, pct_failures
 
-    def log_buffer_stats(self):
+    def log_buffer_stats(self, hash_list: List[str]):
 
-        for h in self.trailing_stats_dict.keys():
+        if hash_list = None:
+            warnings.warn("In logging buffer statistics, no hash keys were given,"
+                          "the entire dataset is now being logged each update")
+            hash_list = self.trailing_stats_dict.keys()
+
+        for h in hash_list:
 
             if len(self.trailing_stats_dict[h]["costs"]) > 0:
 

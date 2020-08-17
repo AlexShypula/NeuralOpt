@@ -186,6 +186,7 @@ class TrainManager:
         self.multi_batch_score = 0
         self.multi_batch_pct_failure = 0
         self.multi_batch_entropy = 0
+        self.multi_batch_hash_list = []
         # self.epoch_loss = 0 already initialized in the epoch loop
         self.update = False
         #self.count = self.current_batch_multiplier - 1
@@ -602,6 +603,7 @@ class TrainManager:
 
         # update buffers after sampling
         batch_score, pct_failures = self.cost_manager.update_buffers(hash_stats_list)
+        self.multi_batch_hash_list.extend([h for h, _ in hash_stats_list])
 
 
         if self.current_batch_multiplier > 1:
@@ -635,7 +637,7 @@ class TrainManager:
 
             # increment step counter
 
-            self.cost_manager.log_buffer_stats()
+            self.cost_manager.log_buffer_stats(self.multi_batch_hash_list)
 
             self.tb_writer.add_scalar("train/multi_batch_loss",
                                       self.multi_batch_loss, self.steps)
@@ -651,6 +653,7 @@ class TrainManager:
             self.epoch_loss += self.multi_batch_loss
             self.log_batch_score += self.multi_batch_score
 
+            self.multi_batch_hash_list = []
             self.multi_batch_loss = 0
             self.multi_batch_score = 0
             self.multi_batch_pct_failure = 0
