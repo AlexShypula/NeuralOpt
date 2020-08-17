@@ -169,7 +169,8 @@ def sample_rl_recurrent(
     attention_scores = []
     hidden = None
     prev_att_vector = None
-    finished = src_mask.new_zeros((batch_size, 1)).byte()
+    # finished = src_mask.new_zeros((batch_size, 1)).byte()
+    is_finished = src_mask.new_zeros((batch_size, 1)).bool()
     entropy = 0
 
     # pylint: disable=unused-variable
@@ -186,20 +187,22 @@ def sample_rl_recurrent(
         # logits: batch x time=1 x vocab (logits)
         probs = F.softmax(logits.squeeze(1), dim=1)  # now batch x vocab
         m = Categorical(probs)
-        entropy += m.entropy().sum() # will later normalize by the number of tokens
         next_word = m.sample()
-        log_probs = m.log_prob(next_word)
+        # 1 where the sequence is not finished, 0 otherwise
+        not_finished_mask = (~is_finished).float().squeeze(1)
+        log_probs = m.log_prob(next_word) * not_finished_mask
         log_probs_saved.append(log_probs)
+        entropy += (m.entropy()*not_finished_mask).sum()  # will later normalize by the number of tokens
 
         output.append(next_word.detach().cpu().numpy())
         prev_y = next_word.unsqueeze(1)
         attention_scores.append(att_probs.squeeze(1).detach().cpu().numpy())
         # batch, max_src_lengths
-        # check if previous symbol was <eos>
+        # check if previous symbol was <eos>, need to add to mask only after generating <eos>
         is_eos = torch.eq(next_word.unsqueeze(1), eos_index)
-        finished += is_eos
+        is_finished|=is_eos # or the is_eos
         # stop predicting if <eos> reached for all elements in batch
-        if (finished >= 1).sum() == batch_size:
+        if (is_finished).sum() == batch_size:
             break
 
     stacked_output = np.stack(output, axis=1)  # batch, time
@@ -304,11 +307,11 @@ def sample_rl_transformer(
     # a subsequent mask is intersected with this in decoder forward pass
     trg_mask = src_mask.new_ones([1, 1, 1])
 
-    finished = src_mask.new_zeros((batch_size)).byte()
+    # finished = src_mask.new_zeros((batch_size)).byte()
+    is_finished = src_mask.new_zeros((batch_size, 1)).bool()
+    entropy = 0
 
     log_probs_saved = []
-
-    entropy = 0
 
     for t in range(max_output_length):
 
@@ -323,25 +326,27 @@ def sample_rl_transformer(
             src_mask=src_mask,
             unroll_steps=None,
             hidden=None,
-            trg_mask=trg_mask
-        )
+            trg_mask=trg_mask)
+
 
         logits = logits[:, -1]
         probs = F.softmax(logits, dim=1)
         m = Categorical(probs)
-        entropy += m.entropy().sum() # will later normalize by the number of tokens
         next_word = m.sample()
-        log_probs = m.log_prob(next_word)
+        # 1 where the sequence is not finished, 0 otherwise
+        not_finished_mask = (~is_finished).float().squeeze(1)
+        log_probs = m.log_prob(next_word) * not_finished_mask
         log_probs_saved.append(log_probs)
+        entropy += (m.entropy()*not_finished_mask).sum()  # will later normalize by the number of tokens
 
         next_word = next_word.data
         ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
 
-        # check if previous symbol was <eos>
-        is_eos = torch.eq(next_word, eos_index)
-        finished += is_eos
+        # check if previous symbol was <eos>, need to add to mask only after generating <eos>
+        is_eos = torch.eq(next_word.unsqueeze(1), eos_index)
+        is_finished|=is_eos # or the is_eos
         # stop predicting if <eos> reached for all elements in batch
-        if (finished >= 1).sum() == batch_size:
+        if (is_finished).sum() == batch_size:
             break
 
     ys = ys[:, 1:]  # remove BOS-symbol
