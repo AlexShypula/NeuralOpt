@@ -172,8 +172,8 @@ class Model(nn.Module):
 
         return stacked_output, transposed_log_probs, entropy
 
-    def get_rl_loss_for_batch(self, batch: Batch, cost_manager: StokeCostManager,
-                              loss_function, use_cuda: bool, max_output_length: int,
+    def get_rl_loss_for_batch(self, batch: Batch, cost_manager: StokeCostManager, beta_entropy: float,
+                            use_cuda: bool, max_output_length: int,
                          level: str) -> Tensor:
         """
         Generate translations for the given data.
@@ -258,9 +258,10 @@ class Model(nn.Module):
             log_probs = log_probs.cuda()
         reward_adjusted_log_probs = torch.mul(log_probs, reinforce_scores)
 
-        batch_rl_loss = reward_adjusted_log_probs.sum()
+        # minimize the log-adjusted cost and maximize entropy (or "multiply entropy by -1 and minimize")
+        batch_rl_loss = reward_adjusted_log_probs.sum() - beta_entropy * entropy
         
-        return batch_rl_loss, hash_stats, list(reinforce_scores.squeeze(0).detach().cpu()), entropy
+        return batch_rl_loss, hash_stats, list(reinforce_scores.squeeze(0).detach().cpu()), entropy.detach().item()
 
     def __repr__(self) -> str:
         """

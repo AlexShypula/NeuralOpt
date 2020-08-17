@@ -186,7 +186,7 @@ def sample_rl_recurrent(
         # logits: batch x time=1 x vocab (logits)
         probs = F.softmax(logits.squeeze(1), dim=1)  # now batch x vocab
         m = Categorical(probs)
-        entropy += m.entropy().mean().detach().item()
+        entropy += m.entropy().sum() # will later normalize by the number of tokens
         next_word = m.sample()
         log_probs = m.log_prob(next_word)
         log_probs_saved.append(log_probs)
@@ -202,7 +202,6 @@ def sample_rl_recurrent(
         if (finished >= 1).sum() == batch_size:
             break
 
-    entropy/=t
     stacked_output = np.stack(output, axis=1)  # batch, time
     stacked_attention_scores = np.stack(attention_scores, axis=1)
 
@@ -330,7 +329,7 @@ def sample_rl_transformer(
         logits = logits[:, -1]
         probs = F.softmax(logits, dim=1)
         m = Categorical(probs)
-        entropy += m.entropy().mean().detach().item()
+        entropy += m.entropy().sum() # will later normalize by the number of tokens
         next_word = m.sample()
         log_probs = m.log_prob(next_word)
         log_probs_saved.append(log_probs)
@@ -345,7 +344,6 @@ def sample_rl_transformer(
         if (finished >= 1).sum() == batch_size:
             break
 
-    entropy/=t
     ys = ys[:, 1:]  # remove BOS-symbol
     return ys.detach().cpu().numpy(), log_probs_saved, None, entropy
 

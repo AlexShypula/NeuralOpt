@@ -101,6 +101,7 @@ class TrainManager:
         self._log_parameters_list()
 
         # objective
+        self.beta_entropy = train_config.get("beta_entropy", 0.0)
         self.label_smoothing = train_config.get("label_smoothing", 0.0)
         self.loss = None #XentLoss(pad_index=self.pad_index, smoothing=self.label_smoothing)
         self.normalization = train_config.get("normalization", "batch")
@@ -111,7 +112,6 @@ class TrainManager:
 
         # optimization
         self.learning_rate_min = train_config.get("learning_rate_min", 1.0e-8)
-
         self.clip_grad_fun = build_gradient_clipper(config=train_config)
         self.optimizer = build_optimizer(config=train_config,
                                          parameters=model.parameters())
@@ -568,7 +568,7 @@ class TrainManager:
             # we should cache the costs and then update the buffers for trailing costs after all samples are taken
             batch_loss, hash_stats, rl_adv, entropy = self.model.get_rl_loss_for_batch(batch = batch,
                                                                               cost_manager = self.cost_manager,
-                                                                              loss_function = self.loss,
+                                                                              beta_entropy = self.beta_entropy,
                                                                               use_cuda = self.use_cuda,
                                                                               max_output_length = self.max_output_length,
                                                                               level = self.level)
@@ -588,14 +588,17 @@ class TrainManager:
                     "or summation of loss 'none' implemented")
 
             norm_batch_loss = batch_loss / normalizer
+            entropy/=normalizer
             if self.current_batch_multiplier > 1:
                 norm_batch_loss = norm_batch_loss/self.current_batch_multiplier \
                         if self.normalization != "none" else norm_batch_loss
                 norm_batch_loss/=self.sentence_samples # normalize again for # samples taken
                 self.multi_batch_loss += norm_batch_loss.detach() # accumulate loss for batch
-                self.multi_batch_entropy += entropy/self.current_batch_multiplier \
+
+                entropy = entropy/self.current_batch_multiplier \
                         if self.normalization != "none" else entropy
-                self.multi_batch_entropy /= self.sentence_samples
+                entropy/=self.sentence_samples
+                self.multi_batch_entropy += entropy # entropy is detached here
 
             norm_batch_loss.backward()
             del norm_batch_loss # explicitly deleting
