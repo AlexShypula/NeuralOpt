@@ -645,6 +645,8 @@ class TrainManager:
                                       self.multi_batch_pct_failure,  self.steps)
             self.tb_writer.add_scalar("train/multi_batch_entropy",
                                       self.multi_batch_entropy, self.steps)
+            self.tb_writer.add_scalar("train/no_baselines_beat",
+                                      self.cost_manager.no_beat_baselines, self.steps)
 
             self.epoch_loss += self.multi_batch_loss
             self.log_batch_score += self.multi_batch_score
