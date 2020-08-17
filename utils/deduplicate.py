@@ -25,8 +25,8 @@ if __name__ == "__main__":
         for s, t in zip(src_lines, tgt_lines):
             sha = hash_file(s.strip().lower())
             if sha not in sha_set:
-                src_final.write(s + "\n")
-                tgt_final.write(t + "\n")
+                src_final.write(s.strip() + "\n")
+                tgt_final.write(t.strip() + "\n")
                 sha_set.add(sha)
             else:
                 dups += 1
