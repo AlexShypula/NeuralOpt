@@ -93,7 +93,7 @@ TUNITORIGFIELDS = ["orig_tunit_rc",
 "opt_tunit_unopt_bpe_cost_rc",
 "opt_tunit_unopt_bpe_cost_stdout",
 "opt_tunit_unopt_bpe_cost",
-"opt_tunit_unopt_bpe_correctness"git add
+"opt_tunit_unopt_bpe_correctness"
 ]
 
 SPMMODELFIELDS = ["unopt_full_canon_hash", "opt_full_canon_hash"]
