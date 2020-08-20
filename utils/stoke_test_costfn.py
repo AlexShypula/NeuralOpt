@@ -93,7 +93,7 @@ TUNITORIGFIELDS = ["orig_tunit_rc",
 "opt_tunit_unopt_bpe_cost_rc",
 "opt_tunit_unopt_bpe_cost_stdout",
 "opt_tunit_unopt_bpe_cost",
-"opt_tunit_unopt_bpe_correctness"
+"opt_tunit_unopt_bpe_correctness"git add
 ]
 
 SPMMODELFIELDS = ["unopt_full_canon_hash", "opt_full_canon_hash"]
@@ -122,6 +122,8 @@ class ParseOptions:
 	filter_unsupported: bool = field(metadata=dict(args=["-filter_unsupported", "--filter_unsupported"]), default=False)
 	test_bpe: bool = field(metadata=dict(args=["-test_bpe"]), default=False)
 	tunit_on_orig: bool = field(metadata=dict(args=["-orig_tunit", "--tunit_on_orig"]), default=False)
+	suppress_log: bool = field(metadata=dict(args=["-suppress_log", "--suppress_log"]), default=False)
+	write_unopt_success_only: bool = field(metadata=dict(args=["-success_only", "--write_success_only"]), default=False)
 
 
 class StopWatch:
@@ -201,7 +203,9 @@ def parallel_eval_cost(path_list: List[str],
 					   live_dangerously: bool = False,
 					   filter_unsupported: bool = False,
 					   test_bpe: bool = False,
-					   tunit_on_orig: bool = False
+					   tunit_on_orig: bool = False,
+					   suppress_log: bool = False,
+					   write_unopt_success_only: bool = False
 					   ):
 
 	stop_watch = StopWatch()
@@ -256,7 +260,9 @@ def parallel_eval_cost(path_list: List[str],
 					 	"live_dangerously": live_dangerously,
 					 	"filter_unsupported": filter_unsupported,
 					 	"test_bpe": test_bpe,
-					 	"tunit_on_orig": tunit_on_orig
+					 	"tunit_on_orig": tunit_on_orig,
+					 	"suppress_log": suppress_log,
+					 	"write_unopt_success_only": write_unopt_success_only,
 					}
 	jobs = []
 	for path in path_list:
@@ -298,8 +304,10 @@ def test_binary_directory(path: str,
 						live_dangerously: bool = False,
 						filter_unsupported: bool = False,
 					    test_bpe: bool = False,
-					    tunit_on_orig: bool = False
-						):
+					    tunit_on_orig: bool = False,
+						suppress_log: bool = False,
+						write_unopt_success_only: bool = False
+						  ):
 
 
 	unopt_fun_dir = join(path, unopt_prefix, fun_dir_suff)
@@ -330,14 +338,16 @@ def test_binary_directory(path: str,
 																					   write_asbly = write_asbly,
 																					   live_dangerously = live_dangerously,
 																					   filter_unsupported = filter_unsupported)
+
 		asbly_hash_set.add(assembly_hash)
 		# add partial results to the log list
 		unopt_fun_path = join(unopt_fun_dir, fun_file)
 		log_prefix = f"Log for function {unopt_fun_path}: "
 
-		tcgen_list.append(log_prefix + tcgen_str)
-		cost_list.append(log_prefix + cost_str)
-		benchmark_list.append(log_prefix + benchmark_str)
+		if not suppress_log:
+			tcgen_list.append(log_prefix + tcgen_str)
+			cost_list.append(log_prefix + cost_str)
+			benchmark_list.append(log_prefix + benchmark_str)
 
 		if stdout_to_csv:
 			res_dict["tcgen_str"] = tcgen_str
@@ -361,9 +371,10 @@ def test_binary_directory(path: str,
 																		   live_dangerously = live_dangerously,
 																		   filter_unsupported = filter_unsupported)
 
-			log_prefix = f"Log for function {join(opt_fun_dir, fun_file)}: "
-			cost_list.append(log_prefix + cost_str)
-			benchmark_list.append(log_prefix + benchmark_str)
+			if not suppress_log:
+				log_prefix = f"Log for function {join(opt_fun_dir, fun_file)}: "
+				cost_list.append(log_prefix + cost_str)
+				benchmark_list.append(log_prefix + benchmark_str)
 
 			if test_bpe:
 				res_dict = test_bpe_cost(fun_file = fun_file,
@@ -377,8 +388,11 @@ def test_binary_directory(path: str,
 			if stdout_to_csv:
 				res_dict["opt_cost_str"] = cost_str
 				res_dict["opt_benchmark_str"] = benchmark_str
-
-		csv_rows.append(res_dict)
+		if write_unopt_success_only:
+			if res_dict.get("unopt_unopt_correctness") == "yes" and res_dict.get("opt_unopt_correctness") in ("yes", "no"):
+				csv_rows.append(res_dict)
+		else:
+			csv_rows.append(res_dict)
 
 	return csv_rows, tcgen_list, cost_list, benchmark_list
 
