@@ -54,7 +54,9 @@ def parallel_disassemble(binary_info_dict: Dict[str, Dict], path_to_bin_dir: str
                          optimization_flag: str, n_workers=1, debug=False):
     running_hash_set = set()
     jobs_list = []
-    for binary_identifier, binary_dictionary in tqdm(binary_info_dict.items()):
+    for i, (binary_identifier, binary_dictionary) in enumerate(tqdm(binary_info_dict.items())):
+        if i >= 200000: 
+            break
         file_hash = binary_dictionary["file_hash"]
         if file_hash not in running_hash_set:
             # returns basename or path without ending
@@ -71,7 +73,7 @@ def parallel_disassemble(binary_info_dict: Dict[str, Dict], path_to_bin_dir: str
                                    "binary_dictionary": binary_dictionary}
             jobs_list.append(copy_and_disas_dict)
 
-    jobs_list = jobs_list[:3000]
+    #jobs_list = jobs_list[:3000]
     successful_paths = []
 
     with tqdm(total=len(jobs_list), smoothing=0) as pbar:
@@ -123,9 +125,10 @@ def copy_and_disas(path_to_disas_dir: str, path_to_bin_dir: str, rel_path_to_bin
         return rel_path_to_bin_identifier, False, err
     path_to_local_bin = os.path.join(
         lcl_bin_fldr, binary_dictionary["file_hash"])
-    shutil.copy2(path_to_orig_bin, path_to_local_bin)
+    # omit copying the binary
+    #shutil.copy2(path_to_orig_bin, path_to_local_bin)
     try:
-        p = subprocess.run(['stoke', 'extract', '-i', path_to_local_bin,
+        p = subprocess.run(['stoke', 'extract', '-i', path_to_orig_bin,
                             "-o", lcl_fun_fldr], capture_output=True, text=True, timeout=300)
     except (subprocess.TimeoutExpired, UnicodeDecodeError) as err:
         return rel_path_to_bin_identifier, False, err
