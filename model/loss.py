@@ -111,6 +111,50 @@ class StokeCostManager:
             hashes_advantages_stats.append((h, normalized_advantage, stats))
         return hashes_advantages_stats
 
+    def eval_beams(self, source_bpe_str: str, hyp_bpe_beams: str):
+        jobs = {}
+        h = hash_file(source_bpe_str.strip())
+        metadata = self.hash2metadata[h]
+        for i, hyp in enumerate(hyp_bpe_beams):
+            formatted_hyp, _ = bpe2formatted(assembly_string = hyp, function_name = metadata["name"],
+                                          remove_header = True, remove_footer = True)
+            jobs[i] = {"hypothesis_string": formatted_hyp, "metadata": metadata}
+        results = self.requester.get(jobs)
+        ##TODO YOU NEED TO SPECIFY HOW TO GET THE O0 and Og benchmarks here !
+        rc = -1
+        high_benchamrk = 0 ## TODO
+        low_benchmark = 0 ## TODO
+        for i, result_dict in results.items():
+            cost = result_dict["stats"]["cost"]
+            correct = result_dict["stats"]["correct"]
+            if rc < 0 and not correct:
+                rc = 0
+                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+            elif rc < 1 and cost > high_benchamrk:
+                rc = 1
+                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+            elif rc < 2 and cost == high_benchamrk:
+                rc = 2
+                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+            elif rc < 3 and cost > low_benchmark:
+                assert cost <= high_benchamrk
+                rc = 3
+                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+            elif rc < 4 and cost == low_benchmark:
+                assert cost <= high_benchamrk
+                rc = 4
+                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+            elif rc < 5 and cost < low_benchmark:
+                assert cost < low_benchmark and cost < high_benchamrk
+                rc = 5
+                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+            else:
+                if cost < best_result["stats"]["cost"]:
+                    best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+
+        return rc, best_result
+
+
 
     def update_buffers(self, hash_stats_list: Tuple[str, Dict]):
 
@@ -158,7 +202,7 @@ class StokeCostManager:
 
     def log_buffer_stats(self, hash_list: List[str]):
 
-        if hash_list = None:
+        if hash_list == None:
             warnings.warn("In logging buffer statistics, no hash keys were given,"
                           "the entire dataset is now being logged each update")
             hash_list = self.trailing_stats_dict.keys()
