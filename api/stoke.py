@@ -22,6 +22,45 @@ class StokePipeline:
 
         self.pool = ThreadPoolExecutor(self.n_workers)
 
+    def run_parallel_eval(self, jobs: Union[List, Tuple], debug=False):
+        pass
+
+
+    def run_eval_wrapper(self, kwargs):
+        pass
+
+
+    def run_eval(self, hypothesis_string: str, meta: Dict):
+
+        rewrite_id = (metadata["name"] + "_" + str(time())).replace(".", "_")
+        data_path_to_target = metadata["base_asbly_path"]
+        data_path_to_testcases = metadata["testcase_path"]
+
+        container_abs_path_raw_rewrite = join(self.path_to_volume, self.volume_path_to_tmp, rewrite_id + ".tmp")
+        container_abs_path_asbly_rewrite =  join(self.path_to_volume, self.volume_path_to_tmp, rewrite_id + ".s")
+        container_abs_path_to_functions = dirname(join(self.path_to_volume, self.volume_path_to_data, data_path_to_target))
+        container_abs_path_to_target = join(self.path_to_volume, self.volume_path_to_data, data_path_to_target)
+        container_abs_path_to_testcases = join(self.path_to_volume, self.volume_path_to_data, data_path_to_testcases)
+
+        metadata["cost_conf"]["training_set"] = "{ 0 ... 9999 }"
+
+        cost, failed_tunit, failed_cost, is_correct = get_stoke_cost(hypothesis_string=hypothesis_string,
+                                                            container_abs_path_raw_rewrite=container_abs_path_raw_rewrite,
+                                                            container_abs_path_asbly_rewrite=container_abs_path_asbly_rewrite,
+                                                            container_abs_path_to_functions=container_abs_path_to_functions,
+                                                            container_abs_path_to_target=container_abs_path_to_target,
+                                                            container_abs_path_to_testcases=container_abs_path_to_testcases,
+                                                            assembly_name=metadata["name"],
+                                                            cost_conf=metadata["cost_conf"],
+                                                            max_cost=1e9)
+
+        return {"metadata": metadata, "stats": {"cost": cost,
+                                         "failed_tunit": failed_tunit,
+                                         "failed_cost": failed_cost,
+                                         "hypothesis_string": hypothesis_string}}
+
+
+
     def run_parallel_pipeline(self, jobs: Union[List, Tuple], debug = False):
         if debug:
             return map(self.run_pipeline_wrapper, jobs)
@@ -43,7 +82,7 @@ class StokePipeline:
         container_abs_path_to_target = join(self.path_to_volume, self.volume_path_to_data, data_path_to_target)
         container_abs_path_to_testcases = join(self.path_to_volume, self.volume_path_to_data, data_path_to_testcases)
 
-        cost, failed_tunit, failed_cost = get_stoke_cost(hypothesis_string=hypothesis_string,
+        cost, failed_tunit, failed_cost, is_correct = get_stoke_cost(hypothesis_string=hypothesis_string,
                                                             container_abs_path_raw_rewrite=container_abs_path_raw_rewrite, 
                                                             container_abs_path_asbly_rewrite=container_abs_path_asbly_rewrite,
                                                             container_abs_path_to_functions=container_abs_path_to_functions,
@@ -110,6 +149,7 @@ class StokePipeline:
                                                  "new_record_returncode": new_record_returncode}}
 
 
+
 def get_stoke_cost(hypothesis_string: str,
                    container_abs_path_raw_rewrite: str,
                    container_abs_path_asbly_rewrite: str,
@@ -139,8 +179,9 @@ def get_stoke_cost(hypothesis_string: str,
 
     tunit_failed = False if tunit_rc == 0 else True
     cost_failed = False if tunit_rc == 0 and cost_rc == 0 else True
+    correct = False if cost_failed else correct
 
     if tunit_rc == 0 and cost_rc == 0:
-        return float(cost), tunit_failed, cost_failed
+        return float(cost), tunit_failed, cost_failed, correct
     else:
-        return float(max_cost), tunit_failed, cost_failed
+        return float(max_cost), tunit_failed, cost_failed, correct
