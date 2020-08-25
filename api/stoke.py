@@ -23,11 +23,14 @@ class StokePipeline:
         self.pool = ThreadPoolExecutor(self.n_workers)
 
     def run_parallel_eval(self, jobs: Union[List, Tuple], debug=False):
-        pass
+        if debug:
+            return map(self.run_eval_wrapper, jobs)
+        else:
+            return self.pool.map(self.run_eval_wrapper, jobs, chunksize = self.n_workers)
 
 
     def run_eval_wrapper(self, kwargs):
-        pass
+        return self.run_eval(**kwargs)
 
 
     def run_eval(self, hypothesis_string: str, meta: Dict):
