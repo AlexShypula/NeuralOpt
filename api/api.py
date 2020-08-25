@@ -34,6 +34,17 @@ def Process():
     return res_dict
 
 
+@app.route('/stoke/eval', methods = ["GET"])
+def Eval():
+    req = request.get_json()
+    jobs = req.values()
+    res = pipeline.run_parallel_eval(jobs=jobs, debug=app.config["DEBUG"])
+    res_dict = {}
+    for k, v in zip(req.keys(), res):
+        res_dict[k] = v
+    return res_dict
+
+
 if __name__ == "__main__":
     parser = ArgumentParser(ParseOptions)
     print(parser.parse_args())
