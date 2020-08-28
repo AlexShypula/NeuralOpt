@@ -49,6 +49,42 @@ REMOVE_FOOTER_REGEX = re.compile(".size [\w_\s\-\.,]+")
 class ConfigurationError(Exception):
     """ Custom exception for misspecifications of configuration """
 
+evalReturncode2annotation = {
+    -1: "All samples failed to assemble",
+    0: "The best sample assembled, but was incorrect",
+    1: "The best sample assembled, was correct, but was higher cost than the lesser of gcc output",
+    2: "The best sample assembled, was correct, and was equal to the worse of the gcc's",
+    3: "The best sample assembled, was correct, and was between the -O0 and -Og",
+    4: "The best sample assembled, was correct, and was equal to the better of the gcc's",
+    5: "The best sample assembled, was correct, and beat gcc"
+}
+
+def paste(reference_string: str, hypothesis_string: str):
+    tmp_ref = "ref_" + str(time())
+    tmp_hyp = "hyp_" + str(time())
+    with open(tmp_ref, "w") as ref_fh, open(tmp_hyp, "w") as hyp_fh:
+        ref_fh.write(reference_string)
+        hyp_fh.write(hypothesis_string)
+    p = subprocess.run(f"paste {tmp_ref} {tmp_hyp} | column -s $'\t' -t", shell=True, capture_output=True)
+    os.remove(tmp_ref)
+    os.remove(tmp_hyp)
+    return p.stdout.decode("utf-8")
+
+
+def annotate_eval_string(reference_string: str, hypothesis_string: str, function_name: str,
+                         best_cost: float, unopt_cost: float, opt_cost: float, correctness_flag: bool, return_code: int):
+    correctness_str = "correct" if correctness_flag else "incorrect"
+    header = f'''{evalReturncode2annotation[return_code]}\n
+The output for {function_name} had cost of {best_cost} and was {correctness_str}
+while the unoptimized code had cost {unopt_cost} 
+and the optimized code had cost {opt_cost}\n\n'''
+    reference_string = "reference:\n" + reference_string
+    hypothesis_string = "hypothesis:\n" + hypothesis_string
+    body = paste(reference_string, hypothesis_string)
+    return header+body
+
+
+
 class PriorityQueue:
     def __init__(self, maxlen):
         self.maxlen = maxlen

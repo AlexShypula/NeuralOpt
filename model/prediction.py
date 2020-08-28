@@ -7,12 +7,14 @@ import sys
 from typing import List, Optional
 from logging import Logger
 import numpy as np
+import csv
+import matplotlib.pyplot as plt
 
 import torch
 from torchtext.data import Dataset, Field
 
 from helpers import bpe_postprocess, load_config, make_logger,\
-    get_latest_checkpoint, load_checkpoint, store_attention_plots, bpe2formatted
+    get_latest_checkpoint, load_checkpoint, store_attention_plots, bpe2formatted, mkdir
 from metrics import bleu, chrf, token_accuracy, sequence_accuracy
 from modeling import build_model, Model
 from batch import Batch
@@ -20,6 +22,19 @@ from data import load_data, make_data_iter, MonoDataset
 from constants import UNK_TOKEN, PAD_TOKEN, EOS_TOKEN
 from vocabulary import Vocabulary
 from loss import StokeCostManager
+from tqdm import tqdm
+from os.path import join
+
+CSV_KEYS = ["name", "cost", "O0_cost", "Og_cost", "rc", "failed_cost", "base_asbly_path"]
+
+
+rc2axis = {-1: "failed",
+           0: "incorrect",
+           1: "worse than -O0",
+           2: "matched -O0",
+           3: "between -O0 and -Og",
+           4: "matched -Og",
+           5: "better than -Og"}
 
 # pylint: disable=too-many-arguments,too-many-locals,no-member
 def validate_on_data(model: Model, data: Dataset,
@@ -30,7 +45,8 @@ def validate_on_data(model: Model, data: Dataset,
                      cost_manager: StokeCostManager = None,
                      loss_function: torch.nn.Module = None,
                      beam_size: int = 1, beam_alpha: int = -1,
-                     batch_type: str = "sentence"
+                     batch_type: str = "sentence",
+                     n_best: int  = 0
                      ) \
         -> (float, float, float, List[str], List[List[str]], List[str],
             List[str], List[List[str]], List[np.array]):
@@ -66,6 +82,7 @@ def validate_on_data(model: Model, data: Dataset,
         - decoded_valid: raw validation hypotheses (before post-processing),
         - valid_attention_scores: attention scores for validation hypotheses
     """
+    assert n_best <= beam_size
     if batch_size > 1000 and batch_type == "sentence":
         logger.warning(
             "WARNING: Are you sure you meant to work on huge batches like "
@@ -104,7 +121,7 @@ def validate_on_data(model: Model, data: Dataset,
             # run as during inference to produce translations
             output, attention_scores = model.run_batch(
                 batch=batch, beam_size=beam_size, beam_alpha=beam_alpha,
-                max_output_length=max_output_length)
+                max_output_length=max_output_length, n_best = n_best)
 
             # sort outputs back to original order
             all_outputs.extend(output[sort_reverse_index])
@@ -123,65 +140,124 @@ def validate_on_data(model: Model, data: Dataset,
             valid_loss = -1
             valid_ppl = -1
 
-        # decode back to symbols
-        decoded_valid = model.trg_vocab.arrays_to_sentences(arrays=all_outputs,
-                                                            cut_at_eos=True)
-
         # evaluate with metric on full dataset
         join_char = " " if level in ["word", "bpe"] else ""
         valid_sources = [join_char.join(s) for s in data.src]
         valid_references = [join_char.join(t) for t in data.trg]
-        valid_hypotheses = [join_char.join(t) for t in decoded_valid]
+
 
         # post-process
         if level == "bpe":
             valid_sources = [bpe_postprocess(s) for s in valid_sources]
             valid_references = [bpe_postprocess(v)
                                 for v in valid_references]
-            valid_hypotheses = [bpe_postprocess(v) for
-                                v in valid_hypotheses]
+            #valid_hypotheses = [bpe_postprocess(v) for
 
-        # if references are given, evaluate against them
-        if eval_metric.lower() == "stoke":
+        rc_stats_dict = {}
+        for i in range(-1, 6):
+            rc_stats_dict[i] = {"counts": 0, "costs": []}
 
-            hashes_advantages_stats = cost_manager.parallel_get_rl_cost(zip(valid_sources, valid_hypotheses))
-            hash2val_results = {}
-            c = 0
-            for hyp, (h, advantages, stats) in zip(valid_hypotheses, hashes_advantages_stats):
-                hash2val_results[h] = {"cost": stats["cost"],
-                                   "text": bpe2formatted(assembly_string=hyp, function_name = "default_validation_name", remove_footer=True)[0]}
-                c += stats["cost"]
-            current_valid_score = c / len(valid_hypotheses)
-            cost_manager.log_validation_stats(hash2val_results)
+        if n_best > 1:
+            valid_beams = []
+            for beams in all_outputs:
+                beams = model.trg_vocab.arrays_to_sentences(arrays=beams,
+                                                            cut_at_eos=True)
+                beams = [join_char.join(t) for t in beams]
+                if level == "bpe":
+                    beams = [bpe_postprocess(t) for t in beams]
+                valid_beams.append(beams)
+            valid_hypotheses = []
+            individual_record_list = []
+            pbar = tqdm(total = len(valid_beams), smoothing=0, desc="evaluating all beams with STOKE")
+            for source, hypotheses in zip(valid_sources, valid_beams):
+                rc, hypothesis_string, stats, comparison_string, _ = cost_manager.eval_beams(source, hypotheses)
+                rc_stats_dict[rc]["counts"]+=1
+                rc_stats_dict[rc]["costs"].append(stats["cost"])
+                valid_hypotheses.append(hypothesis_string)
+                individual_record_list.append({**metadata, **stats,
+                                               "comparison_string": comparison_string,
+                                               "rc": rc, "hypothesis_string": hypothesis_string})
+                pbar.update()
+            for rc, stats in rc_stats_dict.items():
+                rc_stats_dict[rc]["mean_cost"] = np.mean(stats["costs"]) if len(stats["costs"]) > 0 else -1
+                rc_stats_dict[rc]["std"] = np.std(stats["costs"]) if len(stats["costs"]) > 1 else 0
 
+            n_best_results = {"return_code_stats": rc_stats_dict, "individual_records": individual_record_list}
 
-        elif valid_references:
-            assert len(valid_hypotheses) == len(valid_references)
-
-            current_valid_score = 0
-
-            if eval_metric.lower() == 'bleu':
-                # this version does not use any tokenization
-                current_valid_score = bleu(valid_hypotheses, valid_references)
-            elif eval_metric.lower() == 'chrf':
-                current_valid_score = chrf(valid_hypotheses, valid_references)
-            elif eval_metric.lower() == 'token_accuracy':
-                current_valid_score = token_accuracy(
-                    valid_hypotheses, valid_references, level=level)
-            elif eval_metric.lower() == 'sequence_accuracy':
-                current_valid_score = sequence_accuracy(
-                    valid_hypotheses, valid_references)
         else:
-            current_valid_score = -1
+
+            # decode back to symbols
+            decoded_valid = model.trg_vocab.arrays_to_sentences(arrays=all_outputs,
+                                                                cut_at_eos=True)
+
+            valid_hypotheses = [join_char.join(t) for t in decoded_valid]
+
+            if level == "bpe":
+                valid_hypotheses = [bpe_postprocess(v) for v in valid_hypotheses]
+
+
+            if n_best == 1:
+                individual_record_list = []
+                result_tuples = cost_manager.batch_eval_greedy(zip(valid_sources, valid_hypotheses))
+                valid_hypotheses = []
+                for rc, hypothesis_string, stats, comparison_string, metadata in result_tuples:
+                    rc_stats_dict[rc]["counts"]+=1
+                    rc_stats_dict[rc]["costs"].append(stats["cost"])
+                    valid_hypotheses.append(hypothesis_string)
+                    individual_record_list.append({**metadata, **stats,
+                                                   "comparison_string": comparison_string,
+                                                   "rc": rc, "hypothesis_string": hypothesis_string})
+                for rc, stats in rc_stats_dict.items():
+                    rc_stats_dict[rc]["mean_cost"] = np.mean(stats["costs"]) if len(stats["costs"]) > 0 else -1
+                    rc_stats_dict[rc]["std"] = np.std(stats["costs"]) if len(stats["costs"]) > 1 else 0
+                n_best_results = {"return_code_stats": rc_stats_dict, "individual_records": individual_record_list}
+
+            else:
+                n_best_results = {}
+
+                # if references are given, evaluate against them
+                if eval_metric.lower() == "stoke":
+
+                    hashes_advantages_stats = cost_manager.parallel_get_rl_cost(zip(valid_sources, valid_hypotheses))
+                    hash2val_results = {}
+                    c = 0
+                    for hyp, (h, advantages, stats) in zip(valid_hypotheses, hashes_advantages_stats):
+                        hash2val_results[h] = {"cost": stats["cost"],
+                                           "text": bpe2formatted(assembly_string=hyp, function_name = "default_validation_name", remove_footer=True)[0]}
+                        c += stats["cost"]
+                    current_valid_score = c / len(valid_hypotheses)
+                    cost_manager.log_validation_stats(hash2val_results)
+
+                elif valid_references:
+                    assert len(valid_hypotheses) == len(valid_references)
+
+                    current_valid_score = 0
+
+                    if eval_metric.lower() == 'bleu':
+                        # this version does not use any tokenization
+                        current_valid_score = bleu(valid_hypotheses, valid_references)
+                    elif eval_metric.lower() == 'chrf':
+                        current_valid_score = chrf(valid_hypotheses, valid_references)
+                    elif eval_metric.lower() == 'token_accuracy':
+                        current_valid_score = token_accuracy(
+                            valid_hypotheses, valid_references, level=level)
+                    elif eval_metric.lower() == 'sequence_accuracy':
+                        current_valid_score = sequence_accuracy(
+                            valid_hypotheses, valid_references)
+                else:
+                    current_valid_score = -1
 
     return current_valid_score, valid_loss, valid_ppl, valid_sources, \
         valid_sources_raw, valid_references, valid_hypotheses, \
-        decoded_valid, valid_attention_scores
+        decoded_valid, valid_attention_scores, n_best_results
 
 
 # pylint: disable-msg=logging-too-many-args
 def test(cfg_file,
          ckpt: str,
+         n_best: int = None,
+         beam_size: int = None,
+         beam_alpha: float = None,
          output_path: str = None,
          save_attention: bool = False,
          logger: Logger = None) -> None:
@@ -226,6 +302,7 @@ def test(cfg_file,
     max_output_length = cfg["training"].get("max_output_length", None)
 
     # load the data
+    ## TODO: see if you can subset the train-data here to evaluate on a subset
     _, dev_data, test_data, src_vocab, trg_vocab = load_data(
         data_cfg=cfg["data"])
 
@@ -242,23 +319,34 @@ def test(cfg_file,
         model.cuda()
 
     # whether to use beam search for decoding, 0: greedy decoding
-    if "testing" in cfg.keys():
-        beam_size = cfg["testing"].get("beam_size", 1)
-        beam_alpha = cfg["testing"].get("alpha", -1)
-    else:
-        beam_size = 1
-        beam_alpha = -1
+    if not beam_size:
+        if "testing" in cfg.keys():
+            beam_size = cfg["testing"].get("beam_size", 1)
+        else:
+            beam_size = 1
+    if not beam_alpha:
+        if "testing" in cfg.keys():
+            beam_alpha = cfg["testing"].get("beam_alpha", -1)
+        else:
+            beam_alpha = -1
+    if not n_best:
+        if "testing" in cfg.keys():
+            n_best = cfg["testing"].get("n-best", -1)
+        else:
+            n_best= 1
+
+    assert beam_size >= n_best
 
     for data_set_name, data_set in data_to_predict.items():
 
         #pylint: disable=unused-variable
         score, loss, ppl, sources, sources_raw, references, hypotheses, \
-        hypotheses_raw, attention_scores = validate_on_data(
+        hypotheses_raw, attention_scores, results = validate_on_data(
             model, data=data_set, batch_size=batch_size,
             batch_type=batch_type, level=level,
             max_output_length=max_output_length, eval_metric=eval_metric,
             use_cuda=use_cuda, loss_function=None, beam_size=beam_size,
-            beam_alpha=beam_alpha, logger=logger)
+            beam_alpha=beam_alpha, logger=logger, n_best=n_best)
         #pylint: enable=unused-variable
 
         if "trg" in data_set.fields:
@@ -288,12 +376,53 @@ def test(cfg_file,
                                "when using beam search. "
                                "Set beam_size to 1 for greedy decoding.")
 
-        if output_path is not None:
-            output_path_set = "{}.{}".format(output_path, data_set_name)
-            with open(output_path_set, mode="w", encoding="utf-8") as out_file:
-                for hyp in hypotheses:
-                    out_file.write(hyp + "\n")
-            logger.info("Translations saved to: %s", output_path_set)
+        return_code_stats = results["return_code_stats"]
+        individual_records = results["individual_records"]
+        output_path = output_path if output_path else cfg["training"]["model_dir"]
+        output_path = "{}_{}".format(output_path, data_set_name)
+        mkdir(output_path)
+        comparison_str_dir = join(output_path, "comparisons")
+        mkdir(comparison_str_dir)
+        with open(join(output_path, "stats.csv"), "w") as csv_fh:
+            csv_writer = csv.DictWriter(f = csv_fh, fieldnames=CSV_KEYS)
+            csv_writer.writeheader()
+            for individual_record in individual_records:
+                csv_writer.writerow({key: individual_record[key] for key in CSV_KEYS})
+                with open(join(comparison_str_dir, f"{individual_record['name']}.comparison"), "w") as fh:
+                    fh.write(individual_record["comparison_string"])
+        percentage_dict = {}
+        cost_dict = {}
+        stdv_dict = {}
+        total_cts = 0
+        for d in return_code_stats.values():
+            total_cts+= d["counts"]
+        for rc, d in return_code_stats.items():
+            title = rc2axis[rc]
+            percentage_dict[title] = (d["counts"] / total_cts) * 100
+            # if they did assemble
+            if rc > -1:
+                cost_dict[title] = d["mean_cost"]
+                stdv_dict[title] = d["std"]
+
+        plt.bar(percentage_dict.keys(), percentage_dict.values())
+        plt.title("Distribution of Result Types")
+        plt.ylabel("Percentage")
+        plt.savefig(join(output_path, "percentage.png"))
+
+        plt.bar(cost_dict.keys(), cost_dict.values())
+        plt.title("Average Stoke Cost by Performance Bucket")
+        plt.ylabel("Stoke Cost")
+        plt.savefig(join(output_path, "cost.png"))
+
+        plt.bar(stdv_dict.keys(), stdv_dict.values())
+        plt.title("Standard Deviation of Stoke Cost by Performance Bucket")
+        plt.ylabel("Standard Deviation of Stoke Cost")
+        plt.savefig(join(output_path, "stdev.png"))
+        hyp_file = join(output_path, "hyps.txt")
+        with open(hyp_file, mode="w", encoding="utf-8") as out_file:
+            for hyp in hypotheses:
+                out_file.write(hyp + "\n")
+        logger.info("Translations saved to: %s", hyp_file)
 
 
 def translate(cfg_file, ckpt: str, output_path: str = None) -> None:

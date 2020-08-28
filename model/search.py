@@ -592,11 +592,22 @@ def beam_search(
                 filled[j, k] = i
         return filled
 
-    # from results to stacked outputs
-    assert n_best == 1
-    # only works for n_best=1 for now
-    final_outputs = pad_and_stack_hyps([r[0].cpu().numpy() for r in
-                                        results["predictions"]],
-                                       pad_value=pad_index)
 
-    return final_outputs, None
+
+    # # from results to stacked outputs
+    # assert n_best == 1
+    if n_best == 1:
+        # only works for n_best=1 for now
+        final_outputs = pad_and_stack_hyps([r[0].cpu().numpy() for r in
+                                            results["predictions"]],
+                                           pad_value=pad_index)
+
+        return final_outputs, None
+    else:
+        final_outputs = []
+        for r in results["predictions"]:
+            final_outputs.append(pad_and_stack_hyps([p.cpu().numpy() for p in predictions]),  pad_value = pad_index)
+        # list of stacked tensors
+        return np.stack(final_outputs, axis = 0), None
+
+

@@ -12,7 +12,8 @@ from torch.autograd import Variable
 from time import time
 from os.path import join, basename, dirname
 from helpers import mkdir, hash_file, make_tunit_file, test_costfn, bpe2formatted, PriorityQueue, \
-    verify_and_rewrite_testcase, make_verify_rewrite_paths, make_cost_paths, function_path_to_unique_name
+    verify_and_rewrite_testcase, make_verify_rewrite_paths, make_cost_paths, function_path_to_unique_name \
+    annotate_eval_string
 from collections import deque
 from multiprocessing.pool import ThreadPool
 from typing import List, Tuple, Dict
@@ -115,15 +116,19 @@ class StokeCostManager:
         jobs = {}
         h = hash_file(source_bpe_str.strip())
         metadata = self.hash2metadata[h]
+        formatted_src, _ = bpe2formatted(assembly_string = source_bpe_str, function_name = metadata["name"],
+                                      remove_header = True, remove_footer = True)
         for i, hyp in enumerate(hyp_bpe_beams):
             formatted_hyp, _ = bpe2formatted(assembly_string = hyp, function_name = metadata["name"],
                                           remove_header = True, remove_footer = True)
             jobs[i] = {"hypothesis_string": formatted_hyp, "metadata": metadata}
-        results = self.requester.get(jobs)
+        results = self.requester.eval(jobs)
         ##TODO YOU NEED TO SPECIFY HOW TO GET THE O0 and Og benchmarks here !
         rc = -1
-        high_benchamrk = 0 ## TODO
-        low_benchmark = 0 ## TODO
+        unopt_cost = self.hash2metadata[h]["O0_cost"]
+        opt_cost = self.hash2metadata[h]["Og_cost"]
+        high_benchamrk = max(unopt_cost, opt_cost)
+        low_benchmark = min(unopt_cost, opt_cost)
         for i, result_dict in results.items():
             cost = result_dict["stats"]["cost"]
             correct = result_dict["stats"]["correct"]
@@ -152,8 +157,88 @@ class StokeCostManager:
                 if cost < best_result["stats"]["cost"]:
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
 
-        return rc, best_result
+        comparison_string = annotate_eval_string(reference_string = formatted_src,
+                                                                hypothesis_string = best_result["hypothesis_string"],
+                                                                function_name=metadata["name"],
+                                                                best_cost = best_result["stats"]["cost"],
+                                                                unopt_cost = unopt_cost,
+                                                                opt_cost = opt_cost,
+                                                                correctness_flag = best_result["stats"]["correct"])
 
+        return rc, best_result["hypothesis_string"], best_result["stats"], comparison_string, metadata
+
+    def batch_eval_greedy(self, bpe_strings: List[Tuple[str, str]]):
+        jobs = {}
+        index2src = {}
+        for i, (source_bpe_str, hypothesis_bpe_str) in enumerate(bpe_strings):
+            index2src[i] = source_bpe_str
+            h = hash_file(source_bpe_str.strip())
+            if h in jobs:
+                print(f"duplicate for {self.hash2metadata[h]['name']}")
+
+            metadata = self.hash2metadata[h]
+
+            formatted_hypothesis, _ = bpe2formatted(assembly_string = hypothesis_bpe_str, function_name = metadata["name"],
+                                                 remove_header = True, remove_footer = True)
+
+            jobs[i] = {"hypothesis_string": formatted_hypothesis, "metadata": metadata}
+        results = self.requester.eval(jobs)
+
+        result_tuples = []
+        for i, result_dict in results.items():
+            metadata = result_dict["metadata"]
+            source_bpe_str = index2src[i]
+
+            unopt_cost = metadata["O0_cost"]
+            opt_cost = metadata["Og_cost"]
+            high_benchamrk = max(unopt_cost, opt_cost)
+            low_benchmark = min(unopt_cost, opt_cost)
+
+            cost = result_dict["stats"]["cost"]
+            correct = result_dict["stats"]["correct"]
+            failed = result_dict["stats"]["failed_cost"]
+
+            if failed:
+                rc = -1
+            elif not correct:
+                rc = 0
+            elif cost > high_benchamrk:
+                rc = 1
+            elif rc < 2 and cost == high_benchamrk:
+                rc = 2
+            elif rc < 3 and cost > low_benchmark:
+                assert cost <= high_benchamrk
+                rc = 3
+            elif rc < 4 and cost == low_benchmark:
+                assert cost <= high_benchamrk
+                rc = 4
+            elif rc < 5 and cost < low_benchmark:
+                assert cost < low_benchmark and cost < high_benchamrk
+                rc = 5
+            else:
+                raise Exception
+
+            formatted_source, _ = bpe2formatted(assembly_string=source_bpe_str, function_name=metadata["name"],
+                                                remove_header=True, remove_footer=True)
+            formatted_hypothesis = jobs[i]["hypothesis_string"]
+
+            comparison_string = annotate_eval_string(reference_string = formatted_source,
+                                                        hypothesis_string = formatted_hypothesis,
+                                                        function_name=metadata["name"],
+                                                        best_cost = cost,
+                                                        unopt_cost = unopt_cost,
+                                                        opt_cost = opt_cost,
+                                                        correctness_flag = correct)
+
+
+            # result_tuples.append((rc, {"hypothesis_string": jobs[i]["hypothesis_string"],
+            #                            "stats": result_dict["stats"],
+            #                            "comparison_string": comparison_string,
+            #                            "metadata": metadata}))
+
+            result_tuples.append(rc, formatted_hypothesis, result_dict["stats"], comparison_string, metadata)
+
+        return result_tuples
 
 
     def update_buffers(self, hash_stats_list: Tuple[str, Dict]):
