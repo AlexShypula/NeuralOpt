@@ -24,6 +24,20 @@ from vocabulary import Vocabulary
 from loss import StokeCostManager
 from tqdm import tqdm
 from os.path import join
+from dataclasses import dataclass, field
+from argparse_dataclass import ArgumentParser
+
+
+@dataclass
+class ParseOptions:
+    cfg_file : str = field(metadata=dict(args=["-config", "--path_to_config"]))
+    ckpt: str = field(metadata=dict(args=["-ckpy", "--path_to_checkpoint"]))
+    n_best: int = field(metadata=dict(args=["-nbest", "--nbest_beams"]), default=None)
+    beam_size: int = field(metadata=dict(args=["-beam_size", "--beam_size"]), default=None)
+    beam_alpha: float = field(metadata=dict(args=["-beam_alpha", "--beam_alpha"]), default=None)
+    output_path: str = field(metadata=dict(args=["-output_path", "--output_path"]), default=None)
+
+
 
 CSV_KEYS = ["name", "cost", "O0_cost", "Og_cost", "rc", "failed_cost", "base_asbly_path"]
 
@@ -562,3 +576,10 @@ def translate(cfg_file, ckpt: str, output_path: str = None) -> None:
             except (KeyboardInterrupt, EOFError):
                 print("\nBye.")
                 break
+
+
+if __name__ == "__main__":
+    parser = ArgumentParser(ParseOptions)
+    print(parser.parse_args())
+    args = parser.parse_args()
+    test(**vars(args))
