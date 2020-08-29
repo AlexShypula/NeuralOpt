@@ -232,7 +232,7 @@ def validate_on_data(model: Model, data: Dataset,
                                                    "rc": rc, "hypothesis_string": hypothesis_string})
                 for rc, stats in rc_stats_dict.items():
                     rc_stats_dict[rc]["mean_cost"] = np.mean(stats["costs"]) if len(stats["costs"]) > 0 else -1
-                    rc_stats_dict[rc]["std"] = np.std(stats["costs"]) if len(stats["costs"]) > 1 else 0
+                    rc_stats_dict[rc]["std"] = np.std(stats["costs"]) if len(stats["costs"]) > 0 else -1
                 n_best_results = {"return_code_stats": rc_stats_dict, "individual_records": individual_record_list}
 
             else:
@@ -465,20 +465,75 @@ def test(cfg_file,
                 cost_dict[title] = d["mean_cost"]
                 stdv_dict[title] = d["std"]
 
-        plt.bar(percentage_dict.keys(), percentage_dict.values())
+        # PERCENTAGE DICT
+        plt.rcParams["font.family"] = "sans-serif"
+        plt.grid(color='gray', linestyle='dashed')
+        max_val = max(percentage_dict.values())
+        annotation_dict = {k: (f'{v:.2f}%' if v != -1 else "NA") for k, v in percentage_dict.items()}
+        textstr = "Percentages per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
+        # these are matplotlib.patch.Patch properties
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+
+        # place a text box in upper left in axes coords
+        plt.text(7, max_val, textstr, fontsize=12,
+                 verticalalignment='top', bbox=props)
+
+        plt.bar(percentage_dict.keys(), percentage_dict.values(), color="darkgreen")
         plt.title("Distribution of Result Types")
         plt.ylabel("Percentage")
-        plt.savefig(join(output_path, "percentage.png"))
+        plt.xticks(rotation=75)
+        plt.savefig(join(output_path, "percentage.png"), dpi=300, pad_inches=2, bbox_inches="tight")
 
-        plt.bar(cost_dict.keys(), cost_dict.values())
+        # COST DICT
+        max_val = max(cost_dict.values())
+
+        plt.rc('axes', axisbelow=True)
+        plt.rcParams["font.family"] = "sans-serif"
+        plt.grid(color='gray', linestyle='dashed')
+
+        plt.bar(cost_dict.keys(), cost_dict.values(), color="darkgreen")
         plt.title("Average Stoke Cost by Performance Bucket")
         plt.ylabel("Stoke Cost")
-        plt.savefig(join(output_path, "cost.png"))
+        plt.yscale("log")
+        plt.xticks(rotation=75)
 
-        plt.bar(stdv_dict.keys(), stdv_dict.values())
+        annotation_dict = {k: (f'{v:.2f}' if v != -1 else "NA") for k, v in cost_dict.items()}
+        textstr = "Costs per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
+        # these are matplotlib.patch.Patch properties
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+
+        # place a text box in upper left in axes coords
+        plt.text(6, max_val, textstr, fontsize=12,
+                 verticalalignment='top', bbox=props)
+
+        plt.savefig(join(output_path, "cost.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+
+        # STDV DICT
+
+        max_val = max(stdv_dict.values())
+
+        plt.rc('axes', axisbelow=True)
+        plt.rcParams["font.family"] = "sans-serif"
+        plt.grid(color='gray', linestyle='dashed')
+
+        plt.bar(stdv_dict.keys(), stdv_dict.values(), color="darkgreen")
         plt.title("Standard Deviation of Stoke Cost by Performance Bucket")
         plt.ylabel("Standard Deviation of Stoke Cost")
-        plt.savefig(join(output_path, "stdev.png"))
+        plt.yscale("log")
+        plt.xticks(rotation=75)
+
+        annotation_dict = {k: (f'{v:.2f}' if v != -1 else "NA") for k, v in stdv_dict.items()}
+        textstr = "Cost Standard Deviation per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
+        # these are matplotlib.patch.Patch properties
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+
+        # place a text box in upper left in axes coords
+        plt.text(6, max_val, textstr, fontsize=12,
+                 verticalalignment='top', bbox=props)
+        plt.savefig(join(output_path, "stdev.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+
+        plt.savefig(join(output_path, "stdev.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+
         hyp_file = join(output_path, "hyps.txt")
         with open(hyp_file, mode="w", encoding="utf-8") as out_file:
             for hyp in hypotheses:
