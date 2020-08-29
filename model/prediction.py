@@ -483,6 +483,7 @@ def test(cfg_file,
         plt.ylabel("Percentage")
         plt.xticks(rotation=75)
         plt.savefig(join(output_path, "percentage.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+        plt.clf()
 
         # COST DICT
         max_val = max(cost_dict.values())
@@ -507,6 +508,7 @@ def test(cfg_file,
                  verticalalignment='top', bbox=props)
 
         plt.savefig(join(output_path, "cost.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+        plt.clf()
 
         # STDV DICT
 
@@ -531,8 +533,8 @@ def test(cfg_file,
         plt.text(6, max_val, textstr, fontsize=12,
                  verticalalignment='top', bbox=props)
         plt.savefig(join(output_path, "stdev.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+        plt.clf()
 
-        plt.savefig(join(output_path, "stdev.png"), dpi=300, pad_inches=2, bbox_inches="tight")
 
         hyp_file = join(output_path, "hyps.txt")
         with open(hyp_file, mode="w", encoding="utf-8") as out_file:
