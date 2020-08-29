@@ -36,7 +36,7 @@ from prediction import test
 from tqdm import tqdm
 import gc
 
-os.environ["CUDA_VISIBLE_DEVICES"]="3"
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
 # pylint: disable=too-many-instance-attributes
 class TrainManager:

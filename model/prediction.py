@@ -9,6 +9,7 @@ from logging import Logger
 import numpy as np
 import csv
 import matplotlib.pyplot as plt
+import json
 
 import torch
 from torchtext.data import Dataset, Field
@@ -27,6 +28,8 @@ from os.path import join
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 
+
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
 @dataclass
 class ParseOptions:
@@ -138,7 +141,10 @@ def validate_on_data(model: Model, data: Dataset,
                 max_output_length=max_output_length, n_best = n_best)
 
             # sort outputs back to original order
-            all_outputs.extend(output[sort_reverse_index])
+            if n_best >= 1: 
+                all_outputs.extend([output[i] for i in sort_reverse_index])
+            else: 
+                all_outputs.extend(output[sort_reverse_index])
             valid_attention_scores.extend(
                 attention_scores[sort_reverse_index]
                 if attention_scores is not None else [])
@@ -170,6 +176,9 @@ def validate_on_data(model: Model, data: Dataset,
         rc_stats_dict = {}
         for i in range(-1, 6):
             rc_stats_dict[i] = {"counts": 0, "costs": []}
+        current_valid_score = 0
+        decoded_valid = None
+        valid_attention_scores = None
 
         if n_best > 1:
             valid_beams = []
@@ -184,7 +193,7 @@ def validate_on_data(model: Model, data: Dataset,
             individual_record_list = []
             pbar = tqdm(total = len(valid_beams), smoothing=0, desc="evaluating all beams with STOKE")
             for source, hypotheses in zip(valid_sources, valid_beams):
-                rc, hypothesis_string, stats, comparison_string, _ = cost_manager.eval_beams(source, hypotheses)
+                rc, hypothesis_string, stats, comparison_string, metadata = cost_manager.eval_beams(source, hypotheses)
                 rc_stats_dict[rc]["counts"]+=1
                 rc_stats_dict[rc]["costs"].append(stats["cost"])
                 valid_hypotheses.append(hypothesis_string)
@@ -295,8 +304,9 @@ def test(cfg_file,
         raise ValueError("Test data must be specified in config.")
 
     # when checkpoint is not specified, take latest (best) from model dir
+    model_dir = cfg["training"]["model_dir"]
     if ckpt is None:
-        model_dir = cfg["training"]["model_dir"]
+        #model_dir = cfg["training"]["model_dir"]
         ckpt = get_latest_checkpoint(model_dir)
         if ckpt is None:
             raise FileNotFoundError("No checkpoint found in directory {}."
@@ -305,6 +315,43 @@ def test(cfg_file,
             step = ckpt.split(model_dir+"/")[1].split(".ckpt")[0]
         except IndexError:
             step = "best"
+
+
+    data_config = cfg["data"]
+
+    with open(data_config.get("hash2metadata")) as fh:
+        hash2metadata = json.load(fh)
+    # cost_manager
+
+
+    max_score = data_config.get("max_score", 9999)
+    asm_names_to_save = data_config.get("asm_names_to_save")
+    asm_names_to_save = asm_names_to_save.split(":") if asm_names_to_save else []
+    cost_manager = StokeCostManager(hash2metadata = hash2metadata,
+                                         #container_name = data_config.get("container_name"),
+                                         host_path_to_volume = data_config.get("host_path_to_volume"),
+                                         container_path_to_volume = data_config.get("container_path_to_volume"),
+                                         volume_path_to_data = data_config.get("volume_path_to_data"),
+                                         volume_path_to_tmp = data_config.get("volume_path_to_tmp"),
+                                         tb_writer = None,
+                                         n_best_seq_dir = None, 
+                                         trailing_stats_out_path="{}/trailing_stats.pkl".format(model_dir),
+                                         baseline_cost_key= data_config.get("baseline_cost_key", "O0_cost"),  
+                                         asm_names_to_save = None,
+                                         verifiction_strategy = data_config.get("verification_strategy", "hold_out"),
+                                         new_testcase_beginning_index = data_config.get(
+                                            "new_testcase_beginning_index", 2000),
+                                         max_len = data_config.get("max_len"),
+                                         max_score = data_config.get("max_score"),
+                                         n_workers = data_config.get("n_workers"),
+                                         keep_n_best_seqs=data_config.get("keep_n_best_seqs", 10),
+                                         container_port=data_config.get("container_port", 6000),
+                                         trailing_stats_in_path=data_config.get("trailing_stats_in_path")
+                                         )
+
+
+
+
 
     batch_size = cfg["training"].get(
         "eval_batch_size", cfg["training"]["batch_size"])
@@ -360,7 +407,7 @@ def test(cfg_file,
             batch_type=batch_type, level=level,
             max_output_length=max_output_length, eval_metric=eval_metric,
             use_cuda=use_cuda, loss_function=None, beam_size=beam_size,
-            beam_alpha=beam_alpha, logger=logger, n_best=n_best)
+            beam_alpha=beam_alpha, logger=logger, n_best=n_best, cost_manager = cost_manager)
         #pylint: enable=unused-variable
 
         if "trg" in data_set.fields:

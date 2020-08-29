@@ -12,7 +12,7 @@ from torch.autograd import Variable
 from time import time
 from os.path import join, basename, dirname
 from helpers import mkdir, hash_file, make_tunit_file, test_costfn, bpe2formatted, PriorityQueue, \
-    verify_and_rewrite_testcase, make_verify_rewrite_paths, make_cost_paths, function_path_to_unique_name \
+    verify_and_rewrite_testcase, make_verify_rewrite_paths, make_cost_paths, function_path_to_unique_name, \
     annotate_eval_string
 from collections import deque
 from multiprocessing.pool import ThreadPool
@@ -127,35 +127,48 @@ class StokeCostManager:
         rc = -1
         unopt_cost = self.hash2metadata[h]["O0_cost"]
         opt_cost = self.hash2metadata[h]["Og_cost"]
-        high_benchamrk = max(unopt_cost, opt_cost)
+        high_benchmark = max(unopt_cost, opt_cost)
         low_benchmark = min(unopt_cost, opt_cost)
+        best_cost = 1e9
+        best_result = {"hypothesis_string": jobs[0]["hypothesis_string"], "stats": results["0"]["stats"]}
         for i, result_dict in results.items():
+            i = int(i) # quirks of conversion int -> string
             cost = result_dict["stats"]["cost"]
             correct = result_dict["stats"]["correct"]
-            if rc < 0 and not correct:
-                rc = 0
-                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
-            elif rc < 1 and cost > high_benchamrk:
-                rc = 1
-                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
-            elif rc < 2 and cost == high_benchamrk:
-                rc = 2
-                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
-            elif rc < 3 and cost > low_benchmark:
-                assert cost <= high_benchamrk
-                rc = 3
-                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
-            elif rc < 4 and cost == low_benchmark:
-                assert cost <= high_benchamrk
-                rc = 4
-                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
-            elif rc < 5 and cost < low_benchmark:
-                assert cost < low_benchmark and cost < high_benchamrk
-                rc = 5
-                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
-            else:
-                if cost < best_result["stats"]["cost"]:
+            if cost < best_cost: 
+                if rc < 0 and not correct:
+                    rc = 0
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+                    best_cost = cost
+                elif rc < 1 and cost > high_benchmark:
+                    rc = 1
+                    best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+                    best_cost = cost
+                elif rc < 2 and cost == high_benchmark:
+                    rc = 2
+                    best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+                    best_cost = cost
+                elif rc < 3 and cost < high_benchmark and cost > low_benchmark:
+                    assert cost <= high_benchmark
+                    rc = 3
+                    best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+                    best_cost = cost
+                elif rc < 4 and cost == low_benchmark:
+                    assert cost <= high_benchamrk
+                    rc = 4
+                    best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+                    best_cost = cost
+                elif rc < 5 and cost < low_benchmark:
+                    assert cost < low_benchmark and cost < high_benchamrk
+                    rc = 5
+                    best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+                    best_cost = cost
+                else:
+                    if cost < best_result["stats"]["cost"]:
+                        best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+                        best_cost = cost
+                    else: 
+                        raise Error 
 
         comparison_string = annotate_eval_string(reference_string = formatted_src,
                                                                 hypothesis_string = best_result["hypothesis_string"],
@@ -163,7 +176,8 @@ class StokeCostManager:
                                                                 best_cost = best_result["stats"]["cost"],
                                                                 unopt_cost = unopt_cost,
                                                                 opt_cost = opt_cost,
-                                                                correctness_flag = best_result["stats"]["correct"])
+                                                                correctness_flag = best_result["stats"]["correct"],
+                                                                return_code = rc)
 
         return rc, best_result["hypothesis_string"], best_result["stats"], comparison_string, metadata
 
@@ -197,6 +211,7 @@ class StokeCostManager:
             cost = result_dict["stats"]["cost"]
             correct = result_dict["stats"]["correct"]
             failed = result_dict["stats"]["failed_cost"]
+            breakpoint()
 
             if failed:
                 rc = -1
@@ -228,7 +243,8 @@ class StokeCostManager:
                                                         best_cost = cost,
                                                         unopt_cost = unopt_cost,
                                                         opt_cost = opt_cost,
-                                                        correctness_flag = correct)
+                                                        correctness_flag = correct, 
+                                                        return_code = rc)
 
 
             # result_tuples.append((rc, {"hypothesis_string": jobs[i]["hypothesis_string"],

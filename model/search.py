@@ -385,7 +385,6 @@ def beam_search(
     """
     assert size > 0, 'Beam size must be >0.'
     assert n_best <= size, 'Can only return {} best hypotheses.'.format(size)
-
     # init
     transformer = isinstance(decoder, TransformerDecoder)
     batch_size = src_mask.size(0)
@@ -393,8 +392,9 @@ def beam_search(
 
     # Recurrent models only: initialize RNN hidden state
     # pylint: disable=protected-access
+    ## TODO: adjust this, currently configured for a transformer encoder rnn decoder
     if not transformer:
-        hidden = decoder._init_hidden(encoder_hidden)
+        hidden = decoder._init_hidden(encoder_hidden, encoder_output.shape[0])
     else:
         hidden = None
 
@@ -593,10 +593,9 @@ def beam_search(
         return filled
 
 
-
     # # from results to stacked outputs
     # assert n_best == 1
-    if n_best == 1:
+    if n_best <= 1:
         # only works for n_best=1 for now
         final_outputs = pad_and_stack_hyps([r[0].cpu().numpy() for r in
                                             results["predictions"]],
@@ -606,8 +605,8 @@ def beam_search(
     else:
         final_outputs = []
         for r in results["predictions"]:
-            final_outputs.append(pad_and_stack_hyps([p.cpu().numpy() for p in predictions]),  pad_value = pad_index)
+            final_outputs.append(pad_and_stack_hyps([p.cpu().numpy() for p in r], pad_value = pad_index))
         # list of stacked tensors
-        return np.stack(final_outputs, axis = 0), None
+        return final_outputs, None
 
 
