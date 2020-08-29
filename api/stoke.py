@@ -33,7 +33,7 @@ class StokePipeline:
         return self.run_eval(**kwargs)
 
 
-    def run_eval(self, hypothesis_string: str, meta: Dict):
+    def run_eval(self, hypothesis_string: str, metadata: Dict):
 
         rewrite_id = (metadata["name"] + "_" + str(time())).replace(".", "_")
         data_path_to_target = metadata["base_asbly_path"]
@@ -58,6 +58,7 @@ class StokePipeline:
                                                             max_cost=1e9)
 
         return {"metadata": metadata, "stats": {"cost": cost,
+                                         "correct": is_correct,
                                          "failed_tunit": failed_tunit,
                                          "failed_cost": failed_cost,
                                          "hypothesis_string": hypothesis_string}}
