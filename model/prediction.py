@@ -10,6 +10,7 @@ import numpy as np
 import csv
 import matplotlib.pyplot as plt
 import json
+import random
 
 import torch
 from torchtext.data import Dataset, Field
@@ -39,6 +40,7 @@ class ParseOptions:
     beam_size: int = field(metadata=dict(args=["-beam_size", "--beam_size"]), default=None)
     beam_alpha: float = field(metadata=dict(args=["-beam_alpha", "--beam_alpha"]), default=None)
     output_path: str = field(metadata=dict(args=["-output_path", "--output_path"]), default=None)
+    debug: bool = field(metadata=dict(args=["-d", "--debug"]), default = False)
 
 
 
@@ -282,6 +284,7 @@ def test(cfg_file,
          beam_size: int = None,
          beam_alpha: float = None,
          output_path: str = None,
+         debug: bool = False, 
          save_attention: bool = False,
          logger: Logger = None) -> None:
     """
@@ -366,6 +369,16 @@ def test(cfg_file,
     ## TODO: see if you can subset the train-data here to evaluate on a subset
     _, dev_data, test_data, src_vocab, trg_vocab = load_data(
         data_cfg=cfg["data"])
+    if debug: 
+        keep, _ = dev_data.split(
+                            split_ratio=[0.1, 1 - 0.1],
+                                        random_state=random.getstate())
+        dev_data = keep
+
+        keep, _ = test_data.split(
+                            split_ratio=[0.1, 1 - 0.1],
+                                        random_state=random.getstate())
+        test_data = keep
 
     data_to_predict = {"dev": dev_data, "test": test_data}
 
@@ -467,6 +480,8 @@ def test(cfg_file,
 
         # PERCENTAGE DICT
         plt.rcParams["font.family"] = "sans-serif"
+        plt.rc('axes', axisbelow=True)
+        
         plt.grid(color='gray', linestyle='dashed')
         max_val = max(percentage_dict.values())
         annotation_dict = {k: (f'{v:.2f}%' if v != -1 else "NA") for k, v in percentage_dict.items()}

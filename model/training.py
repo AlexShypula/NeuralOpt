@@ -337,7 +337,8 @@ class TrainManager:
                     batch = Batch(batch, self.pad_index, use_cuda=self.use_cuda)
                     _, hash_stats, _, _ = self.model.get_rl_loss_for_batch(batch = batch,
                                                                           cost_manager = self.cost_manager,
-                                                                          loss_function = self.loss,
+                                                                          beta_entropy = self.beta_entropy,
+                                                                          #loss_function = self.loss,
                                                                           use_cuda = self.use_cuda,
                                                                           max_output_length = self.max_output_length,
                                                                           level = self.level)
@@ -396,6 +397,8 @@ class TrainManager:
         leftover_batch_size = len(
             train_data) % (self.batch_multiplier * self.batch_size)
 
+        #self.current_batch_multiplier = self.batch_multiplier
+        #self.count = self.current_batch_multiplier - 1
         for epoch_no in range(self.epochs):
             self.logger.info("EPOCH %d", epoch_no + 1)
 
@@ -408,9 +411,9 @@ class TrainManager:
             start = time.time()
             total_valid_duration = 0
             start_tokens = self.total_tokens
+            self.epoch_loss = 0
             self.current_batch_multiplier = self.batch_multiplier
             self.count = self.current_batch_multiplier - 1
-            self.epoch_loss = 0
 
             for i, batch in enumerate(iter(train_iter)):
                 # reactivate training
@@ -445,7 +448,7 @@ class TrainManager:
 
                     valid_score, valid_loss, valid_ppl, valid_sources, \
                         valid_sources_raw, valid_references, valid_hypotheses, \
-                        valid_hypotheses_raw, valid_attention_scores = \
+                        valid_hypotheses_raw, valid_attention_scores, _ = \
                         validate_on_data(
                             logger=self.logger,
                             batch_size=self.eval_batch_size,
