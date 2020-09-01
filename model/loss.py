@@ -343,17 +343,19 @@ class StokeCostManager:
     def log_validation_stats(self, hash2val_results):
         for h, val_dict in hash2val_results.items():
             name = self.hash2metadata[h]["name"]
-            self.tb_writer.add_scalar(f"{name}/val_cost", val_dict["cost"], self.val_step)
-            self.tb_writer.add_text(f"{name}/val_output", val_dict["text"], self.val_step)
+            if self.tb_writer: 
+                self.tb_writer.add_scalar(f"{name}/val_cost", val_dict["cost"], self.val_step)
+                self.tb_writer.add_text(f"{name}/val_output", val_dict["text"], self.val_step)
 
         for h in self.trailing_stats_dict.keys():
             priority_queue = self.trailing_stats_dict[h]["best_sequence_priority_queue"]
             if len(priority_queue.queue)>0:
                 name = self.hash2metadata[h]["name"]
                 cost, best_sequence = priority_queue.peek_best()
-                self.tb_writer.add_text(f"{name}/best_sequence",
-                                        f"best cost is: {cost}\n{best_sequence}",
-                                        self.val_step)
+                if self.tb_writer: 
+                    self.tb_writer.add_text(f"{name}/best_sequence",
+                                            f"best cost is: {cost}\n{best_sequence}",
+                                            self.val_step)
                 self._write_n_best(name=name, priority_queue=priority_queue)
                 self._save_trailing_stats()
 

@@ -280,7 +280,7 @@ def validate_on_data(model: Model, data: Dataset,
 # pylint: disable-msg=logging-too-many-args
 def test(cfg_file,
          ckpt: str,
-         n_best: int = None,
+         n_best: int = 0,
          beam_size: int = None,
          beam_alpha: float = None,
          output_path: str = None,
@@ -449,106 +449,109 @@ def test(cfg_file,
                                "Note that attention scores are not available "
                                "when using beam search. "
                                "Set beam_size to 1 for greedy decoding.")
-
-        return_code_stats = results["return_code_stats"]
-        individual_records = results["individual_records"]
         output_path = output_path if output_path else cfg["training"]["model_dir"]
         output_path = "{}_{}".format(output_path, data_set_name)
         mkdir(output_path)
-        comparison_str_dir = join(output_path, "comparisons")
-        mkdir(comparison_str_dir)
-        with open(join(output_path, "stats.csv"), "w") as csv_fh:
-            csv_writer = csv.DictWriter(f = csv_fh, fieldnames=CSV_KEYS)
-            csv_writer.writeheader()
-            for individual_record in individual_records:
-                csv_writer.writerow({key: individual_record[key] for key in CSV_KEYS})
-                with open(join(comparison_str_dir, f"{individual_record['name']}.comparison"), "w") as fh:
-                    fh.write(individual_record["comparison_string"])
-        percentage_dict = {}
-        cost_dict = {}
-        stdv_dict = {}
-        total_cts = 0
-        for d in return_code_stats.values():
-            total_cts+= d["counts"]
-        for rc, d in return_code_stats.items():
-            title = rc2axis[rc]
-            percentage_dict[title] = (d["counts"] / total_cts) * 100
-            # if they did assemble
-            if rc > -1:
-                cost_dict[title] = d["mean_cost"]
-                stdv_dict[title] = d["std"]
+        if n_best > 0: 
+            return_code_stats = results["return_code_stats"]
+            individual_records = results["individual_records"]
+            #output_path = output_path if output_path else cfg["training"]["model_dir"]
+            #output_path = "{}_{}".format(output_path, data_set_name)
+            #mkdir(output_path)
+            comparison_str_dir = join(output_path, "comparisons")
+            mkdir(comparison_str_dir)
+            with open(join(output_path, "stats.csv"), "w") as csv_fh:
+                csv_writer = csv.DictWriter(f = csv_fh, fieldnames=CSV_KEYS)
+                csv_writer.writeheader()
+                for individual_record in individual_records:
+                    csv_writer.writerow({key: individual_record[key] for key in CSV_KEYS})
+                    with open(join(comparison_str_dir, f"{individual_record['name']}.comparison"), "w") as fh:
+                        fh.write(individual_record["comparison_string"])
+            percentage_dict = {}
+            cost_dict = {}
+            stdv_dict = {}
+            total_cts = 0
+            for d in return_code_stats.values():
+                total_cts+= d["counts"]
+            for rc, d in return_code_stats.items():
+                title = rc2axis[rc]
+                percentage_dict[title] = (d["counts"] / total_cts) * 100
+                # if they did assemble
+                if rc > -1:
+                    cost_dict[title] = d["mean_cost"]
+                    stdv_dict[title] = d["std"]
 
-        # PERCENTAGE DICT
-        plt.rcParams["font.family"] = "sans-serif"
-        plt.rc('axes', axisbelow=True)
-        
-        plt.grid(color='gray', linestyle='dashed')
-        max_val = max(percentage_dict.values())
-        annotation_dict = {k: (f'{v:.2f}%' if v != -1 else "NA") for k, v in percentage_dict.items()}
-        textstr = "Percentages per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
-        # these are matplotlib.patch.Patch properties
-        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+            # PERCENTAGE DICT
+            plt.rcParams["font.family"] = "sans-serif"
+            plt.rc('axes', axisbelow=True)
+            
+            plt.grid(color='gray', linestyle='dashed')
+            max_val = max(percentage_dict.values())
+            annotation_dict = {k: (f'{v:.2f}%' if v != -1 else "NA") for k, v in percentage_dict.items()}
+            textstr = "Percentages per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
+            # these are matplotlib.patch.Patch properties
+            props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
 
-        # place a text box in upper left in axes coords
-        plt.text(7, max_val, textstr, fontsize=12,
-                 verticalalignment='top', bbox=props)
+            # place a text box in upper left in axes coords
+            plt.text(7, max_val, textstr, fontsize=12,
+                     verticalalignment='top', bbox=props)
 
-        plt.bar(percentage_dict.keys(), percentage_dict.values(), color="darkgreen")
-        plt.title("Distribution of Result Types")
-        plt.ylabel("Percentage")
-        plt.xticks(rotation=75)
-        plt.savefig(join(output_path, "percentage.png"), dpi=300, pad_inches=2, bbox_inches="tight")
-        plt.clf()
+            plt.bar(percentage_dict.keys(), percentage_dict.values(), color="darkgreen")
+            plt.title("Distribution of Result Types")
+            plt.ylabel("Percentage")
+            plt.xticks(rotation=75)
+            plt.savefig(join(output_path, "percentage.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+            plt.clf()
 
-        # COST DICT
-        max_val = max(cost_dict.values())
+            # COST DICT
+            max_val = max(cost_dict.values())
 
-        plt.rc('axes', axisbelow=True)
-        plt.rcParams["font.family"] = "sans-serif"
-        plt.grid(color='gray', linestyle='dashed')
+            plt.rc('axes', axisbelow=True)
+            plt.rcParams["font.family"] = "sans-serif"
+            plt.grid(color='gray', linestyle='dashed')
 
-        plt.bar(cost_dict.keys(), cost_dict.values(), color="darkgreen")
-        plt.title("Average Stoke Cost by Performance Bucket")
-        plt.ylabel("Stoke Cost")
-        plt.yscale("log")
-        plt.xticks(rotation=75)
+            plt.bar(cost_dict.keys(), cost_dict.values(), color="darkgreen")
+            plt.title("Average Stoke Cost by Performance Bucket")
+            plt.ylabel("Stoke Cost")
+            plt.yscale("log")
+            plt.xticks(rotation=75)
 
-        annotation_dict = {k: (f'{v:.2f}' if v != -1 else "NA") for k, v in cost_dict.items()}
-        textstr = "Costs per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
-        # these are matplotlib.patch.Patch properties
-        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+            annotation_dict = {k: (f'{v:.2f}' if v != -1 else "NA") for k, v in cost_dict.items()}
+            textstr = "Costs per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
+            # these are matplotlib.patch.Patch properties
+            props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
 
-        # place a text box in upper left in axes coords
-        plt.text(6, max_val, textstr, fontsize=12,
-                 verticalalignment='top', bbox=props)
+            # place a text box in upper left in axes coords
+            plt.text(6, max_val, textstr, fontsize=12,
+                     verticalalignment='top', bbox=props)
 
-        plt.savefig(join(output_path, "cost.png"), dpi=300, pad_inches=2, bbox_inches="tight")
-        plt.clf()
+            plt.savefig(join(output_path, "cost.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+            plt.clf()
 
-        # STDV DICT
+            # STDV DICT
 
-        max_val = max(stdv_dict.values())
+            max_val = max(stdv_dict.values())
 
-        plt.rc('axes', axisbelow=True)
-        plt.rcParams["font.family"] = "sans-serif"
-        plt.grid(color='gray', linestyle='dashed')
+            plt.rc('axes', axisbelow=True)
+            plt.rcParams["font.family"] = "sans-serif"
+            plt.grid(color='gray', linestyle='dashed')
 
-        plt.bar(stdv_dict.keys(), stdv_dict.values(), color="darkgreen")
-        plt.title("Standard Deviation of Stoke Cost by Performance Bucket")
-        plt.ylabel("Standard Deviation of Stoke Cost")
-        plt.yscale("log")
-        plt.xticks(rotation=75)
+            plt.bar(stdv_dict.keys(), stdv_dict.values(), color="darkgreen")
+            plt.title("Standard Deviation of Stoke Cost by Performance Bucket")
+            plt.ylabel("Standard Deviation of Stoke Cost")
+            plt.yscale("log")
+            plt.xticks(rotation=75)
 
-        annotation_dict = {k: (f'{v:.2f}' if v != -1 else "NA") for k, v in stdv_dict.items()}
-        textstr = "Cost Standard Deviation per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
-        # these are matplotlib.patch.Patch properties
-        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+            annotation_dict = {k: (f'{v:.2f}' if v != -1 else "NA") for k, v in stdv_dict.items()}
+            textstr = "Cost Standard Deviation per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
+            # these are matplotlib.patch.Patch properties
+            props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
 
-        # place a text box in upper left in axes coords
-        plt.text(6, max_val, textstr, fontsize=12,
-                 verticalalignment='top', bbox=props)
-        plt.savefig(join(output_path, "stdev.png"), dpi=300, pad_inches=2, bbox_inches="tight")
-        plt.clf()
+            # place a text box in upper left in axes coords
+            plt.text(6, max_val, textstr, fontsize=12,
+                     verticalalignment='top', bbox=props)
+            plt.savefig(join(output_path, "stdev.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+            plt.clf()
 
 
         hyp_file = join(output_path, "hyps.txt")
