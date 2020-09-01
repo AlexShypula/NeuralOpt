@@ -35,7 +35,8 @@ def register_list_to_register_string(register_list: List[str]):
 
 
 def stoke_diff_get_live_out(def_in_register_list: List[str], live_out_register_list: List[str],
-               target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str, live_dangerously: bool = False):
+               target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str, live_dangerously: bool = False,
+                            debug: bool = False):
     live_dangerously_str = "--live_dangerously" if live_dangerously else ""
     try:
         diff = subprocess.run(
@@ -54,6 +55,11 @@ def stoke_diff_get_live_out(def_in_register_list: List[str], live_out_register_l
             for register in live_out_register_list:
                 if not re.search(register, diff.stdout):
                     new_live_out_list.append(register)
+            if debug:
+                print("def_in_register_list: " + " " .join(def_in_register_list))
+                print("orig live_out_register_list: " + " ".join(def_in_register_list))
+                print("diff std out " + diff.stdout)
+                print("new_live_out_list: " " ".join(new_live_out_list))
 
         return diff.returncode, diff.stdout, new_live_out_list
 
@@ -63,6 +69,7 @@ def stoke_diff_get_live_out(def_in_register_list: List[str], live_out_register_l
 def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimized_flag = "Og", debug = False):
     new_rows = []
     for i, row in df.iterrows():
+        opt_cost_string = row["opt_cost_string"]
         def_in_register_list = register_list_from_regex(opt_cost_string, DEF_IN_REGEX)
         live_out_register_list = register_list_from_regex(opt_cost_string, LIVE_OUT_REGEX)
         if row["unopt_unopt_correctness"] == "yes":
@@ -73,7 +80,6 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                 new_rows.append(row.to_dict())
             else:
                 path_to_function = join(path_to_disassembly_dir,  row["path_to_function"])
-                opt_cost_string = row["opt_cost_str"]
 
                 functions_dir = function_path_to_functions_folder(path=path_to_function)
                 path_to_optimized_function = function_path_to_optimized_function(path = path_to_function,
@@ -86,7 +92,8 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                                                                                        rewrite_f=path_to_optimized_function,
                                                                                        testcases_f=path_to_testcases,
                                                                                        fun_dir = functions_dir,
-                                                                                       live_dangerously=True)
+                                                                                       live_dangerously=True,
+                                                                                       debug=debug)
 
 
                 if diff_rc == 0:
@@ -122,14 +129,17 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                             row["live_out"] = register_list_to_register_string(live_out_register_list)
                             new_rows.append(row.to_dict())
 
+                        # if after suppressing --heap_out it still fails to be equivalent
                         else:
                             if debug:
                                 breakpoint()
                             continue
+                    # if correct_str from test_costfn is neither "yes" nor "no"
                     else:
                         if debug:
                             breakpoint()
                         raise ValueError(f"correct str needs to be 'yes' or 'no' it was {correct_str}")
+                # if diff process did not return 0
                 else:
                     if debug:
                         breakpoint()
@@ -147,7 +157,7 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
         cost_test = subprocess.run(
             ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
              testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
-             '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', heap_out_str
+             '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', heap_out_str,
              '--def_in', register_list_to_register_string(def_in_register_list),
              '--live_out', register_list_to_register_string(live_out_register_list)],
             stdout=subprocess.PIPE,
