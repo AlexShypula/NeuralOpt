@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 from os.path import join
 from tqdm import tqdm
+from multiprocessing import Pool
 
 
 LIVE_OUT_REGEX = re.compile("(?<=(WARNING: No live out values provided, assuming {))[^}]+")
@@ -20,6 +21,7 @@ class ParseOptions:
     path_to_stats_df: str = field(metadata=dict(args=["-in_stats_df", "--path_to_in_stats_df"]))
     path_to_out_stats_df: str = field(metadata=dict(args=["-out_stats_df", "--path_to_out_stats_df"]))
     optimized_flag: str = field(metadata=dict(args=["-optimized_flag", "--optimized_flag"]), default = "Og")
+    n_workers: str = field(metadata=dict(args=["-n_workers", "--n_workers"]), default = 1)
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default=False)
 
 
@@ -66,6 +68,9 @@ def stoke_diff_get_live_out(def_in_register_list: List[str], live_out_register_l
 
     except subprocess.TimeoutExpired as err:
         return -1, err, []
+
+def redefine_live_out_df_wrapper(args):
+    return redefine_live_out_df(**args)
 
 def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimized_flag = "Og",
                          position: int = 0, debug: bool = False):
@@ -204,9 +209,29 @@ if __name__ == "__main__":
     print(parser.parse_args())
     args = parser.parse_args()
     df_in = pd.read_csv(args.path_to_stats_df)
-    df_out = redefine_live_out_df(path_to_disassembly_dir=args.path_to_disassembly_dir,
-                                  df = df_in,
-                                  optimized_flag=args.optimized_flag,
-                                  debug=args.debug)
+
+    if not args.debug:
+        n_splits = 64
+        df_length = int(len(df_in) / n_splits)
+        frames = [df_in.iloc[i * df_length :(i + 1) * df_length].copy() for i in range(n_splits + 1)]
+        jobs = []
+        for i, frame in enumerate(frames):
+            jobs.append({"path_to_disassembly_dir": args.path_to_disassembly_dir,
+                         "df": frame,
+                         "optimized_flag": args.path_to_out_stats_df,
+                         "position": i+1})
+        out_dfs = []
+        pbar = tqdm(total=len(df_in), position=0, desc="all workers progress bar")
+        for df in Pool(args.n_workers).imap(redefine_live_out_df_wrapper, jobs):
+            out_dfs.append(df)
+            pbar.update(len(df))
+        df_out = pd.concat(out_dfs)
+
+    else:
+        df_out = redefine_live_out_df(path_to_disassembly_dir=args.path_to_disassembly_dir,
+                                      df = df_in,
+                                      optimized_flag=args.optimized_flag,
+                                      debug=args.debug)
+
     df_out.to_csv(args.path_to_out_stats_df)
 
