@@ -7,6 +7,7 @@ from stoke_test_costfn import COST_SEARCH_REGEX, CORRECT_SEARCH_REGEX
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 from os.path import join
+from tqdm import tqdm
 
 
 LIVE_OUT_REGEX = re.compile("(?<=(WARNING: No live out values provided, assuming {))[^}]+")
@@ -66,8 +67,10 @@ def stoke_diff_get_live_out(def_in_register_list: List[str], live_out_register_l
     except subprocess.TimeoutExpired as err:
         return -1, err, []
 
-def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimized_flag = "Og", debug = False):
+def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimized_flag = "Og",
+                         position: int = 0, debug: bool = False):
     new_rows = []
+    pbar = tqdm(total = len(df), position = position)
     for i, row in df.iterrows():
         opt_cost_string = row["opt_cost_str"]
         def_in_register_list = register_list_from_regex(opt_cost_string, DEF_IN_REGEX)
@@ -154,11 +157,11 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                 else:
                     if debug:
                         breakpoint()
-                    row["heap_out"] = True
                     row["def_in"] = register_list_to_register_string(def_in_register_list)
                     row["live_out"] = register_list_to_register_string(live_out_register_list)
                     new_rows.append(row.to_dict())
                     continue
+        pbar.update()
     df = pd.DataFrame(new_rows)
     return df
 
@@ -167,7 +170,6 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
                 def_in_register_list: List[str], live_out_register_list: List[str], heap_out: bool,
                 live_dangerously: bool = True ):
     live_dangerously_str = "--live_dangerously" if live_dangerously else ''
-    heap_out_str = "--heap_out" if heap_out else ''
     try:
         if heap_out: 
             cost_test = subprocess.run(
