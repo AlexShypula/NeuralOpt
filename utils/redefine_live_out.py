@@ -95,7 +95,8 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                                                                                        live_dangerously=True,
                                                                                        debug=debug)
 
-
+                if re.search("Rewrite returned abnormally with signal 11", diff_stdout):
+                    diff_rc = 11
                 if diff_rc == 0:
                     cost_rc, cost_stdout, cost, correct_str = test_costfn(target_f=path_to_function,
                                                                          rewrite_f=path_to_optimized_function,
@@ -110,6 +111,7 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                         row["opt_unopt_correctness"] = correct_str
                         row["def_in"] = register_list_to_register_string(def_in_register_list)
                         row["live_out"] = register_list_to_register_string(live_out_register_list)
+                        row["opt_cost_str"] = cost_stdout
                         new_rows.append(row.to_dict())
                     elif correct_str == "no":
                         row["heap_out"] = False  # pre-set to true as default
@@ -127,12 +129,21 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                             row["opt_unopt_correctness"] = correct_str
                             row["def_in"] = register_list_to_register_string(def_in_register_list)
                             row["live_out"] = register_list_to_register_string(live_out_register_list)
+                            row["opt_cost_str"] = cost_stdout
                             new_rows.append(row.to_dict())
 
                         # if after suppressing --heap_out it still fails to be equivalent
                         else:
                             if debug:
                                 breakpoint()
+                            row["opt_unopt_cost"] = float(cost)
+                            row["opt_unopt_correctness"] = correct_str
+                            row["def_in"] = register_list_to_register_string(def_in_register_list)
+                            row["live_out"] = register_list_to_register_string(live_out_register_list)
+                            row["diff_str"] = diff_stdout
+                            row["opt_cost_str"] = cost_stdout
+                            new_rows.append(row.to_dict())
+
                             continue
                     # if correct_str from test_costfn is neither "yes" nor "no"
                     else:
@@ -143,6 +154,10 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                 else:
                     if debug:
                         breakpoint()
+                    row["heap_out"] = True
+                    row["def_in"] = register_list_to_register_string(def_in_register_list)
+                    row["live_out"] = register_list_to_register_string(live_out_register_list)
+                    new_rows.append(row.to_dict())
                     continue
     df = pd.DataFrame(new_rows)
     return df
