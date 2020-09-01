@@ -59,7 +59,7 @@ def stoke_diff_get_live_out(def_in_register_list: List[str], live_out_register_l
                 print("def_in_register_list: " + " " .join(def_in_register_list))
                 print("orig live_out_register_list: " + " ".join(def_in_register_list))
                 print("diff std out " + diff.stdout)
-                print("new_live_out_list: " " ".join(new_live_out_list))
+                print("new_live_out_list: " + " ".join(new_live_out_list))
 
         return diff.returncode, diff.stdout, new_live_out_list
 
@@ -69,7 +69,7 @@ def stoke_diff_get_live_out(def_in_register_list: List[str], live_out_register_l
 def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimized_flag = "Og", debug = False):
     new_rows = []
     for i, row in df.iterrows():
-        opt_cost_string = row["opt_cost_string"]
+        opt_cost_string = row["opt_cost_str"]
         def_in_register_list = register_list_from_regex(opt_cost_string, DEF_IN_REGEX)
         live_out_register_list = register_list_from_regex(opt_cost_string, LIVE_OUT_REGEX)
         if row["unopt_unopt_correctness"] == "yes":
@@ -151,23 +151,29 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
 def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
                 def_in_register_list: List[str], live_out_register_list: List[str], heap_out: bool,
                 live_dangerously: bool = True ):
-    live_dangerously_str = "--live_dangerously" if live_dangerously else ""
-    heap_out_str = "--heap_out" if heap_out else ""
+    live_dangerously_str = "--live_dangerously" if live_dangerously else ''
+    heap_out_str = "--heap_out" if heap_out else ''
     try:
-        cost_test = subprocess.run(
+        if heap_out: 
+            cost_test = subprocess.run(
             ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
-             testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
-             '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', heap_out_str,
-             '--def_in', register_list_to_register_string(def_in_register_list),
-             '--live_out', register_list_to_register_string(live_out_register_list)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=25)
+            testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
+            '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', "--heap_out", 
+            '--def_in', register_list_to_register_string(def_in_register_list),
+            '--live_out', register_list_to_register_string(live_out_register_list)], 
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
+        else: 
+            cost_test = subprocess.run( ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, 
+            '--testcases', testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
+            '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency',  
+            '--def_in', register_list_to_register_string(def_in_register_list), 
+            '--live_out', register_list_to_register_string(live_out_register_list), ], 
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
         if cost_test.returncode == 0:
             cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
             correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
         else:
+            breakpoint()
             cost = -10701
             correct = "failed"
         return cost_test.returncode, cost_test.stdout, cost, correct
