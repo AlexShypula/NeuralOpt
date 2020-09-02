@@ -15,6 +15,7 @@ from collections import Counter
 from multiprocessing.pool import Pool
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
+from stoke_test_costfn import strip_function_names
 
 
 random.seed(15213)
@@ -40,6 +41,7 @@ class ParseOptions:
     percent_test: float = field(metadata=dict(args=["-percent_test", "--percent_test"]), default=0.05)
     path_to_initial_hashes: str = field(metadata=dict(args=["-path_to_in_hashes", "--path_to_init_hashes"]), default=None)
     path_to_output_hashes: str = field(metadata=dict(args=["-path_to_out_hashes", "--path_to_output_hashes"]), default=None)
+    max_len: int = field(metadata=dict(args=["-max_len", "--maximum_assembly_length"]), default=512)
 
 
 def hash_file(file_string: str, encoding: str = "utf-8") -> str:
@@ -69,7 +71,8 @@ def parallel_pipeline(path_to_bin: str,
                 full_canonicalization: bool = False,
                 percent_dev : float= 0.05,
                 percent_test: float = 0.05,
-                initial_hashes: Set = None, **kwargs) -> Set[str]:
+                initial_hashes: Set = None,
+                max_len: int = 512, **kwargs) -> Set[str]:
     # returns the set of hashes
 
 
@@ -155,7 +158,7 @@ def parallel_pipeline(path_to_bin: str,
     for i in range(n_splits):
         hashes, dups = bpe_process_single(in_file= join(unmatched_fldr, f"unmatched_{i}.src"),
                                           out_file=join(unmatched_fldr, f"unmatched_{i}_fnl.src"),
-                                          spm_model_pth=join(model_fldr, "bpe_1000.model"), threshold = 2056,
+                                          spm_model_pth=join(model_fldr, "bpe_1000.model"), threshold = max_len,
                                           hashes = running_hashes)
         running_hashes.update(hashes)
         unmatched_dups += dups
@@ -165,7 +168,7 @@ def parallel_pipeline(path_to_bin: str,
     for i in range(n_splits):
         hashes, dups = bpe_process(join(dev_fldr, f"dev_{i}.src"), join(dev_fldr, f"dev_{i}.tgt"),
                                    join(dev_fldr, f"dev_{i}_fnl.src"), join(dev_fldr, f"dev_{i}_fnl.tgt"),
-                                   spm_model_pth = join(model_fldr, "bpe_1000.model"), threshold = 2056,
+                                   spm_model_pth = join(model_fldr, "bpe_1000.model"), threshold = max_len,
                                    hashes = running_hashes)
         running_hashes.update(hashes)
         dev_dups += dups
@@ -175,7 +178,7 @@ def parallel_pipeline(path_to_bin: str,
     for i in range(n_splits):
         hashes, dups = bpe_process(join(test_fldr, f"test_{i}.src"), join(test_fldr, f"test_{i}.tgt"),
                                    join(test_fldr, f"test_{i}_fnl.src"), join(test_fldr, f"test_{i}_fnl.tgt"),
-                                   spm_model_pth = join(model_fldr, "bpe_1000.model"), threshold = 2056,
+                                   spm_model_pth = join(model_fldr, "bpe_1000.model"), threshold = max_len,
                                    hashes = running_hashes)
         running_hashes.update(hashes)
         test_dups += dups
@@ -395,6 +398,17 @@ def merge_registers(a):
 def parallel_bpe_process_wrapper(args_dict: Dict[str, str]):
     return bpe_process(**args_dict)
 
+def get_asbly_function_name(assembly: str):
+    return re.search("(?<=(\.))[^:]+", assembly).group()
+
+def get_canonicalized_hash(assembly: str):
+    function_name = get_asbly_function_name(assembly=assembly)
+    cleaned_asm = strip_function_names(assembly)
+    h = hash_file(cleaned_asm.strip())
+    return h
+
+
+
 def bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_file: str, spm_model_pth: str, threshold = 200, hashes = None):
     job_no = re.findall("\d|$", in_src_file)[0]
     dups = 0
@@ -409,7 +423,7 @@ def bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_f
     tgt_out = open(out_tgt_file, "w+")
     for i, src_asbly in enumerate(tqdm(src_data, position=int(job_no), desc = f"job no: {job_no}", leave=True)):
         if type(hashes) == type(set()):
-            src_hash = hash_file(src_asbly.strip())
+            src_hash = get_canonicalized_hash(src_asbly.strip())
             if src_hash in hashes:
                 dups += 1
                 continue
@@ -417,7 +431,7 @@ def bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_f
         src_tok = merge_registers(sent_piece.EncodeAsPieces(src_asbly.strip()))
         if len(src_tok) < threshold:
             if type(hashes) == type(set()):
-                tgt_hash = hash_file(tgt_data[i].strip())
+                tgt_hash = get_canonicalized_hash((tgt_data[i].strip())
                 if tgt_hash in hashes:
                     dups+=1
                     continue
@@ -443,7 +457,7 @@ def bpe_process_single(in_file: str, out_file: str, spm_model_pth: str, threshol
 
     for i, asbly in enumerate(tqdm(data, position=int(job_no), desc = f"job no: {job_no}", leave=True)):
         if type(hashes) == type(set()):
-            asbly_hash = hash_file(asbly.strip())
+            asbly_hash = get_canonicalized_hash(asbly.strip())
             if asbly_hash in hashes:
                 dups += 1
                 continue
