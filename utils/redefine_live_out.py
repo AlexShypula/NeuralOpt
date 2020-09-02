@@ -21,7 +21,7 @@ class ParseOptions:
     path_to_stats_df: str = field(metadata=dict(args=["-in_stats_df", "--path_to_in_stats_df"]))
     path_to_out_stats_df: str = field(metadata=dict(args=["-out_stats_df", "--path_to_out_stats_df"]))
     optimized_flag: str = field(metadata=dict(args=["-optimized_flag", "--optimized_flag"]), default = "Og")
-    n_workers: str = field(metadata=dict(args=["-n_workers", "--n_workers"]), default = 1)
+    n_workers: int = field(metadata=dict(args=["-n_workers", "--n_workers"]), default = 1)
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default=False)
 
 
@@ -103,7 +103,7 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                                                                                        live_dangerously=True,
                                                                                        debug=debug)
 
-                if re.search("Rewrite returned abnormally with signal 11", diff_stdout):
+                if isinstance(diff_stdout, str) and re.search("Rewrite returned abnormally with signal 11", diff_stdout):
                     diff_rc = 11
                 if diff_rc == 0:
                     cost_rc, cost_stdout, cost, correct_str = test_costfn(target_f=path_to_function,
@@ -211,7 +211,7 @@ if __name__ == "__main__":
     df_in = pd.read_csv(args.path_to_stats_df)
 
     if not args.debug:
-        n_splits = 64
+        n_splits = 128
         df_length = int(len(df_in) / n_splits)
         frames = [df_in.iloc[i * df_length :(i + 1) * df_length].copy() for i in range(n_splits + 1)]
         jobs = []
@@ -219,7 +219,7 @@ if __name__ == "__main__":
             jobs.append({"path_to_disassembly_dir": args.path_to_disassembly_dir,
                          "df": frame,
                          "optimized_flag": args.path_to_out_stats_df,
-                         "position": i+1})
+                         "position": (i%args.n_workers)+1})
         out_dfs = []
         pbar = tqdm(total=len(df_in), position=0, desc="all workers progress bar")
         for df in Pool(args.n_workers).imap(redefine_live_out_df_wrapper, jobs):
