@@ -228,7 +228,6 @@ if __name__ == "__main__":
     print(parser.parse_args())
     args = parser.parse_args()
     df_in = pd.read_csv(args.path_to_stats_df)
-    df_in = df_in.iloc[:100]
 
     if not args.debug:
         n_splits = 4
