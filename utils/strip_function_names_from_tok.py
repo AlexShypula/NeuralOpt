@@ -2,11 +2,12 @@ import re
 from typing import List
 import sentencepiece as spm
 from stoke_preprocess import merge_registers, stitch_together, _spec_char_rep, NEW_LINE_PATTERN_REPLACE, UNDERSCORE_PATTERN_REPLACE
-from stoke_test_costfn import FUNCTION_NAME_REGEX
+#from stoke_test_costfn import FUNCTION_NAME_REGEX
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 from tqdm import tqdm
 
+FUNCTION_NAME_REGEX = re.compile("(?<=\.)[^:]+")
 
 @dataclass
 class ParseOptions:

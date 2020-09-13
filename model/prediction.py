@@ -367,8 +367,12 @@ def test(cfg_file,
 
     # load the data
     ## TODO: see if you can subset the train-data here to evaluate on a subset
-    _, dev_data, test_data, src_vocab, trg_vocab = load_data(
+    torch.manual_seed(0)
+    random.seed(0)
+
+    train_data, dev_data, test_data, src_vocab, trg_vocab = load_data(
         data_cfg=cfg["data"])
+    train_data, _ = train_data.split(split_ratio = [0.15, 0.85], random_state = random.getstate())
     if debug: 
         keep, _ = dev_data.split(
                             split_ratio=[0.1, 1 - 0.1],
@@ -380,7 +384,7 @@ def test(cfg_file,
                                         random_state=random.getstate())
         test_data = keep
 
-    data_to_predict = {"dev": dev_data, "test": test_data}
+    data_to_predict = {"train": train_data, "dev": dev_data, "test": test_data}
 
     # load model state from disk
     model_checkpoint = load_checkpoint(ckpt, use_cuda=use_cuda)

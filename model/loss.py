@@ -154,12 +154,12 @@ class StokeCostManager:
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
                     best_cost = cost
                 elif rc < 4 and cost == low_benchmark:
-                    assert cost <= high_benchamrk
+                    assert cost <= high_benchmark
                     rc = 4
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
                     best_cost = cost
                 elif rc < 5 and cost < low_benchmark:
-                    assert cost < low_benchmark and cost < high_benchamrk
+                    assert cost < low_benchmark and cost < high_benchmark
                     rc = 5
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
                     best_cost = cost
@@ -205,7 +205,7 @@ class StokeCostManager:
 
             unopt_cost = metadata["O0_cost"]
             opt_cost = metadata["Og_cost"]
-            high_benchamrk = max(unopt_cost, opt_cost)
+            high_benchmark = max(unopt_cost, opt_cost)
             low_benchmark = min(unopt_cost, opt_cost)
 
             cost = result_dict["stats"]["cost"]
@@ -217,18 +217,18 @@ class StokeCostManager:
                 rc = -1
             elif not correct:
                 rc = 0
-            elif cost > high_benchamrk:
+            elif cost > high_benchmark:
                 rc = 1
-            elif rc < 2 and cost == high_benchamrk:
+            elif rc < 2 and cost == high_benchmark:
                 rc = 2
             elif rc < 3 and cost > low_benchmark:
-                assert cost <= high_benchamrk
+                assert cost <= high_benchmark
                 rc = 3
             elif rc < 4 and cost == low_benchmark:
-                assert cost <= high_benchamrk
+                assert cost <= high_benchmark
                 rc = 4
             elif rc < 5 and cost < low_benchmark:
-                assert cost < low_benchmark and cost < high_benchamrk
+                assert cost < low_benchmark and cost < high_benchmark
                 rc = 5
             else:
                 raise Exception
