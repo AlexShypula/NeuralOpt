@@ -76,7 +76,7 @@ def function_path_to_optimized_function(path: str, optimized_flag: str = "Og"):
     split_path = path.split("/")
     # -1 -> function name, -2 -> "functions", -3 -> "O0/Og/..." flag
     split_path[-3] = optimized_flag
-    return join(*split_path)
+    return "/".join(split_path)
 
 
 def replace_first_n_dirs(path: str, path_to_destination_directory: str, n_dirs_to_remove: int = 1):

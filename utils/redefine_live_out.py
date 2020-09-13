@@ -1,12 +1,15 @@
 import subprocess
 import re
 import pandas as pd
+from copy import deepcopy
 from make_data import function_path_to_optimized_function, function_path_to_testcases, function_path_to_functions_folder
 from typing import List
 from stoke_test_costfn import COST_SEARCH_REGEX, CORRECT_SEARCH_REGEX
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 from os.path import join
+from tqdm import tqdm
+from multiprocessing import Pool
 
 
 LIVE_OUT_REGEX = re.compile("(?<=(WARNING: No live out values provided, assuming {))[^}]+")
@@ -19,6 +22,7 @@ class ParseOptions:
     path_to_stats_df: str = field(metadata=dict(args=["-in_stats_df", "--path_to_in_stats_df"]))
     path_to_out_stats_df: str = field(metadata=dict(args=["-out_stats_df", "--path_to_out_stats_df"]))
     optimized_flag: str = field(metadata=dict(args=["-optimized_flag", "--optimized_flag"]), default = "Og")
+    n_workers: int = field(metadata=dict(args=["-n_workers", "--n_workers"]), default = 1)
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default=False)
 
 
@@ -35,7 +39,8 @@ def register_list_to_register_string(register_list: List[str]):
 
 
 def stoke_diff_get_live_out(def_in_register_list: List[str], live_out_register_list: List[str],
-               target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str, live_dangerously: bool = False):
+               target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str, live_dangerously: bool = False,
+                            debug: bool = False):
     live_dangerously_str = "--live_dangerously" if live_dangerously else ""
     try:
         diff = subprocess.run(
@@ -54,15 +59,27 @@ def stoke_diff_get_live_out(def_in_register_list: List[str], live_out_register_l
             for register in live_out_register_list:
                 if not re.search(register, diff.stdout):
                     new_live_out_list.append(register)
+            if debug:
+                print("def_in_register_list: " + " " .join(def_in_register_list))
+                print("orig live_out_register_list: " + " ".join(def_in_register_list))
+                print("diff std out " + diff.stdout)
+                print("new_live_out_list: " + " ".join(new_live_out_list))
 
         return diff.returncode, diff.stdout, new_live_out_list
 
     except subprocess.TimeoutExpired as err:
         return -1, err, []
 
-def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimized_flag = "Og", debug = False):
+def redefine_live_out_df_wrapper(args):
+    return redefine_live_out_df(**args)
+
+def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimized_flag = "Og",
+                         position: int = 0, debug: bool = False):
     new_rows = []
+    pbar = tqdm(total = len(df), position = position)
+    cts = 0
     for i, row in df.iterrows():
+        opt_cost_string = row["opt_cost_str"]
         def_in_register_list = register_list_from_regex(opt_cost_string, DEF_IN_REGEX)
         live_out_register_list = register_list_from_regex(opt_cost_string, LIVE_OUT_REGEX)
         if row["unopt_unopt_correctness"] == "yes":
@@ -71,14 +88,18 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                 row["def_in"] = register_list_to_register_string(def_in_register_list)
                 row["live_out"] = register_list_to_register_string(live_out_register_list)
                 new_rows.append(row.to_dict())
+                cts+=1
             else:
+                #print("inside else") 
                 path_to_function = join(path_to_disassembly_dir,  row["path_to_function"])
-                opt_cost_string = row["opt_cost_str"]
+                #print("path to function is ", path_to_function)
 
                 functions_dir = function_path_to_functions_folder(path=path_to_function)
                 path_to_optimized_function = function_path_to_optimized_function(path = path_to_function,
                                                                                  optimized_flag = optimized_flag)
+                #print("path to rewrite is", path_to_optimized_function)
                 path_to_testcases = function_path_to_testcases(path = path_to_function, tc_folder = "testcases")
+                #print("path to testcases is ", path_to_testcases)
 
                 diff_rc, diff_stdout, live_out_register_list = stoke_diff_get_live_out(def_in_register_list=def_in_register_list,
                                                                                        live_out_register_list=live_out_register_list,
@@ -86,9 +107,16 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                                                                                        rewrite_f=path_to_optimized_function,
                                                                                        testcases_f=path_to_testcases,
                                                                                        fun_dir = functions_dir,
-                                                                                       live_dangerously=True)
+                                                                                       live_dangerously=True,
+                                                                                       debug=debug)
+                #print("diff rc is", diff_rc)
+                #if diff_rc != 0: 
+                    #print(diff_stdout)
+                    #print("path to rewrite is ", path_to_optimized_function)
+                
 
-
+                if isinstance(diff_stdout, str) and re.search("Rewrite returned abnormally with signal 11", diff_stdout):
+                    diff_rc = 11
                 if diff_rc == 0:
                     cost_rc, cost_stdout, cost, correct_str = test_costfn(target_f=path_to_function,
                                                                          rewrite_f=path_to_optimized_function,
@@ -103,7 +131,9 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                         row["opt_unopt_correctness"] = correct_str
                         row["def_in"] = register_list_to_register_string(def_in_register_list)
                         row["live_out"] = register_list_to_register_string(live_out_register_list)
+                        row["opt_cost_str"] = cost_stdout
                         new_rows.append(row.to_dict())
+                        #print("correct cost and appended")
                     elif correct_str == "no":
                         row["heap_out"] = False  # pre-set to true as default
                         # try to then suppress the heap
@@ -120,44 +150,71 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                             row["opt_unopt_correctness"] = correct_str
                             row["def_in"] = register_list_to_register_string(def_in_register_list)
                             row["live_out"] = register_list_to_register_string(live_out_register_list)
+                            row["opt_cost_str"] = cost_stdout
                             new_rows.append(row.to_dict())
+                            #print("cost run second time and correct")
 
+                        # if after suppressing --heap_out it still fails to be equivalent
                         else:
                             if debug:
-                                breakpoint()
+                                pass
+                                #breakpoint()
+                            row["opt_unopt_cost"] = float(cost)
+                            row["opt_unopt_correctness"] = correct_str
+                            row["def_in"] = register_list_to_register_string(def_in_register_list)
+                            row["live_out"] = register_list_to_register_string(live_out_register_list)
+                            row["diff_str"] = diff_stdout
+                            row["opt_cost_str"] = cost_stdout
+                            new_rows.append(row.to_dict())
+                            #print("cost run second time and failed")
+
                             continue
+                    # if correct_str from test_costfn is neither "yes" nor "no"
                     else:
                         if debug:
-                            breakpoint()
+                            pass
+                            #breakpoint()
                         raise ValueError(f"correct str needs to be 'yes' or 'no' it was {correct_str}")
+                # if diff process did not return 0
                 else:
                     if debug:
-                        breakpoint()
+                        pass
+                        #breakpoint()
+                    row["def_in"] = register_list_to_register_string(def_in_register_list)
+                    row["live_out"] = register_list_to_register_string(live_out_register_list)
+                    new_rows.append(row.to_dict())
                     continue
-    df = pd.DataFrame(new_rows)
-    return df
+        pbar.update()
+    df_out = pd.DataFrame(new_rows) 
+    #print("number of unprocessed cts is ", cts)
+    return df_out
 
 
 def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
                 def_in_register_list: List[str], live_out_register_list: List[str], heap_out: bool,
                 live_dangerously: bool = True ):
-    live_dangerously_str = "--live_dangerously" if live_dangerously else ""
-    heap_out_str = "--heap_out" if heap_out else ""
+    live_dangerously_str = "--live_dangerously" if live_dangerously else ''
     try:
-        cost_test = subprocess.run(
+        if heap_out: 
+            cost_test = subprocess.run(
             ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
-             testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
-             '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', heap_out_str
-             '--def_in', register_list_to_register_string(def_in_register_list),
-             '--live_out', register_list_to_register_string(live_out_register_list)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=25)
+            testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
+            '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', "--heap_out", 
+            '--def_in', register_list_to_register_string(def_in_register_list),
+            '--live_out', register_list_to_register_string(live_out_register_list)], 
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
+        else: 
+            cost_test = subprocess.run( ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, 
+            '--testcases', testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
+            '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency',  
+            '--def_in', register_list_to_register_string(def_in_register_list), 
+            '--live_out', register_list_to_register_string(live_out_register_list), ], 
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
         if cost_test.returncode == 0:
             cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
             correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
         else:
+            breakpoint()
             cost = -10701
             correct = "failed"
         return cost_test.returncode, cost_test.stdout, cost, correct
@@ -171,9 +228,29 @@ if __name__ == "__main__":
     print(parser.parse_args())
     args = parser.parse_args()
     df_in = pd.read_csv(args.path_to_stats_df)
-    df_out = redefine_live_out_df(path_to_disassembly_dir=args.path_to_disassembly_dir,
-                                  df = df_in,
-                                  optimized_flag=args.optimized_flag,
-                                  debug=args.debug)
+
+    if not args.debug:
+        n_splits = 4
+        df_length = int(len(df_in) / n_splits)
+        frames = [df_in.iloc[i * df_length :(i + 1) * df_length].copy() for i in range(n_splits + 1)]
+        jobs = []
+        for i, frame in enumerate(frames):
+            jobs.append({"path_to_disassembly_dir": args.path_to_disassembly_dir,
+                         "df": deepcopy(frame),
+                         "optimized_flag": args.optimized_flag,
+                         "position": (i%args.n_workers)+1})
+        out_dfs = []
+        pbar = tqdm(total=len(df_in), position=0, desc="all workers progress bar")
+        for df in Pool(args.n_workers).imap(redefine_live_out_df_wrapper, jobs):
+            out_dfs.append(df)
+            pbar.update(len(df))
+        df_out = pd.concat(out_dfs)
+
+    else:
+        df_out = redefine_live_out_df(path_to_disassembly_dir=args.path_to_disassembly_dir,
+                                      df = df_in,
+                                      optimized_flag=args.optimized_flag,
+                                      debug=args.debug)
+
     df_out.to_csv(args.path_to_out_stats_df)
 

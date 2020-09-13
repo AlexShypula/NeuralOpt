@@ -5,15 +5,17 @@ import random
 import os
 import re
 import sentencepiece as spm
+import pickle
 from os import listdir, makedirs
 from os.path import isfile, join
-from typing import List, Dict
+from typing import List, Dict, Set
 from collections import OrderedDict
 from tqdm import tqdm
 from collections import Counter
 from multiprocessing.pool import Pool
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
+from stoke_test_costfn import strip_function_names
 
 
 random.seed(15213)
@@ -35,6 +37,11 @@ class ParseOptions:
     n_splits: int = 16
     no_fun_names: bool = field(metadata=dict(args=["-no_fun_names", "--remove_fun_names"]), default = False)
     full_canonicalization: bool = field(metadata=dict(args=["-full_canon", "--fully_canonicalize_locations"]), default = False)
+    percent_dev: float = field(metadata=dict(args=["-percent_dev", "--percent_dev"]), default = 0.05)
+    percent_test: float = field(metadata=dict(args=["-percent_test", "--percent_test"]), default=0.05)
+    path_to_initial_hashes: str = field(metadata=dict(args=["-path_to_in_hashes", "--path_to_init_hashes"]), default=None)
+    path_to_output_hashes: str = field(metadata=dict(args=["-path_to_out_hashes", "--path_to_output_hashes"]), default=None)
+    max_len: int = field(metadata=dict(args=["-max_len", "--maximum_assembly_length"]), default=512)
 
 
 def hash_file(file_string: str, encoding: str = "utf-8") -> str:
@@ -58,10 +65,15 @@ def parallel_pipeline(path_to_bin: str,
                 test_fldr: str = "test",
                 unmatched_fldr: str = "unmatched",
                 model_fldr: str = "bpe",
-                n_workers = 8,
-                n_splits = 16,
-                no_fun_names = False,
-                full_canonicalization = False):
+                n_workers: int = 8,
+                n_splits: int = 16,
+                no_fun_names: bool = False,
+                full_canonicalization: bool = False,
+                percent_dev : float= 0.05,
+                percent_test: float = 0.05,
+                initial_hashes: Set = None,
+                max_len: int = 512, **kwargs) -> Set[str]:
+    # returns the set of hashes
 
 
     assert n_splits % n_workers == 0
@@ -82,6 +94,8 @@ def parallel_pipeline(path_to_bin: str,
                 "suffix": None,
                 "preserve_fun_names": not no_fun_names,
                 "preserve_semantics": not full_canonicalization,
+                "percent_dev": percent_dev,
+                "percent_test": percent_test
                 }
 
     jobs = []
@@ -132,7 +146,10 @@ def parallel_pipeline(path_to_bin: str,
 
     print("Now processing all training files with bpe ...")
 
-    running_hashes = set()
+    if not initial_hashes:
+        running_hashes = set()
+    else:
+        running_hashes = initial_hashes
     for tr_hashes, _ in Pool(n_workers).imap_unordered(parallel_bpe_process_wrapper, jobs):
         running_hashes.update(tr_hashes)
 
@@ -141,7 +158,7 @@ def parallel_pipeline(path_to_bin: str,
     for i in range(n_splits):
         hashes, dups = bpe_process_single(in_file= join(unmatched_fldr, f"unmatched_{i}.src"),
                                           out_file=join(unmatched_fldr, f"unmatched_{i}_fnl.src"),
-                                          spm_model_pth=join(model_fldr, "bpe_1000.model"), threshold = 2056,
+                                          spm_model_pth=join(model_fldr, "bpe_1000.model"), threshold = max_len,
                                           hashes = running_hashes)
         running_hashes.update(hashes)
         unmatched_dups += dups
@@ -151,7 +168,7 @@ def parallel_pipeline(path_to_bin: str,
     for i in range(n_splits):
         hashes, dups = bpe_process(join(dev_fldr, f"dev_{i}.src"), join(dev_fldr, f"dev_{i}.tgt"),
                                    join(dev_fldr, f"dev_{i}_fnl.src"), join(dev_fldr, f"dev_{i}_fnl.tgt"),
-                                   spm_model_pth = join(model_fldr, "bpe_1000.model"), threshold = 2056,
+                                   spm_model_pth = join(model_fldr, "bpe_1000.model"), threshold = max_len,
                                    hashes = running_hashes)
         running_hashes.update(hashes)
         dev_dups += dups
@@ -161,7 +178,7 @@ def parallel_pipeline(path_to_bin: str,
     for i in range(n_splits):
         hashes, dups = bpe_process(join(test_fldr, f"test_{i}.src"), join(test_fldr, f"test_{i}.tgt"),
                                    join(test_fldr, f"test_{i}_fnl.src"), join(test_fldr, f"test_{i}_fnl.tgt"),
-                                   spm_model_pth = join(model_fldr, "bpe_1000.model"), threshold = 2056,
+                                   spm_model_pth = join(model_fldr, "bpe_1000.model"), threshold = max_len,
                                    hashes = running_hashes)
         running_hashes.update(hashes)
         test_dups += dups
@@ -205,6 +222,7 @@ def parallel_pipeline(path_to_bin: str,
                     print(f"deleted {file}")
 
     print("Done ! Nice !!")
+    return running_hashes
 
 
 def merge_all_files(fldr_pth: str, n_splits: int, out_src: str, out_tgt: str = None,
@@ -251,7 +269,9 @@ def process_all(path_to_bin: str,
                 unmatched_fldr: str = "unmatched_fldr",
                 suffix: str = "0",
                 preserve_fun_names: bool = True,
-                preserve_semantics: bool = True):
+                preserve_semantics: bool = True,
+                percent_dev: float = 0.05,
+                percent_test: float = 0.05):
 
     src_shas = set()
     tgt_shas = set()
@@ -311,10 +331,10 @@ def process_all(path_to_bin: str,
                                                       preserve_fun_names=preserve_fun_names,
                                                       preserve_semantics=preserve_semantics)
             rn = random.random()
-            if rn < 0.95:
+            if rn < (1 - percent_dev - percent_test):
                 tr_src_f.write(src_asbly+"\n")
                 tr_tgt_f.write(tgt_asbly+"\n")
-            elif rn < 0.97:
+            elif rn < (1 - percent_test):
                 dev_src_f.write(src_asbly + "\n")
                 dev_tgt_f.write(tgt_asbly + "\n")
             else:
@@ -378,6 +398,17 @@ def merge_registers(a):
 def parallel_bpe_process_wrapper(args_dict: Dict[str, str]):
     return bpe_process(**args_dict)
 
+def get_asbly_function_name(assembly: str):
+    return re.search("(?<=(\.))[^:]+", assembly).group()
+
+def get_canonicalized_hash(assembly: str):
+    function_name = get_asbly_function_name(assembly=assembly)
+    cleaned_asm = strip_function_names(assembly)
+    h = hash_file(cleaned_asm.strip())
+    return h
+
+
+
 def bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_file: str, spm_model_pth: str, threshold = 200, hashes = None):
     job_no = re.findall("\d|$", in_src_file)[0]
     dups = 0
@@ -392,7 +423,7 @@ def bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_f
     tgt_out = open(out_tgt_file, "w+")
     for i, src_asbly in enumerate(tqdm(src_data, position=int(job_no), desc = f"job no: {job_no}", leave=True)):
         if type(hashes) == type(set()):
-            src_hash = hash_file(src_asbly.strip())
+            src_hash = get_canonicalized_hash(src_asbly.strip())
             if src_hash in hashes:
                 dups += 1
                 continue
@@ -400,7 +431,7 @@ def bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_f
         src_tok = merge_registers(sent_piece.EncodeAsPieces(src_asbly.strip()))
         if len(src_tok) < threshold:
             if type(hashes) == type(set()):
-                tgt_hash = hash_file(tgt_data[i].strip())
+                tgt_hash = get_canonicalized_hash((tgt_data[i].strip())
                 if tgt_hash in hashes:
                     dups+=1
                     continue
@@ -426,7 +457,7 @@ def bpe_process_single(in_file: str, out_file: str, spm_model_pth: str, threshol
 
     for i, asbly in enumerate(tqdm(data, position=int(job_no), desc = f"job no: {job_no}", leave=True)):
         if type(hashes) == type(set()):
-            asbly_hash = hash_file(asbly.strip())
+            asbly_hash = get_canonicalized_hash(asbly.strip())
             if asbly_hash in hashes:
                 dups += 1
                 continue
@@ -438,24 +469,6 @@ def bpe_process_single(in_file: str, out_file: str, spm_model_pth: str, threshol
 
     out_file_handle.close()
     return (hashes, dups) if hashes else (set(), dups)
-
-
-
-#
-# def make_vocab(train_dir: str, vocab_out_file: str):
-#     files = listdir(train_dir)
-#     global_counter = Counter()
-#     for f in files:
-#         if "train_fnl" in f and isfile(join(train_dir, f)):
-#             with open(join(train_dir, f)) as f:
-#                 text = f.read()
-#             c = Counter(text.split())
-#             global_counter = global_counter + c
-#     with open(vocab_out_file, "w") as f:
-#         for tok, _ in global_counter.most_common():
-#             if tok != " ":
-#                 f.write(tok + "\n")
-
 
 
 METADATA_SPLIT_PATTERN = re.compile("(?=# Text)")
@@ -522,47 +535,20 @@ def _canonicalize_labels(assembly: str, function_list: List[str], preserve_seman
     return assembly, idiosyn2canon
 
 
-
-
-
 if __name__ == "__main__":
-    # point()
     parser = ArgumentParser(ParseOptions)
     print(parser.parse_args())
     args = parser.parse_args()
-
+    if args.path_to_initial_hashes:
+        with open(args.path_to_initial_hashes, "rb") as fh:
+            args.initial_hashes = pickle.load(fh)
+    else:
+        args.initial_hashes = None
     with open(args.path_list) as f:
         path_list = f.readlines()
     path_list = [p.strip() for p in path_list]
     args.path_list = path_list
-    parallel_pipeline(**vars(args))
-
-#
-# class ParseOptions:
-#     path_to_bin: field(metadata=dict(args=["-path_to_bin", "--path_to_decompiled_binaries"]))
-#     path_list: field(metadata=dict(args=["-path_list", "--list_of_decompiled_binaries"]))
-#     unopt_prefix: str = "O0"
-#     opt_prefix: str = "Og"
-#     fun_dir: str = field(metadata=dict(args=["-fun_dir", "--functions_folder_name"]), default='functions')
-#     train_fldr: str = field(metadata=dict(args=["-frain_fldr", "--train_working_folder_name"]), default='train')
-#     dev_fldr: str = field(metadata=dict(args=["-dev_fldr", "--dev_working_folder_name"]), default='dev')
-#     test_fldr: str = field(metadata=dict(args=["-test_fldr", "--train_working_folder_name"]), default='test')
-#     model_fldr: str = field(metadata=dict(args=["-bpe_fldr", "--bpe_folder_name"]), default='bpe')
-#     n_workers = 8
-#     n_splits = 16
-#
-#
-#     parallel_pipeline(path_to_bin: str,
-#                         path_list: List[str],
-#                         unopt_prefix: str = "O0",
-#                         opt_prefix: str = "Og",
-#                         fun_dir: str = "functions",
-#                         train_fldr: str = "train",
-#                         dev_fldr:str = "dev",
-#                         test_fldr: str = "test",
-#                         model_fldr: str = "bpe",
-#                         n_workers = 8,
-#                         n_splits = 16)
-#
-
+    out_hashes = parallel_pipeline(**vars(args))
+    with open(args.path_to_output_hashes, "wb") as fh:
+        pickle.dump(out_hashes, file = fh)
 
