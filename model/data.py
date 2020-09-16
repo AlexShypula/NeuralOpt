@@ -6,6 +6,7 @@ import sys
 import random
 import os
 import os.path
+from tqdm import tqdm
 from typing import Optional
 
 from torchtext.datasets import TranslationDataset
@@ -14,6 +15,31 @@ from torchtext.data import Dataset, Iterator, Field
 
 from constants import UNK_TOKEN, EOS_TOKEN, BOS_TOKEN, PAD_TOKEN
 from vocabulary import build_vocab, Vocabulary
+
+
+def shard_data(input_path: str, shard_path: str, src_lang: str, tgt_lang: str, n_shards: int):
+    # nota bene: src_lang and tgt lang are the suffixes, and path is the prefix
+    indexes = [i for i in range(n_shards)]
+    new_src_paths = []
+    new_tgt_paths = []
+    for i in indexes:
+        new_src_paths.append(shard_path + "_{}.".format(i) + src_lang)
+        new_tgt_paths.append(shard_path + "_{}.".format(i) + tgt_lang)
+    for p in new_src_paths + new_tgt_paths:
+        assert not os.path.exists(p), f"path: {p} already exists"
+    src_fhs = [open(f, mode = "w", encoding="utf-8") for f in new_src_paths]
+    tgt_fhs = [open(f, mode="w", encoding="utf-8") for f in new_tgt_paths]
+    n_lines = sum(1 for _ in open(input_path + "." + src_lang, "r"))
+    pbar = tqdm(total = n_lines, desc = "sharding the dataset")
+    with open(input_path + "." + src_lang, mode = "r", encoding = "utf-8") as src_fh, \
+            open(input_path + "." + tgt_lang, mode = "r", encoding = "utf-8") as tgt_fh:
+        for src_line, tgt_line in zip(src_fh, tgt_fh):
+            i = random.sample(indexes, 1)[0]
+            src_fhs[i].write(src_line)
+            tgt_fhs[i].write(tgt_line)
+            pbar.update(1)
+    for fh in src_fhs + tgt_fhs:
+        fh.close()
 
 
 def load_data(data_cfg: dict) -> (Dataset, Dataset, Optional[Dataset],

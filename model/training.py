@@ -15,6 +15,8 @@ import math
 
 # import math
 import numpy as np
+import multiprocessing as mp
+from prwlock import RWLock
 
 import torch
 from torch import Tensor
@@ -22,19 +24,24 @@ from torch.utils.tensorboard import SummaryWriter
 
 from torchtext.data import Dataset
 from modeling import build_model
-from batch import Batch
+from batch import Batch, LearnerBatch
 from helpers import log_data_info, load_config, log_cfg, \
     store_attention_plots, load_checkpoint, make_model_dir, \
-    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess
+    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess, BucketReplayBuffer
 from modeling import Model
 from prediction import validate_on_data
 from loss import XentLoss, StokeCostManager
-from data import load_data, make_data_iter
+from data import load_data, make_data_iter, shard_data
 from builders import build_optimizer, build_scheduler, \
     build_gradient_clipper
 from prediction import test
+from actor import actor
+
 from tqdm import tqdm
+from typing import Dict
 import gc
+from torchtext.data import Field
+from collections import deque
 
 os.environ["CUDA_VISIBLE_DEVICES"]="2"
 
@@ -92,6 +99,33 @@ class TrainManager:
                                              container_port=data_config.get("container_port", 6000),
                                              trailing_stats_in_path=data_config.get("trailing_stats_in_path")
                                              )
+
+        #actor-learner
+        self.n_actors = train_config.get("n_actors", 1)
+        self.actor_devices = train_config.get("actor_devices", "cpu").split(":")
+        self.learner_device = train_config.get("learner_device", "cuda:0")
+        self.replay_buffer_size = train_config.get("replay_buffer_size", 512)
+        self.save_learner_every = train_config.get("save_learner_every", 1)
+        self.n_updates = train_config.get("n_updates", 0)
+        self.bucket_buffer_splits = train_config.get("n_buffer_splits", 4)
+        self.ppo_flag("ppo_flag", True)
+        self.ppo_epsilon("ppo_epsilon", 0.2)
+        #actor-learner required data
+        self.shard_data = data_config.get("shard_data", True)
+        self.shard_path = data_config.get("shard_path", None)
+        if self.shard_data:
+            assert self.shard_path, "if sharding the data, a shard path must be specified"
+        self.src_lang = data_config["src"]
+        self.tgt_lang = data_config["trg"]
+        self.train_path = data_config["train"]
+        self.dev_path = data_config["dev"]
+        self.test_path = data_config.get("test", None)
+        self.level = data_config["level"]
+        self.lowercase = data_config["lowercase"]
+        self.max_sent_length = data_config["max_sent_length"]
+        self.container_port = data_config.get("container_port", 6000)
+        self.learner_model_path = "{}/learner.ckpt".format(self.model_dir)
+
 
 
         # model
@@ -266,6 +300,16 @@ class TrainManager:
         except OSError:
             # overwrite best.ckpt
             torch.save(state, best_path)
+
+    def _save_learner(self) -> None:
+
+        assert type(latest_model_id.value) == int, "need to init a mp.Value object as latest model id with int value"
+        # these are global objects initialized in train_and_validate_actor_learner
+        with latest_model_id.get_lock(), model_lock.writer_lock():
+            state = {"model_state": self.model.state_dict()}
+            torch.save(state, self.learner_model_path)
+            self.latest_model_id.value += 1
+
 
     def init_from_checkpoint(self, path: str,
                              reset_best_ckpt: bool = False,
@@ -754,6 +798,103 @@ class TrainManager:
         with open(current_valid_output_file, 'w') as opened_file:
             for hyp in hypotheses:
                 opened_file.write("{}\n".format(hyp))
+
+    def train_and_validate_actor_learner(self, valid_data: Dataset, src_field: Field):
+
+        if self.shard_data:
+            # shard_data(input_path: str, shard_path: str, src_lang: str, tgt_lang: str, n_shards: int)
+            shard_data(input_path=self.train_path, shard_path = self.shard_path,
+                       src_lang = self.src_lang, tgt_lang = self.tgt_lang, n_shards = self.n_actors)
+        actor_data_prefixes = [self.shard_path + "_{}".format(i) for i in range(self.n_actors)]
+
+        global latest_model_id
+        global model_lock
+        latest_model_id = mp.Value("i", 0)
+        model_lock = RWLock()
+        self._save_learner()
+        trajectory_queue = mp.Queue
+        generate_trajectory_flag = mp.Event()
+        generate_trajectory_flag.set()
+
+        device_indices = [i % len(self.actor_devices) for i in range(self.n_actors)]
+        actor_device_list = [self.actor_devices[i] for i in device_indices]
+
+        pseudo_loss = torch.nn.CrossEntropyLoss(reduction="none")
+        get_log_probs = lambda output, target: pseudo_loss(output, target)
+
+        jobs = [{"model": self.model.cpu(),
+                "src_field": src_field,
+                "hash2metadata": self.hash2metadata,
+                "path_to_data": path,
+                "src_suffix": self.src_lang,
+                "path_to_update_model": self.learner_model_path,
+                "stoke_container_port": self.container_port,
+                "generate_trajs_flag": generate_trajectory_flag,
+                "latest_model_id": latest_model_id,
+                "model_lock": model_lock,
+                "trajs_queue": trajectory_queue,
+                "max_output_length": self.max_output_length,
+                "level": self.level,
+                "batch_size": self.batch_size,
+                "pad_index": self.pad_index,
+                "batch_type": self.batch_type,
+                "device": device
+                 } for path, device in zip(actor_data_prefixes, actor_device_list)]
+
+        actor_pool = mp.Pool(self.n_actors)
+        actor_pool.map_async(actor, jobs)
+        ## TODO: verify the variables and variable names used here
+        replay_buffer = BucketReplayBuffer(max_src_len=self.max_sent_length, max_output_len = self.max_output_length,
+                                           n_splits = self.bucket_buffer_splits, max_buffer_size = self.replay_buffer_size)
+
+        while not replay_buffer.is_full():
+            replay_buffer.clear_queue(trajectory_queue)
+            time.sleep(0.5)
+
+        for step in range(1, self.n_updates * self.batch_multiplier):
+            src_inputs, traj_outputs, log_probs, costs, corrects, failed, src_lens = replay_buffer.sample(max_size = self.batch_size)
+            # TODO: calculate the advantage somehow using cost manager or other method
+            batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=costs,
+                                 pad_index = self.pad_index)
+            batch.to(self.learner_device)
+            out, hidden, att_probs, _ = self.model.forward(src=batch.src,
+                                                           trg_input=batch.tgt_input,
+                                                           src_mask=batch.src_mask,
+                                                           src_lengths=src_lens,
+                                                           trg_mask=batch.tgt_mask,
+                                                           )
+            online_log_probs = get_log_probs(out, batch.tgt) * batch.loss_mask
+            offline_log_probs = batch.offline_log_probs * batch.loss_mask
+            online_traj_probs = torch.sum(online_log_probs.detach(), dim = 1).unsqueeze(1) # should reduce to a 2-d array, but with dim 1 = 1
+            offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
+            if self.ppo_flag:
+                importance_sampling_ratio = torch.exp(online_traj_probs - offline_traj_probs)
+                clipped_importance_sampling_ratio = torch.clamp(importance_sampling_ratio,
+                                                               min=1-self.ppo_epsilon, max = 1+self.ppo_epsilon)
+                advantages = torch.max(batch.advantages*importance_sampling_ratio,
+                                       batch.advantages*clipped_importance_sampling_ratio)
+            else:
+                advantages = batch.advantages
+            loss = torch.sum(online_log_probs * advantages)
+            loss.backward()
+
+            if (step % self.batch_multiplier) == 0:
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+                self._save_learner()
+                replay_buffer.clear_queue(trajectory_queue)
+
+        self.actor_pool.join()
+        generate_trajectory_flag.clear()
+
+
+        '''model: Model, src_field: Field, hash2metadata: Dict,
+          path_to_data: str, src_suffix: str,
+          path_to_input_model: str, path_to_update_model: str, stoke_container_port_no: str,
+          generate_trajs_flag: mp.Event, latest_model_id: mp.Value, trajs_queue: mp.Queue,
+          max_output_length: int, level: str, batch_size: int, pad_index: int,
+          batch_type: str = "token", device: str = "cpu"'''
+
 
 
 def train(cfg_file: str) -> None:

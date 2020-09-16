@@ -15,6 +15,9 @@ import subprocess
 import re
 import heapq
 import json
+import multiprocessing as mp
+import numpy as np
+from collections import deque
 from logging import Logger
 from typing import Callable, Optional, List, Dict, Tuple
 import numpy as np
@@ -25,11 +28,13 @@ from torch.utils.tensorboard import SummaryWriter
 
 from torchtext.data import Dataset
 import yaml
+import math
 from vocabulary import Vocabulary
 from plotting import plot_heatmap
 from os import makedirs
 from time import time
 from os.path import join, dirname, basename
+from batch import LearnerBatch
 
 from typing import Union
 #from subproc import run
@@ -57,6 +62,111 @@ evalReturncode2annotation = {
     4: "The best sample assembled, was correct, and was equal to the better of the gcc's",
     5: "The best sample assembled, was correct, and beat gcc"
 }
+
+
+def cut_array_at_eos(array: np.array, eos_index: int, keep_eos = True):
+    indices = np.where(array == eos_index)[0]
+    if len(indices) > 0:
+        if keep_eos:
+            array = array[:indices[0]+1]
+        else:
+            array = array[:indices[0]]
+    elif keep_eos:
+        array = np.append(array, eos_index)
+    length = len(array)
+    return array, length
+
+
+def cut_arrays_at_eos(array_list: List[np.array], eos_index: int, keep_eos = True):
+    outputs = [cut_array_at_eos(array, eos_index, keep_eos) for array in array_list]
+    array_list, lengths = zip(*outputs)
+    return array_list, lengths
+
+
+def slice_arrays_with_lengths(array_list: List[np.array], lengths: List[int]):
+    return [array[:length] for array, length in zip(array_list, lengths)]
+
+
+class BucketReplayBuffer:
+    def __init__(self, max_src_len: int, max_output_len: int, n_splits: int, max_buffer_size: int):
+        self.n_splits = n_splits
+        self.max_buffer_size = max_buffer_size
+        self.max_seq_len = min(max_src_len, max_output_len)
+        self.buffer_dict = {i: deque(maxlen=self.max_buffer_size) for i in range(self.n_splits)}
+        self.counts = [0 for _ in range(self.n_splits)]
+        self.weights = [1/self.n_splits for _ in range(self.n_splits)]
+        self.size = 0
+        self.split_divisor = math.ceil(self.max_seq_len / self.n_splits)
+    def _length_to_buffer_id(self, seq_length):
+        return max(0, (seq_length-1) // self.split_divisor)
+    def _add(self, experience: Dict):
+        seq_len = max(experience["src_len"], experience["out_len"])
+        buffer_id = self._length_to_buffer_id(seq_len)
+        self.buffer_dict[buffer_id].append(experience)
+        self.counts[buffer_id]+=1
+    def adjust_weights(self):
+        total = sum(self.counts)
+        self.weights = [c / total for c in self.counts]
+    def clear_queue(self, queue: mp.Queue):
+        while not queue.empty():
+            self._add(experience=queue.get())
+        self.adjust_weights()
+    def _get_sample_list(self, max_size) -> List[Dict]:
+        buffer_id = random.choices(population=self.buffer_dict.keys(), weights=self.weights, k = 1)
+        current_size = 1e9
+        buffer = self.buffer_dict[buffer_id]
+        hash_set = set()
+        while current_size > max_size:
+            first_sample = random.sample()
+            current_size = max(first_sample["src_len"], first_sample["out_len"])
+
+        largest_seen_size = current_size
+        hash_set.add(first_sample["hash"])
+        samples = [first_sample]
+
+        while True:
+            sample = random.sample(buffer)
+            h = sample["hash"]
+            if h in hash_set:
+                continue
+            current_size = max(sample["src_len"],sample["out_len"])
+            largest_seen_size = max(current_size, largest_seen_size)
+            running_size = largest_seen_size * (len(samples) + 1)
+            if running_size > max_size:
+                break
+            else:
+                hash_set.add(h)
+                samples.append(sample)
+
+        return samples
+    def sample(self, max_size):
+        samples = self._get_sample_list(max_size=max_size)
+        src_inputs = [sample["src_input"] for sample in samples]
+        traj_outputs = [sample["traj_output"] for sample in samples]
+        log_probs = [sample["log_probs"] for sample in samples]
+        costs = [sample["cost"] for sample in samples]
+        corrects = [sample["correct"] for sample in samples]
+        failed = [sample["failed"] for sample in samples]
+        src_lens = [sample["src_len"] for sample in samples]
+
+        return src_inputs, traj_outputs, log_probs, costs, corrects, failed
+
+
+    def is_full(self):
+        for _, buffer in self.buffer_dict.items():
+            if len(buffer) != self.max_buffer_size:
+                return False
+        return True
+    def is_percent_full(self, percent: float):
+        threshold = percent * self.max_buffer_size
+        for _, buffer in self.buffer_dict.items():
+            if len(buffer) < threshold:
+                return False
+        return True
+
+
+
+
 
 def paste(reference_string: str, hypothesis_string: str):
     tmp_ref = "ref_" + str(time())
