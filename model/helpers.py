@@ -107,10 +107,27 @@ class BucketReplayBuffer:
     def adjust_weights(self):
         total = sum(self.counts)
         self.weights = [c / total for c in self.counts]
-    def clear_queue(self, queue: mp.Queue):
+    def clear_queue(self, queue: mp.Queue, cost_manager):
+        experiences = []
         while not queue.empty():
-            self._add(experience=queue.get())
+            experiences.append(queue.get())
+        hash_stats = []
+        for experience in experiences:
+            self._add(experience=experience)
+            h = experience["hash"]
+            stats = experience["stats"]
+            avg_cost, _ = cost_manager.get_mean_stdv_cost(h)
+            stats["normalized_advantage"] = stats["cost"] - avg_cost
+            stats["hypothesis_string"] = experience["hypothesis_string"]
+            hash_stats.append((h, stats))
+        avg_offline_cost, avg_pct_failures = cost_manager.update_buffers(hash_stats)
+        cost_manager.log_buffer_stats([hash_stat[0] for hash_stat in hash_stats])
+
         self.adjust_weights()
+        number_of_new_examples = len(experiences)
+
+        return cost, failures, number_of_new_examples
+
     def _get_sample_list(self, max_size) -> List[Dict]:
         buffer_id = random.choices(population=self.buffer_dict.keys(), weights=self.weights, k = 1)
         current_size = 1e9
@@ -139,8 +156,9 @@ class BucketReplayBuffer:
                 samples.append(sample)
 
         return samples
-    def sample(self, max_size):
+    def sample(self, max_size, cost_manager):
         samples = self._get_sample_list(max_size=max_size)
+        hashes = [sample["hash"] for sample in samples]
         src_inputs = [sample["src_input"] for sample in samples]
         traj_outputs = [sample["traj_output"] for sample in samples]
         log_probs = [sample["log_probs"] for sample in samples]
@@ -148,8 +166,10 @@ class BucketReplayBuffer:
         corrects = [sample["correct"] for sample in samples]
         failed = [sample["failed"] for sample in samples]
         src_lens = [sample["src_len"] for sample in samples]
+        tgt_lens = [sample["out_len"] for sample in samples]
+        advantages = [cost - cost_manager.get_mean_stdv_cost(h)[0] for cost, h in zip(hashes)]
 
-        return src_inputs, traj_outputs, log_probs, costs, corrects, failed
+        return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens
 
 
     def is_full(self):

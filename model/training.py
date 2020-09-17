@@ -308,7 +308,7 @@ class TrainManager:
         with latest_model_id.get_lock(), model_lock.writer_lock():
             state = {"model_state": self.model.state_dict()}
             torch.save(state, self.learner_model_path)
-            self.latest_model_id.value += 1
+            latest_model_id.value += 1
 
 
     def init_from_checkpoint(self, path: str,
@@ -815,6 +815,8 @@ class TrainManager:
         trajectory_queue = mp.Queue
         generate_trajectory_flag = mp.Event()
         generate_trajectory_flag.set()
+        if self.no_running_starts > 0 :
+            running_starts_counter = mp.Value("i", 0)
 
         device_indices = [i % len(self.actor_devices) for i in range(self.n_actors)]
         actor_device_list = [self.actor_devices[i] for i in device_indices]
@@ -833,13 +835,16 @@ class TrainManager:
                 "latest_model_id": latest_model_id,
                 "model_lock": model_lock,
                 "trajs_queue": trajectory_queue,
+                "running_starts_counter": running_starts_counter,
                 "max_output_length": self.max_output_length,
                 "level": self.level,
                 "batch_size": self.batch_size,
                 "pad_index": self.pad_index,
                 "batch_type": self.batch_type,
-                "device": device
-                 } for path, device in zip(actor_data_prefixes, actor_device_list)]
+                "device": device,
+                "no_running_starts": self.no_running_starts,
+                "actor_id": i,
+                 } for i, (path, device) in enumerate(zip(actor_data_prefixes, actor_device_list))]
 
         actor_pool = mp.Pool(self.n_actors)
         actor_pool.map_async(actor, jobs)
@@ -847,14 +852,24 @@ class TrainManager:
         replay_buffer = BucketReplayBuffer(max_src_len=self.max_sent_length, max_output_len = self.max_output_length,
                                            n_splits = self.bucket_buffer_splits, max_buffer_size = self.replay_buffer_size)
 
+
+        print(f"Main thread now executing {self.no_running_starts} on {self.n_actors} actors")
+        if self.no_running_starts > 0:
+            while running_starts_counter.value > 0:
+                replay_buffer.clear_queue(trajectory_queue)
+                time.sleep(0.5)
+        print("All running starts have finished")
+        print("Now checking if the replay buffer is filled.... if not, waiting for it to be filled")
         while not replay_buffer.is_full():
             replay_buffer.clear_queue(trajectory_queue)
             time.sleep(0.5)
+        print("Replay buffer is filled, now training ")
+        batch_size_seqs = 0
 
         for step in range(1, self.n_updates * self.batch_multiplier):
-            src_inputs, traj_outputs, log_probs, costs, corrects, failed, src_lens = replay_buffer.sample(max_size = self.batch_size)
+            src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size)
             # TODO: calculate the advantage somehow using cost manager or other method
-            batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=costs,
+            batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=advantages,
                                  pad_index = self.pad_index)
             batch.to(self.learner_device)
             out, hidden, att_probs, _ = self.model.forward(src=batch.src,
@@ -876,24 +891,30 @@ class TrainManager:
             else:
                 advantages = batch.advantages
             loss = torch.sum(online_log_probs * advantages)
+            loss/=sum(tgt_lens) # normalize by the number of total output tokens
+            loss/=self.batch_multiplier # normalize by the batch multiplier
             loss.backward()
 
             if (step % self.batch_multiplier) == 0:
+                batch_size_seqs+=len(batch.src)
                 self.optimizer.step()
+                self.scheduler.step()
                 self.optimizer.zero_grad()
                 self._save_learner()
-                replay_buffer.clear_queue(trajectory_queue)
+                avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue)
+                self.tb_writer.add_scalar("train/number-trained-per-new-observations",
+                                          batch_size_seqs/new_examples, step / self.batch_multiplier)
+                self.tb_writer.add_scalar("train/avg_cost",
+                                          avg_queue_cost, step / self.batch_multiplier)
+                self.tb_writer.add_scalar("train/avg_failure_rate",
+                                          avg_queue_failures, step / self.batch_multiplier)
+                batch_size_seqs = 0
+
+            else:
+                batch_size_seqs += len(batch.src)
 
         self.actor_pool.join()
         generate_trajectory_flag.clear()
-
-
-        '''model: Model, src_field: Field, hash2metadata: Dict,
-          path_to_data: str, src_suffix: str,
-          path_to_input_model: str, path_to_update_model: str, stoke_container_port_no: str,
-          generate_trajs_flag: mp.Event, latest_model_id: mp.Value, trajs_queue: mp.Queue,
-          max_output_length: int, level: str, batch_size: int, pad_index: int,
-          batch_type: str = "token", device: str = "cpu"'''
 
 
 

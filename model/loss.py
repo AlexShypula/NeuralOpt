@@ -81,6 +81,15 @@ class StokeCostManager:
                                                 "best_sequence_priority_queue": PriorityQueue(maxlen=self.priority_queue_length)}
 
 
+    def get_mean_stdv_cost(self, h: str):
+
+        cost_std = 1 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.std(
+            self.trailing_stats_dict[h]["costs"])
+        cost_mean = 0 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.mean(
+            self.trailing_stats_dict[h]["costs"])
+
+        return cost_mean, cost_std
+
 
     def parallel_get_rl_cost(self, bpe_strings: List[Tuple[str, str]]):
         jobs = {}
