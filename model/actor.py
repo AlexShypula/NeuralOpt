@@ -7,7 +7,7 @@ from vocabulary import Vocabulary
 from torchtext.data import Field
 from data import MonoDataset, make_data_iter
 from batch import Batch
-from helpers import bpe_postprocess, bpe2formatted, cut_arrays_at_eos, slice_arrays_with_lengths
+from helpers import bpe_postprocess, bpe2formatted, cut_arrays_at_eos, slice_arrays_with_lengths, is_unique_batch
 from typing import Dict
 from req import StokeRequest
 from prwlock import RWLock
@@ -130,6 +130,10 @@ def actor(model: Model, src_field: Field, hash2metadata: Dict,
     while generate_trajs_flag.is_set():
         for batch in iter(data_iter):
 
+            # ensure no batch duplicates
+            if not is_unique_batch(batch):
+                continue
+
             batch = Batch(batch, pad_index=pad_index, use_cuda=False)
             src, src_lengths, n_seqs = batch.src, batch.src_lengths, batch.neqs
             src_list = slice_arrays_with_lengths(list(src.cpu().numpy()), list(src_lengths.numpy()))
@@ -162,7 +166,7 @@ def actor(model: Model, src_field: Field, hash2metadata: Dict,
                 hash2metadata[h] = metadata_update
 
             for hash, src_input, traj_output, log_probs, stats, formatted_hyp, src_len, out_len in \
-               zip(hashes, src_list, output_list, log_prob_list, stats, formatted_hyps,
+               zip(hashes, src_list, output_list, log_prob_list, stats_list, formatted_hyps,
                    src_lengths, output_lengths):
 
                 trajs_queue.put({"hash": hashes,
@@ -180,7 +184,7 @@ def actor(model: Model, src_field: Field, hash2metadata: Dict,
                 print(f"actor number {actor_id} has {running_starts_left} running starts left", flush=True)
                 if running_starts_left == 0:
                     running_starts_flag = False
-                    with running_starts_counter.get_lock()
+                    with running_starts_counter.get_lock():
                         running_starts_counter.value -= 1
                     print(f"... and actor number {actor_id} has finished running starts", flush=True)
 

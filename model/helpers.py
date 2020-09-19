@@ -26,7 +26,7 @@ import torch
 from torch import nn, Tensor
 from torch.utils.tensorboard import SummaryWriter
 
-from torchtext.data import Dataset
+from torchtext.data import Dataset, Batch
 import yaml
 import math
 from vocabulary import Vocabulary
@@ -63,6 +63,13 @@ evalReturncode2annotation = {
     5: "The best sample assembled, was correct, and beat gcc"
 }
 
+def is_unique_batch(batch: Batch):
+    src = batch.src
+    uniq = np.unique(src.numpy(), axis = 0)
+    if len(src) == len(uniq):
+        return True
+    else:
+        return False
 
 def cut_array_at_eos(array: np.array, eos_index: int, keep_eos = True):
     indices = np.where(array == eos_index)[0]
@@ -126,7 +133,7 @@ class BucketReplayBuffer:
         self.adjust_weights()
         number_of_new_examples = len(experiences)
 
-        return cost, failures, number_of_new_examples
+        return avg_offline_cost, avg_pct_failures, number_of_new_examples
 
     def _get_sample_list(self, max_size) -> List[Dict]:
         buffer_id = random.choices(population=self.buffer_dict.keys(), weights=self.weights, k = 1)

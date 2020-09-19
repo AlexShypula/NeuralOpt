@@ -303,6 +303,7 @@ class TrainManager:
 
     def _save_learner(self) -> None:
 
+        assert latest_model_id and model_lock,"you need to have declared latest_model_id and model_lock to save learner"
         assert type(latest_model_id.value) == int, "need to init a mp.Value object as latest model id with int value"
         # these are global objects initialized in train_and_validate_actor_learner
         with latest_model_id.get_lock(), model_lock.writer_lock():
@@ -903,18 +904,25 @@ class TrainManager:
                 self._save_learner()
                 avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue)
                 self.tb_writer.add_scalar("train/number-trained-per-new-observations",
-                                          batch_size_seqs/new_examples, step / self.batch_multiplier)
+                                          batch_size_seqs/new_examples, step // self.batch_multiplier)
                 self.tb_writer.add_scalar("train/avg_cost",
-                                          avg_queue_cost, step / self.batch_multiplier)
+                                          avg_queue_cost, step // self.batch_multiplier)
                 self.tb_writer.add_scalar("train/avg_failure_rate",
-                                          avg_queue_failures, step / self.batch_multiplier)
+                                          avg_queue_failures, step // self.batch_multiplier)
+                self.tb_writer.add_scalar("train/queue_size",
+                                          new_examples, step // self.batch_multiplier)
+                self.tb_writer.add_scalar("train/batch_size",
+                                          batch_size_seqs, step // self.batch_multiplier)
                 batch_size_seqs = 0
 
             else:
                 batch_size_seqs += len(batch.src)
 
-        self.actor_pool.join()
+        # gracefully shut down
         generate_trajectory_flag.clear()
+        self.actor_pool.close()
+        self.actor_pool.join()
+
 
 
 
