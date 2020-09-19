@@ -109,17 +109,34 @@ def initialize_model(model: nn.Module, cfg: dict, src_padding_idx: int,
     bias_init_weight = float(cfg.get("bias_init_weight", 0.01))
 
     # pylint: disable=unnecessary-lambda, no-else-return
+
     def _parse_init(s, scale, _gain):
+        def _xavier_fun(p):
+            return nn.init.xavier_uniform_(p, gain=_gain)
+
+        def _uniform_fun(p):
+            return nn.init.uniform_(p, gain=_gain)
+
+        def _normal_fun(p):
+            return nn.init.normal_(p, gain=_gain)
+
+        def _zeros_fun(p):
+            return nn.init.zeros_(p, gain=_gain)
+
         scale = float(scale)
         assert scale > 0., "incorrect init_weight"
         if s.lower() == "xavier":
-            return lambda p: nn.init.xavier_uniform_(p, gain=_gain)
+            return _xavier_fun
+            #return lambda p: nn.init.xavier_uniform_(p, gain=_gain)
         elif s.lower() == "uniform":
-            return lambda p: nn.init.uniform_(p, a=-scale, b=scale)
+            return _uniform_fun
+            #return lambda p: nn.init.uniform_(p, a=-scale, b=scale)
         elif s.lower() == "normal":
-            return lambda p: nn.init.normal_(p, mean=0., std=scale)
+            return _normal_fun
+            #return lambda p: nn.init.normal_(p, mean=0., std=scale)
         elif s.lower() == "zeros":
-            return lambda p: nn.init.zeros_(p)
+            return _zeros_fun
+            #return lambda p: nn.init.zeros_(p)
         else:
             raise ValueError("unknown initializer")
 

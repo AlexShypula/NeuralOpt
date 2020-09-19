@@ -638,7 +638,12 @@ def translate(cfg_file, ckpt: str, output_path: str = None) -> None:
     level = data_cfg["level"]
     lowercase = data_cfg["lowercase"]
 
-    tok_fun = lambda s: list(s) if level == "char" else s.split()
+    def tok_fun(s):
+        if level == "char":
+            return list(s)
+        else:
+            return s.split()
+    # tok_fun = lambda s: list(s) if level == "char" else s.split()
 
     src_field = Field(init_token=None, eos_token=EOS_TOKEN,
                       pad_token=PAD_TOKEN, tokenize=tok_fun,

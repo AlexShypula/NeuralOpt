@@ -28,15 +28,24 @@ def build_gradient_clipper(config: dict) -> Optional[Callable]:
     :return: clipping function (in-place) or None if no gradient clipping
     """
     clip_grad_fun = None
+
     if "clip_grad_val" in config.keys():
         clip_value = config["clip_grad_val"]
-        clip_grad_fun = lambda params: \
-            nn.utils.clip_grad_value_(parameters=params,
-                                      clip_value=clip_value)
+        def _grad_val_fun(params):
+            return nn.utils.clip_grad_value_(parameters=params,
+                                             clip_value=clip_value)
+        # clip_grad_fun = lambda params: \
+        #     nn.utils.clip_grad_value_(parameters=params,
+        #                               clip_value=clip_value)
+        clip_grad_fun = _grad_val_fun()
     elif "clip_grad_norm" in config.keys():
         max_norm = config["clip_grad_norm"]
-        clip_grad_fun = lambda params: \
-            nn.utils.clip_grad_norm_(parameters=params, max_norm=max_norm)
+        def _grad_norm_fun(params):
+            return nn.utils.clip_grad_norm_(parameters=params,
+                                             max_norm=max_norm)
+        # clip_grad_fun = lambda params: \
+        #     nn.utils.clip_grad_norm_(parameters=params, max_norm=max_norm)
+        clip_grad_fun = _grad_norm_fun
 
     if "clip_grad_val" in config.keys() and "clip_grad_norm" in config.keys():
         raise ConfigurationError(
