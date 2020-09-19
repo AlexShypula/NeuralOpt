@@ -138,7 +138,7 @@ def load_data(data_cfg: dict) -> (Dataset, Dataset, Optional[Dataset],
                                     field=src_field)
     src_field.vocab = src_vocab
     trg_field.vocab = trg_vocab
-    return train_data, dev_data, test_data, src_vocab, trg_vocab
+    return train_data, dev_data, test_data, src_vocab, trg_vocab, src_field, trg_field
 
 
 # pylint: disable=global-at-module-level

@@ -370,7 +370,7 @@ def test(cfg_file,
     torch.manual_seed(0)
     random.seed(0)
 
-    train_data, dev_data, test_data, src_vocab, trg_vocab = load_data(
+    train_data, dev_data, test_data, src_vocab, trg_vocab, src_field, trg_field = load_data(
         data_cfg=cfg["data"])
     train_data, _ = train_data.split(split_ratio = [0.15, 0.85], random_state = random.getstate())
     if debug: 

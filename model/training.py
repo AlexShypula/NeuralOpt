@@ -938,7 +938,7 @@ def train(cfg_file: str) -> None:
     set_seed(seed=cfg["training"].get("random_seed", 42))
 
     # load the data
-    train_data, dev_data, test_data, src_vocab, trg_vocab = load_data(
+    train_data, dev_data, test_data, src_vocab, trg_vocab, src_field, trg_field = load_data(
         data_cfg=cfg["data"])
 
     # build an encoder-decoder model
@@ -966,7 +966,11 @@ def train(cfg_file: str) -> None:
     trg_vocab.to_file(trg_vocab_file)
 
     # train the model
-    trainer.train_and_validate(train_data=train_data, valid_data=dev_data)
+    actor_learner_flag = cfg["training"].get("actor_learner", False)
+    if actor_learner_flag:
+        trainer.train_and_validate_actor_learner(validate_on_data=dev_data, src_field=src_field)
+    else:
+        trainer.train_and_validate(train_data=train_data, valid_data=dev_data)
 
     # predict with the best model on validation and test
     # (if test data is available)
