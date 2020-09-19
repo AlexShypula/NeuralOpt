@@ -26,7 +26,7 @@ class StokePipeline:
         if debug:
             return map(self.run_eval_wrapper, jobs)
         else:
-            return self.pool.map(self.run_eval_wrapper, jobs, chunksize = self.n_workers)
+            return self.pool.map_async(self.run_eval_wrapper, jobs, chunksize = self.n_workers)
 
 
     def run_eval_wrapper(self, kwargs):
@@ -151,7 +151,6 @@ class StokePipeline:
                                                  "failed_cost": failed_cost,
                                                  "hypothesis_string": hypothesis_string,
                                                  "new_record_returncode": new_record_returncode}}
-
 
 
 def get_stoke_cost(hypothesis_string: str,
