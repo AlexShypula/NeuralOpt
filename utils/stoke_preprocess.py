@@ -15,7 +15,7 @@ from collections import Counter
 from multiprocessing.pool import Pool
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
-from stoke_test_costfn import strip_function_names
+#from stoke_test_costfn import strip_function_names
 
 
 random.seed(15213)
@@ -42,6 +42,13 @@ class ParseOptions:
     path_to_initial_hashes: str = field(metadata=dict(args=["-path_to_in_hashes", "--path_to_init_hashes"]), default=None)
     path_to_output_hashes: str = field(metadata=dict(args=["-path_to_out_hashes", "--path_to_output_hashes"]), default=None)
     max_len: int = field(metadata=dict(args=["-max_len", "--maximum_assembly_length"]), default=512)
+
+
+def strip_function_names(assembly_text: str, function_name_list: List[str]):
+	for function_name in function_name_list:
+		assembly_text = re.sub(f"\.{function_name}:[^\n]*\n", "", assembly_text)
+		assembly_text = re.sub(f"\.size\s+{function_name},\s+.-.*", "", assembly_text)
+	return assembly_text
 
 
 def hash_file(file_string: str, encoding: str = "utf-8") -> str:
@@ -431,7 +438,7 @@ def bpe_process(in_src_file: str, in_tgt_file: str, out_src_file: str, out_tgt_f
         src_tok = merge_registers(sent_piece.EncodeAsPieces(src_asbly.strip()))
         if len(src_tok) < threshold:
             if type(hashes) == type(set()):
-                tgt_hash = get_canonicalized_hash((tgt_data[i].strip())
+                tgt_hash = get_canonicalized_hash((tgt_data[i].strip()))
                 if tgt_hash in hashes:
                     dups+=1
                     continue
