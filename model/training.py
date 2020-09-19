@@ -108,8 +108,8 @@ class TrainManager:
         self.save_learner_every = train_config.get("save_learner_every", 1)
         self.n_updates = train_config.get("n_updates", 0)
         self.bucket_buffer_splits = train_config.get("n_buffer_splits", 4)
-        self.ppo_flag("ppo_flag", True)
-        self.ppo_epsilon("ppo_epsilon", 0.2)
+        self.ppo_flag = train_config.get("ppo_flag", True)
+        self.ppo_epsilon = train_config.get("ppo_epsilon", 0.2)
         #actor-learner required data
         self.shard_data = data_config.get("shard_data", True)
         self.shard_path = data_config.get("shard_path", None)
