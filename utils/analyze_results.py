@@ -29,6 +29,7 @@ def bleu_and_diff(src_file: str, tgt_file: str, hyp_file: str, out_dir: str) -> 
     assert len(tgt_lst) == len(hyp_lst), "Oh no, your src_file/tgt_file number of lines is not equal to number of lines in hyp_file"
 
     mkdir(out_dir)
+    breakpoint()
 
     scores = [sentence_bleu([r.strip()], h.strip()) for r, h in zip(tgt_lst, hyp_lst)]
 

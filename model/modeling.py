@@ -212,6 +212,7 @@ class Model(nn.Module):
         sort_reverse_index = batch.sort_by_src_lengths()
 
         # run as during inference to produce translations & RL score
+        breakpoint()
         output, transposed_log_probs, entropy = self.run_rl_batch(
             batch=batch, max_output_length=max_output_length)
 

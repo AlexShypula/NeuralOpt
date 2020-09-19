@@ -12,6 +12,7 @@ import os
 import queue
 import json
 import math
+import dill
 
 # import math
 import numpy as np
@@ -245,8 +246,8 @@ class TrainManager:
         # initial values for best scores
         self.best_ckpt_score = np.inf if self.minimize_metric else -np.inf
         # comparison function for scores
-        self.is_best = lambda score: score < self.best_ckpt_score \
-            if self.minimize_metric else score > self.best_ckpt_score
+        #self.is_best = lambda score: score < self.best_ckpt_score \
+        #    if self.minimize_metric else score > self.best_ckpt_score
 
         # model parameters
         if "load_model" in train_config.keys():
@@ -259,7 +260,11 @@ class TrainManager:
                                       reset_best_ckpt=reset_best_ckpt,
                                       reset_scheduler=reset_scheduler,
                                       reset_optimizer=reset_optimizer)
-
+    def is_best(self, score): 
+        if self.minimize_metric: 
+            return score < self.best_ckpt_score
+        else: 
+            return score > self.best_ckpt_score
     def _save_checkpoint(self) -> None:
         """
         Save the model's current parameters and the training state to a
@@ -746,8 +751,11 @@ class TrainManager:
         """
         Write all model parameters (name, shape) to the log.
         """
-        model_parameters = filter(lambda p: p.requires_grad,
-                                  self.model.parameters())
+        def f(p): 
+            return p.requires_grad
+        model_parameters = filter(f, self.model.parameters())
+        #model_parameters = filter(lambda p: p.requires_grad,
+        #                          self.model.parameters())
         n_params = sum([np.prod(p.size()) for p in model_parameters])
         self.logger.info("Total params: %d", n_params)
         trainable_params = [n for (n, p) in self.model.named_parameters()
@@ -813,7 +821,7 @@ class TrainManager:
         latest_model_id = mp.Value("i", 0)
         model_lock = RWLock()
         self._save_learner()
-        trajectory_queue = mp.Queue
+        trajectory_queue = mp.Queue()
         generate_trajectory_flag = mp.Event()
         generate_trajectory_flag.set()
         if self.no_running_starts > 0 :
@@ -823,7 +831,9 @@ class TrainManager:
         actor_device_list = [self.actor_devices[i] for i in device_indices]
 
         pseudo_loss = torch.nn.CrossEntropyLoss(reduction="none")
-        get_log_probs = lambda output, target: pseudo_loss(output, target)
+        def get_log_probs(output, target): 
+            return pseudo_loss(output, target)
+        #get_log_probs = lambda output, target: pseudo_loss(output, target)
 
         jobs = [{"model": self.model.cpu(),
                 "src_field": src_field,
@@ -846,9 +856,9 @@ class TrainManager:
                 "no_running_starts": self.no_running_starts,
                 "actor_id": i,
                  } for i, (path, device) in enumerate(zip(actor_data_prefixes, actor_device_list))]
-
+        breakpoint()
         actor_pool = mp.Pool(self.n_actors)
-        actor_pool.map_async(actor, jobs)
+        actor_pool.map(actor, jobs)
         ## TODO: verify the variables and variable names used here
         replay_buffer = BucketReplayBuffer(max_src_len=self.max_sent_length, max_output_len = self.max_output_length,
                                            n_splits = self.bucket_buffer_splits, max_buffer_size = self.replay_buffer_size)
@@ -862,7 +872,7 @@ class TrainManager:
         print("All running starts have finished")
         print("Now checking if the replay buffer is filled.... if not, waiting for it to be filled")
         while not replay_buffer.is_full():
-            replay_buffer.clear_queue(trajectory_queue)
+            replay_buffer.clear_queue(queue=trajectory_queue, cost_manager=self.cost_manager)
             time.sleep(0.5)
         print("Replay buffer is filled, now training ")
         batch_size_seqs = 0
@@ -968,7 +978,7 @@ def train(cfg_file: str) -> None:
     # train the model
     actor_learner_flag = cfg["training"].get("actor_learner", False)
     if actor_learner_flag:
-        trainer.train_and_validate_actor_learner(validate_on_data=dev_data, src_field=src_field)
+        trainer.train_and_validate_actor_learner(valid_data=dev_data, src_field=src_field)
     else:
         trainer.train_and_validate(train_data=train_data, valid_data=dev_data)
 

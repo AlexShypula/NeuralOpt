@@ -127,10 +127,13 @@ class BucketReplayBuffer:
             stats["normalized_advantage"] = stats["cost"] - avg_cost
             stats["hypothesis_string"] = experience["hypothesis_string"]
             hash_stats.append((h, stats))
-        avg_offline_cost, avg_pct_failures = cost_manager.update_buffers(hash_stats)
-        cost_manager.log_buffer_stats([hash_stat[0] for hash_stat in hash_stats])
-
-        self.adjust_weights()
+        if len(experiences) > 0: 
+            avg_offline_cost, avg_pct_failures = cost_manager.update_buffers(hash_stats)
+            cost_manager.log_buffer_stats([hash_stat[0] for hash_stat in hash_stats])
+            self.adjust_weights()
+        else: 
+            avg_offline_cost, avg_pct_failures = 0, 0
+        
         number_of_new_examples = len(experiences)
 
         return avg_offline_cost, avg_pct_failures, number_of_new_examples

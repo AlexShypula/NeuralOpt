@@ -11,7 +11,7 @@ from helpers import bpe_postprocess, bpe2formatted, cut_arrays_at_eos, slice_arr
 from typing import Dict
 from req import StokeRequest
 from prwlock import RWLock
-
+from fairseq import pdb
 
 def deduplicate_tensor(data: torch.Tensor):
     arr = np.unique(data.numpy(), axis=0)
@@ -106,7 +106,9 @@ def actor(model: Model, src_field: Field, hash2metadata: Dict,
           generate_trajs_flag: mp.Event, latest_model_id: mp.Value, model_lock: RWLock, trajs_queue: mp.Queue,
           running_starts_counter: mp.Value, max_output_length: int, level: str, batch_size: int, pad_index: int,
           no_running_starts: int, actor_id: int, batch_type: str = "token", device: str = "cpu") -> None:
-
+    print(f"actor id is {actor_id}", flush = True)
+    if actor_id == 0: 
+        pdb.set_trace()
     current_model_id = latest_model_id.value
     with model_lock:
         model_checkpoint = load_checkpoint(path = path_to_update_model, use_cuda = False)
