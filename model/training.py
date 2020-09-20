@@ -16,7 +16,8 @@ import dill
 
 # import math
 import numpy as np
-import multiprocessing as mp
+#import multiprocessing_on_dill as mp
+from torch import multiprocessing as mp
 from prwlock import RWLock
 
 import torch
@@ -36,15 +37,24 @@ from data import load_data, make_data_iter, shard_data
 from builders import build_optimizer, build_scheduler, \
     build_gradient_clipper
 from prediction import test
-from actor import actor
+from actor import actor, actor_wrapper
 
 from tqdm import tqdm
 from typing import Dict
 import gc
 from torchtext.data import Field
 from collections import deque
+from copy import deepcopy
 
-os.environ["CUDA_VISIBLE_DEVICES"]="2"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
+
+def init(l, model_id, ctr):
+    global model_lock
+    global latest_model_id
+    global running_starts_counter
+    model_lock = l
+    latest_model_id = model_id
+    running_starts_counter = ctr
 
 # pylint: disable=too-many-instance-attributes
 class TrainManager:
@@ -133,6 +143,7 @@ class TrainManager:
         self.model = model
         self.pad_index = self.model.pad_index
         self.bos_index = self.model.bos_index
+        self.eos_index = self.model.eos_index
         self._log_parameters_list()
 
         # objective
@@ -311,11 +322,13 @@ class TrainManager:
         assert latest_model_id and model_lock,"you need to have declared latest_model_id and model_lock to save learner"
         assert type(latest_model_id.value) == int, "need to init a mp.Value object as latest model id with int value"
         # these are global objects initialized in train_and_validate_actor_learner
-        with latest_model_id.get_lock(), model_lock.writer_lock():
+        
+        #model_lock.acquire()
+        with model_lock.writer_lock(), latest_model_id.get_lock():
             state = {"model_state": self.model.state_dict()}
             torch.save(state, self.learner_model_path)
             latest_model_id.value += 1
-
+        #model_lock.release()
 
     def init_from_checkpoint(self, path: str,
                              reset_best_ckpt: bool = False,
@@ -815,10 +828,11 @@ class TrainManager:
             shard_data(input_path=self.train_path, shard_path = self.shard_path,
                        src_lang = self.src_lang, tgt_lang = self.tgt_lang, n_shards = self.n_actors)
         actor_data_prefixes = [self.shard_path + "_{}".format(i) for i in range(self.n_actors)]
-
+        #m = mp.Manager()
         global latest_model_id
         global model_lock
         latest_model_id = mp.Value("i", 0)
+        #m = mp.Manager()
         model_lock = RWLock()
         self._save_learner()
         trajectory_queue = mp.Queue()
@@ -826,6 +840,8 @@ class TrainManager:
         generate_trajectory_flag.set()
         if self.no_running_starts > 0 :
             running_starts_counter = mp.Value("i", 0)
+        else: 
+            running_starts_coutner = 0
 
         device_indices = [i % len(self.actor_devices) for i in range(self.n_actors)]
         actor_device_list = [self.actor_devices[i] for i in device_indices]
@@ -835,13 +851,13 @@ class TrainManager:
             return pseudo_loss(output, target)
         #get_log_probs = lambda output, target: pseudo_loss(output, target)
 
-        jobs = [{"model": self.model.cpu(),
+        jobs = [{"model": deepcopy(self.model.cpu()),
                 "src_field": src_field,
                 "hash2metadata": self.hash2metadata,
                 "path_to_data": path,
                 "src_suffix": self.src_lang,
                 "path_to_update_model": self.learner_model_path,
-                "stoke_container_port": self.container_port,
+                "stoke_container_port_no": self.container_port,
                 "generate_trajs_flag": generate_trajectory_flag,
                 "latest_model_id": latest_model_id,
                 "model_lock": model_lock,
@@ -851,14 +867,19 @@ class TrainManager:
                 "level": self.level,
                 "batch_size": self.batch_size,
                 "pad_index": self.pad_index,
+                "eos_index": self.eos_index, 
                 "batch_type": self.batch_type,
                 "device": device,
                 "no_running_starts": self.no_running_starts,
                 "actor_id": i,
                  } for i, (path, device) in enumerate(zip(actor_data_prefixes, actor_device_list))]
-        breakpoint()
-        actor_pool = mp.Pool(self.n_actors)
-        actor_pool.map(actor, jobs)
+        #breakpoint()
+        #actor_pool = mp.Pool(self.n_actors, initializer=init, initargs=(model_lock, latest_model_id, running_starts_counter))
+        #actor_pool.map(actor_wrapper, jobs)
+        processes = [mp.Process(target=actor_wrapper, args=(job,)) for job in jobs]
+        for p in processes: 
+            p.start()
+            break
         ## TODO: verify the variables and variable names used here
         replay_buffer = BucketReplayBuffer(max_src_len=self.max_sent_length, max_output_len = self.max_output_length,
                                            n_splits = self.bucket_buffer_splits, max_buffer_size = self.replay_buffer_size)
@@ -930,8 +951,11 @@ class TrainManager:
 
         # gracefully shut down
         generate_trajectory_flag.clear()
-        self.actor_pool.close()
-        self.actor_pool.join()
+        for p in processes: 
+            p.terminate()
+            p.join()
+        #self.actor_pool.close()
+        #self.actor_pool.join()
 
 
 

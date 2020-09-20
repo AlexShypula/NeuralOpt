@@ -42,8 +42,7 @@ def shard_data(input_path: str, shard_path: str, src_lang: str, tgt_lang: str, n
         fh.close()
 
 
-def load_data(data_cfg: dict) -> (Dataset, Dataset, Optional[Dataset],
-                                  Vocabulary, Vocabulary):
+def load_data(data_cfg):
     """
     Load train, dev and optionally test data as specified in configuration.
     Vocabularies are created from the training set with a limit of `voc_limit`

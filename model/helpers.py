@@ -64,7 +64,7 @@ evalReturncode2annotation = {
 }
 
 def is_unique_batch(batch: Batch):
-    src = batch.src
+    src, _ = batch.src
     uniq = np.unique(src.numpy(), axis = 0)
     if len(src) == len(uniq):
         return True

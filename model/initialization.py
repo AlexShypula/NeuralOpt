@@ -115,13 +115,13 @@ def initialize_model(model: nn.Module, cfg: dict, src_padding_idx: int,
             return nn.init.xavier_uniform_(p, gain=_gain)
 
         def _uniform_fun(p):
-            return nn.init.uniform_(p, gain=_gain)
+            return nn.init.uniform_(p, a=-scale, b=scale)
 
         def _normal_fun(p):
-            return nn.init.normal_(p, gain=_gain)
+            return nn.init.normal_(p, mean=0.0, std=scale)
 
         def _zeros_fun(p):
-            return nn.init.zeros_(p, gain=_gain)
+            return nn.init.zeros_(p)
 
         scale = float(scale)
         assert scale > 0., "incorrect init_weight"
