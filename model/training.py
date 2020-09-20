@@ -1002,7 +1002,8 @@ def train(cfg_file: str) -> None:
     # train the model
     actor_learner_flag = cfg["training"].get("actor_learner", False)
     if actor_learner_flag:
-        trainer.train_and_validate_actor_learner(valid_data=dev_data, src_field=src_field)
+        trainer.train_and_validate_actor_learner(valid_data=dev_data, src_field=src_field,
+                                                 src_vocab=src_vocab, tgt_vocab=trg_vocab)
     else:
         trainer.train_and_validate(train_data=train_data, valid_data=dev_data, src_vocab=src_vocab, tgt_vocab=trg_vocab)
 
