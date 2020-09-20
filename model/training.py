@@ -141,6 +141,7 @@ class TrainManager:
 
         # model
         self.model = model
+        self.model_cfg = config["model"]
         self.pad_index = self.model.pad_index
         self.bos_index = self.model.bos_index
         self.eos_index = self.model.eos_index
@@ -821,7 +822,7 @@ class TrainManager:
             for hyp in hypotheses:
                 opened_file.write("{}\n".format(hyp))
 
-    def train_and_validate_actor_learner(self, valid_data: Dataset, src_field: Field):
+    def train_and_validate_actor_learner(self, valid_data: Dataset, src_field: Field, src_vocab, tgt_vocab):
 
         if self.shard_data:
             # shard_data(input_path: str, shard_path: str, src_lang: str, tgt_lang: str, n_shards: int)
@@ -838,10 +839,7 @@ class TrainManager:
         trajectory_queue = mp.Queue()
         generate_trajectory_flag = mp.Event()
         generate_trajectory_flag.set()
-        if self.no_running_starts > 0 :
-            running_starts_counter = mp.Value("i", 0)
-        else: 
-            running_starts_coutner = 0
+        running_starts_counter = mp.Value("i", 0)
 
         device_indices = [i % len(self.actor_devices) for i in range(self.n_actors)]
         actor_device_list = [self.actor_devices[i] for i in device_indices]
@@ -851,9 +849,11 @@ class TrainManager:
             return pseudo_loss(output, target)
         #get_log_probs = lambda output, target: pseudo_loss(output, target)
 
-        jobs = [{"model": deepcopy(self.model.cpu()),
+        jobs = [{"model": self.model_cfg,
                 "src_field": src_field,
                 "hash2metadata": self.hash2metadata,
+                "src_vocab": src_vocab,
+                "tgt_vocab": tgt_vocab,
                 "path_to_data": path,
                 "src_suffix": self.src_lang,
                 "path_to_update_model": self.learner_model_path,
@@ -1004,7 +1004,7 @@ def train(cfg_file: str) -> None:
     if actor_learner_flag:
         trainer.train_and_validate_actor_learner(valid_data=dev_data, src_field=src_field)
     else:
-        trainer.train_and_validate(train_data=train_data, valid_data=dev_data)
+        trainer.train_and_validate(train_data=train_data, valid_data=dev_data, src_vocab=src_vocab, tgt_vocab=trg_vocab)
 
     # predict with the best model on validation and test
     # (if test data is available)

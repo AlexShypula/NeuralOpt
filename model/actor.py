@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import multiprocessing as mp
 from helpers import load_checkpoint, hash_file
-from modeling import Model
+from modeling import Model, build_model
 from vocabulary import Vocabulary
 from torchtext.data import Field
 from data import MonoDataset, make_data_iter
@@ -12,6 +12,7 @@ from typing import Dict
 from req import StokeRequest
 from prwlock import RWLock
 from fairseq import pdb
+
 
 def deduplicate_tensor(data: torch.Tensor):
     arr = np.unique(data.numpy(), axis=0)
@@ -103,7 +104,7 @@ def prune_hash2metadata(hash2metadata: Dict, model: Model, level: str, data_iter
 def actor_wrapper(args_dict): 
     return actor(**args_dict)
 
-def actor(model: Model, src_field: Field, hash2metadata: Dict,
+def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Vocabulary, tgt_vocab: Vocabulary,
           path_to_data: str, src_suffix: str,
           path_to_update_model: str, stoke_container_port_no: str,
           generate_trajs_flag: mp.Event, latest_model_id: mp.Value,  model_lock: RWLock, running_starts_counter: mp.Value, 
@@ -113,6 +114,7 @@ def actor(model: Model, src_field: Field, hash2metadata: Dict,
     if actor_id == 0: 
         pass
         #pdb.set_trace()
+    model = build_model(model_cfg, src_vocab=src_vocab, trg_vocab=tgt_vocab)
     current_model_id = latest_model_id.value
     with model_lock.reader_lock():
         model_checkpoint = load_checkpoint(path = path_to_update_model, use_cuda = False)
