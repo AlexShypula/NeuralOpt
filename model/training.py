@@ -191,7 +191,7 @@ class TrainManager:
         # if we schedule after BLEU/chrf, we want to maximize it, else minimize
         # early_stopping_metric decides on how to find the early stopping point:
         # ckpts are written when there's a new high/low score for this metric
-        if self.early_stopping_metric in ["ppl", "loss"]:
+        if self.early_stopping_metric in ["ppl", "loss", "stoke"]:
             self.minimize_metric = True
         elif self.early_stopping_metric == "eval_metric":
             if self.eval_metric in ["bleu", "chrf"]:
@@ -273,7 +273,7 @@ class TrainManager:
         if "load_model" in train_config.keys():
             model_load_path = train_config["load_model"]
             self.logger.info("Loading model from %s", model_load_path)
-            reset_best_ckpt = train_config.get("reset_best_ckpt", False)
+            reset_best_ckpt = train_config.get("reset_best_ckpt", True)
             reset_scheduler = train_config.get("reset_scheduler", False)
             reset_optimizer = train_config.get("reset_optimizer", False)
             self.init_from_checkpoint(model_load_path,
@@ -899,39 +899,33 @@ class TrainManager:
                                            n_splits = self.bucket_buffer_splits, max_buffer_size = self.replay_buffer_size)
 
 
-        print(f"Main thread now executing {self.no_running_starts} on {self.n_actors} actors")
+        print(f"Main thread now executing {self.no_running_starts} on {self.n_actors} actors", flush = True)
         if self.no_running_starts > 0:
             while running_starts_counter.value > 0:
                 replay_buffer.clear_queue(trajectory_queue, cost_manager=self.cost_manager)
                 time.sleep(0.5)
-        print("All running starts have finished")
-        print("Now checking if the replay buffer is filled.... if not, waiting for it to be filled")
+        print("All running starts have finished", flush = True)
+        print("Now checking if the replay buffer is filled.... if not, waiting for it to be filled", flush = True)
         while not replay_buffer.is_full():
             replay_buffer.clear_queue(queue=trajectory_queue, cost_manager=self.cost_manager)
             time.sleep(0.5)
-        print("Replay buffer is filled, now training ")
+        print("Replay buffer is filled, now training ", flush = True)
         batch_size_seqs = 0
 
         for step in range(1, self.n_updates * self.batch_multiplier):
-            print(f"new step, sampling from buffer", flush = True)
             src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
             # TODO: calculate the advantage somehow using cost manager or other method
             batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=advantages,
                                  pad_index = self.pad_index, bos_index = self.bos_index)
-            print(f"putting batch on gpu and forwarding", flush = True)
             batch.to_device(self.learner_device)
-            #pdb.set_trace()
             out, hidden, att_probs, _ = self.model.forward(src=batch.src,
                                                            trg_input=batch.tgt_input,
                                                            src_mask=batch.src_mask,
                                                            src_lengths=src_lens,
                                                            trg_mask=batch.tgt_mask,
                                                            )
-            print(f"processing output of network", flush = True)
-            #pdb.set_trace()
             dims = out.shape
             online_log_probs = get_log_probs(out.reshape(-1, dims[2]), batch.tgt.reshape(-1)).reshape(dims[0], dims[1]) * batch.loss_mask
-            #pdb.set_trace()
             offline_log_probs = batch.offline_log_probs * batch.loss_mask
             online_traj_probs = torch.sum(online_log_probs.detach(), dim = 1).unsqueeze(1) # should reduce to a 2-d array, but with dim 1 = 1
             offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
@@ -946,38 +940,65 @@ class TrainManager:
             loss = torch.sum(online_log_probs * advantages)
             loss/=sum(tgt_lens) # normalize by the number of total output tokens
             loss/=self.batch_multiplier # normalize by the batch multiplier
-            print(f"loss backwards", flush = True)
             loss.backward()
-            print(f"backward complete, batch multiplier is {self.batch_multiplier}, step is {step}", flush =True)
 
             if (step % self.batch_multiplier) == 0:
+                update_no = step // self.batch_multiplier
                 batch_size_seqs+=len(batch.src)
-                print("optimizer step and zero grad", flush = True)
                 self.optimizer.step()
-                #self.scheduler.step()
                 self.optimizer.zero_grad()
-                print("step / zero grad done, saving learner", flush = True)
                 self._save_learner()
-                print("learner saved, clearing queue", flush = True)
                 avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue, cost_manager = self.cost_manager)
-                print("queue cleared", flush = True)
                 new_examples = max(new_examples, 1)
-                #print(f"trained on to new example ratio is {batch_size_seqs / new_examples}", flush = True)
-                #print(f"avg queue cost is {avg_queue_cost} and avg queue failures is {avg_queue_failures}", flush = True)
-                #print(f"new examples is {new_examples}", flush = True)
-                #print(f"number of examples trained on is {batch_size_seqs}", flush = True)
+
                 self.tb_writer.add_scalar("train/number-trained-per-new-observations",
-                                          batch_size_seqs/new_examples, step // self.batch_multiplier)
+                                          batch_size_seqs/new_examples, update_no)
                 self.tb_writer.add_scalar("train/avg_cost",
-                                          avg_queue_cost, step // self.batch_multiplier)
+                                          avg_queue_cost, update_no)
                 self.tb_writer.add_scalar("train/avg_failure_rate",
-                                          avg_queue_failures, step // self.batch_multiplier)
+                                          avg_queue_failures, update_no)
                 self.tb_writer.add_scalar("train/queue_size",
-                                          new_examples, step // self.batch_multiplier)
+                                          new_examples, update_no)
                 self.tb_writer.add_scalar("train/batch_size",
-                                          batch_size_seqs, step // self.batch_multiplier)
+                                          batch_size_seqs, update_no)
+                self.tb_writer.add_scalar("train/no_baselines_beat",
+                                          self.cost_manager.no_beat_baselines, update_no)
+
                 batch_size_seqs = 0
-                print(" moving to next batch", flush = True)
+
+                if (update_no % self.validation_freq):
+                    valid_score, valid_loss, valid_ppl, valid_sources, \
+                    valid_sources_raw, valid_references, valid_hypotheses, \
+                    valid_hypotheses_raw, valid_attention_scores, _ = \
+                        validate_on_data(
+                            logger=self.logger,
+                            batch_size=self.eval_batch_size,
+                            data=valid_data,
+                            eval_metric=self.eval_metric,
+                            cost_manager=self.cost_manager,
+                            level=self.level, model=self.model,
+                            use_cuda=self.use_cuda,
+                            max_output_length=self.max_output_length,
+                            loss_function=self.loss,
+                            beam_size=1,  # greedy validations
+                            batch_type=self.eval_batch_type
+                        )
+
+                    self.tb_writer.add_scalar("valid/valid_cost",
+                                              valid_score, self.steps)
+
+                    ckpt_score = valid_score
+
+                    if self.is_best(ckpt_score):
+                        self.best_ckpt_score = ckpt_score
+                        self.best_ckpt_iteration = self.steps
+                        self.logger.info(
+                            'Hooray! New best validation result [%s]!',
+                            self.early_stopping_metric)
+                        if self.ckpt_queue.maxsize > 0:
+                            self.logger.info("Saving new checkpoint.")
+                            self._save_checkpoint()
+
 
             else:
                 batch_size_seqs += len(batch.src)
