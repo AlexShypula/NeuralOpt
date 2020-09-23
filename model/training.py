@@ -887,6 +887,7 @@ class TrainManager:
                 "device": device,
                 "no_running_starts": self.no_running_starts,
                 "actor_id": i,
+                "performance_plot_path": "{}/actor_{}_performance_plot.png".format(self.model_dir, i)
                  } for i, (path, device) in enumerate(zip(actor_data_prefixes, actor_device_list))]
         #breakpoint()
         #actor_pool = mp.Pool(self.n_actors, initializer=init, initargs=(model_lock, latest_model_id, running_starts_counter))
@@ -1023,8 +1024,7 @@ class TrainManager:
         performance_timer.stop()
         print("shutting down the child processes")
         generate_trajectory_flag.clear()
-        for p in processes: 
-            p.terminate()
+        for p in processes:
             p.join()
         print("making performance plot")
         performance_timer.make_perf_plot(title = "Learner Performance Benchmarking",

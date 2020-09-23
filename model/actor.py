@@ -7,7 +7,8 @@ from vocabulary import Vocabulary
 from torchtext.data import Field
 from data import MonoDataset, make_data_iter
 from batch import Batch
-from helpers import bpe_postprocess, bpe2formatted, cut_arrays_at_eos, slice_arrays_with_lengths, is_unique_batch
+from helpers import bpe_postprocess, bpe2formatted, cut_arrays_at_eos, slice_arrays_with_lengths, is_unique_batch, \
+    StopWatch
 from typing import Dict
 from req import StokeRequest
 from prwlock import RWLock
@@ -111,7 +112,8 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
           path_to_update_model: str, stoke_container_port_no: str,
           generate_trajs_flag: mp.Event, latest_model_id: mp.Value,  model_lock: RWLock, running_starts_counter: mp.Value, 
           trajs_queue: mp.Queue, max_output_length: int, level: str, batch_size: int, pad_index: int, eos_index: int, 
-          no_running_starts: int, actor_id: int, batch_type: str = "token", device: str = "cpu") -> None:
+          no_running_starts: int, actor_id: int, performance_plot_path: str,
+          batch_type: str = "token", device: str = "cpu") -> None:
     print(f"actor id is {actor_id}", flush = True)
     #if actor_id == 0: 
         #pdb.set_trace()
@@ -142,6 +144,13 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
     running_starts_left = no_running_starts
     running_starts_flag = True if running_starts_left > 0 else False
 
+    performance_timer = StopWatch(name="stopwatch")
+    performance_timer.new_event("Process_Batch")
+    performance_timer.new_event("Load_Model")
+    performance_timer.new_event("Sample_New_Rewrite")
+    performance_timer.new_event("Evaluate_With_Stoke")
+    performance_timer.new_event("Add_to_Queue")
+    performance_timer.start()
     while True: 
         for batch in iter(data_iter):
 
@@ -149,15 +158,18 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
             if not is_unique_batch(batch):
                 continue
             #pdb.set_trace()
+            performance_timer.Process_Batch.start()
             batch = Batch(batch, pad_index=pad_index, use_cuda=False)
             src, src_lengths, n_seqs = batch.src, batch.src_lengths, batch.nseqs
             src_list = slice_arrays_with_lengths(list(src.cpu().numpy()), list(src_lengths.numpy()))
             batch.to_device(device)
+            performance_timer.Process_Batch.stop()
             #pdb.set_trace()
             #with model_lock.reader_lock():
             #tmp_model_id = latest_model_id
             #if current_model_id != tmp_model_id:
             #current_model_id = tmp_model_id
+            performance_timer.Load_Model.start()
             with model_lock: 
                 model_checkpoint = load_checkpoint(path=path_to_update_model, use_cuda=False)
             model.load_state_dict(model_checkpoint["model_state"])
@@ -166,8 +178,10 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                 #    ckpt_param = model_checkpoint["model_state"][ckpt_key]
                 #    model_param.data = ckpt_param.data
             model.to(device)
+            performance_timer.Load_Model.stop()
             #pdb.set_trace()
             #output_list, log_probs_list, list(entropy.cpu()), output_lengths, src_bpe_strings, hypothesis_bpe_strings
+            performance_timer.Sample_New_Rewrite.start()
             output_list, log_prob_list, entropy_value, output_lengths, src_bpe_strings, hypothesis_bpe_strings = \
                 get_trajs(model=model,
                     batch=batch,
@@ -175,16 +189,19 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                     level=level,
                     eos_index=eos_index,
                     device=device)
-
+            performance_timer.Sample_New_Rewrite.stop()
             #TODO update the local metadata dictionary based off the api output
             #pdb.set_trace()
+            performance_timer.Evaluate_With_Stoke.start()
             hashes, stats_list, metadatas, formatted_hyps = eval_trajs(source_bpe_stings=src_bpe_strings,
                                                                          hypothesis_bpe_strings=hypothesis_bpe_strings,
                                                                          hash2metadata=hash2metadata,
                                                                          requester=requester)
             for h, metadata_update in zip(hashes, metadatas):
                 hash2metadata[h] = metadata_update
+            performance_timer.Evaluate_With_Stoke.start()
             #pdb.set_trace()
+            performance_timer.Add_to_Queue.start()
             for hash, src_input, traj_output, log_probs, stats, formatted_hyp, src_len, out_len in \
                zip(hashes, src_list, output_list, log_prob_list, stats_list, formatted_hyps,
                    src_lengths, output_lengths):
@@ -198,6 +215,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                                     "src_len": src_len,
                                     "out_len": out_len
                                     })
+            performance_timer.Add_to_Queue.stop()
             #pdb.set_trace()
             if running_starts_flag:
                 running_starts_left-=1
@@ -210,6 +228,9 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
 
 
             if not generate_trajs_flag.is_set():
+                performance_timer.stop()
+                performance_timer.make_perf_plot(title="Actor no {} Performance Benchmarking".format(actor_id),
+                                                 path=performance_plot_path)
                 break
 
 
