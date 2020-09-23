@@ -1020,13 +1020,14 @@ class TrainManager:
                 batch_size_seqs += len(batch.src)
 
         # gracefully shut down
+        performance_timer.stop()
         print("shutting down the child processes")
         generate_trajectory_flag.clear()
         for p in processes: 
             p.terminate()
             p.join()
         print("making performance plot")
-        performance_timer.make_perf_plot(title = "Learner Performance Behcnmarking",
+        performance_timer.make_perf_plot(title = "Learner Performance Benchmarking",
                                          path = "{}/learner_perf_plot.png".format(self.model_dir))
 
 

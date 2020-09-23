@@ -37,6 +37,8 @@ from time import time
 from os.path import join, dirname, basename
 from batch import LearnerBatch
 import matplotlib.pyplot as plt
+from matplotlib import rcParams
+rcParams.update({'figure.autolayout': True})
 from typing import Union
 #from subproc import run
 # monkey patch
@@ -103,7 +105,7 @@ class StopWatch:
         assert self.timing == False
         event_time_dict = {}
         overhead = self._calculate_overhead()
-        event_time_dict["overhead"] = overhead / self.time
+        event_time_dict["All_Other_Operations"] = overhead / self.time
         for k, v in self.__dict__.items():
             if type(v) == type(self):
                 if v.timing == True:
@@ -114,13 +116,15 @@ class StopWatch:
     def make_perf_plot(self, title: str, path: str):
         D = self._calculate_event_percentages()
         plt.bar(range(len(D)), list(D.values()), align='center')
+        plt.xticks(rotation=70)
         plt.xticks(range(len(D)), list(D.keys()))
         plt.title(f"{title} where total time was {self.time / 60:.2f} mins")
         plt.ylabel("Percentage of total time")
+        plt.ylim(0,1.0)
         for i, (name, pct) in enumerate(D.items()):
-            print(name)
-            print(pct)
-            plt.annotate(f"{pct * 100:.2f}%", (i, pct * 1.01), ha="center")
+           # print(name)
+           # print(pct)
+            plt.annotate(f"{pct * 100:.2f}%", (i, pct + .005), ha="center")
 
         plt.savefig(path, dpi=200)
 
