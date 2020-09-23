@@ -913,6 +913,7 @@ class TrainManager:
         batch_size_seqs = 0
 
         for step in range(1, self.n_updates * self.batch_multiplier):
+            self.model.train()
             src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
             # TODO: calculate the advantage somehow using cost manager or other method
             batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=advantages,
@@ -967,6 +968,7 @@ class TrainManager:
                 batch_size_seqs = 0
 
                 if (update_no % self.validation_freq):
+                    self.model.eval()
                     valid_score, valid_loss, valid_ppl, valid_sources, \
                     valid_sources_raw, valid_references, valid_hypotheses, \
                     valid_hypotheses_raw, valid_attention_scores, _ = \

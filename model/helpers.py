@@ -132,7 +132,7 @@ class BucketReplayBuffer:
             stats["normalized_advantage"] = stats["cost"] - avg_cost
             stats["hypothesis_string"] = experience["formatted_hyp"]
             hash_stats.append((h, stats))
-            print(f"new example failed status is {stats['failed_cost']}, and cost is {stats['cost']}")
+            #print(f"new example failed status is {stats['failed_cost']}, and cost is {stats['cost']}")
         if len(experiences) > 0: 
             avg_offline_cost, avg_pct_failures = cost_manager.update_buffers(hash_stats)
             cost_manager.log_buffer_stats([hash_stat[0] for hash_stat in hash_stats])
