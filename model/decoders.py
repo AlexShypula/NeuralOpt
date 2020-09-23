@@ -14,7 +14,6 @@ from helpers import freeze_params, ConfigurationError, subsequent_mask
 from transformer_layers import PositionalEncoding, \
     TransformerDecoderLayer
 
-
 # pylint: disable=abstract-method
 class Decoder(nn.Module):
     """
@@ -339,9 +338,12 @@ class RecurrentDecoder(Decoder):
             hidden=hidden,
             prev_att_vector=prev_att_vector)
 
+        device = encoder_output.device
+
+
         # initialize decoder hidden state from final encoder hidden state
         if hidden is None:
-            hidden = self._init_hidden(encoder_hidden, batch_size = encoder_output.size(0))
+            hidden = self._init_hidden(encoder_hidden, batch_size = encoder_output.size(0), device=device)
 
         # pre-compute projected encoder outputs
         # (the "keys" for the attention mechanism)
@@ -380,7 +382,7 @@ class RecurrentDecoder(Decoder):
         # outputs: batch, unroll_steps, vocab_size
         return outputs, hidden, att_probs, att_vectors
 
-    def _init_hidden(self, encoder_final: Tensor = None, batch_size = 0) \
+    def _init_hidden(self, encoder_final: Tensor = None, batch_size = 0, device="cpu") \
             -> (Tensor, Optional[Tensor]):
         """
         Returns the initial decoder state,
@@ -424,7 +426,7 @@ class RecurrentDecoder(Decoder):
             with torch.no_grad():
                 #hidden = encoder_final.new_zeros(
                  #   self.num_layers, batch_size, self.hidden_size)
-                hidden = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()    
+                hidden = torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device)   
 
         return (hidden, hidden) if isinstance(self.rnn, nn.LSTM) else hidden
 

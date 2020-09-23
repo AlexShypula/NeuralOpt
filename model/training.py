@@ -13,12 +13,17 @@ import queue
 import json
 import math
 import dill
+import queue
 
 # import math
 import numpy as np
 #import multiprocessing_on_dill as mp
+#import multiprocessing as mp
 from torch import multiprocessing as mp
-from prwlock import RWLock
+#from multiprocessing.queues import SimpleQueue
+#from prwlock import RWLock
+#from readerwriterlock import rwlock
+mp.set_start_method('spawn', force = True)
 
 import torch
 from torch import Tensor
@@ -45,6 +50,7 @@ import gc
 from torchtext.data import Field
 from collections import deque
 from copy import deepcopy
+from fairseq import pdb
 
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
@@ -136,6 +142,8 @@ class TrainManager:
         self.max_sent_length = data_config["max_sent_length"]
         self.container_port = data_config.get("container_port", 6000)
         self.learner_model_path = "{}/learner.ckpt".format(self.model_dir)
+        self.learner_tmp_path = "{}/tmp.ckpt".format(self.model_dir)
+
 
 
 
@@ -320,16 +328,18 @@ class TrainManager:
 
     def _save_learner(self) -> None:
 
-        assert latest_model_id and model_lock,"you need to have declared latest_model_id and model_lock to save learner"
-        assert type(latest_model_id.value) == int, "need to init a mp.Value object as latest model id with int value"
+        #assert latest_model_id and model_lock,"you need to have declared latest_model_id and model_lock to save learner"
+        #assert type(latest_model_id.value) == int, "need to init a mp.Value object as latest model id with int value"
         # these are global objects initialized in train_and_validate_actor_learner
         
         #model_lock.acquire()
-        with model_lock.writer_lock(), latest_model_id.get_lock():
-            state = {"model_state": self.model.state_dict()}
-            torch.save(state, self.learner_model_path)
-            latest_model_id.value += 1
-        #model_lock.release()
+        #with model_lock.gen_wlock(), latest_model_id.get_lock():
+        state = {"model_state": self.model.state_dict()}
+        torch.save(state, self.learner_tmp_path) 
+        model_lock.acquire()
+        shutil.copy2(self.learner_tmp_path , self.learner_model_path)
+        #latest_model_id.value += 1
+        model_lock.release()
 
     def init_from_checkpoint(self, path: str,
                              reset_best_ckpt: bool = False,
@@ -832,24 +842,29 @@ class TrainManager:
         #m = mp.Manager()
         global latest_model_id
         global model_lock
-        latest_model_id = mp.Value("i", 0)
+        latest_model_id = 0 # mp.Value("i", 0)
         #m = mp.Manager()
-        model_lock = RWLock()
+        #mp.set_start_method('spawn', force = True)
+        #ctx = mp.get_context("spawn")
+        model_lock = mp.Lock() #rwlock.RWLockWrite()
         self._save_learner()
         trajectory_queue = mp.Queue()
         generate_trajectory_flag = mp.Event()
         generate_trajectory_flag.set()
-        running_starts_counter = mp.Value("i", 0)
+        running_starts_counter = mp.Value("i", 1) #self.n_actors)
 
         device_indices = [i % len(self.actor_devices) for i in range(self.n_actors)]
         actor_device_list = [self.actor_devices[i] for i in device_indices]
 
         pseudo_loss = torch.nn.CrossEntropyLoss(reduction="none")
+        # essentially off policy RL is selecting log-probs of the off policy network
+        # cross entropy does this, and multiplies by -1, so we need to reverse it
+        # otherwise we get positive log-probs
         def get_log_probs(output, target): 
-            return pseudo_loss(output, target)
+            return -1*pseudo_loss(output, target)
         #get_log_probs = lambda output, target: pseudo_loss(output, target)
 
-        jobs = [{"model": self.model_cfg,
+        jobs = [{"model_cfg": self.model_cfg,
                 "src_field": src_field,
                 "hash2metadata": self.hash2metadata,
                 "src_vocab": src_vocab,
@@ -879,7 +894,6 @@ class TrainManager:
         processes = [mp.Process(target=actor_wrapper, args=(job,)) for job in jobs]
         for p in processes: 
             p.start()
-            break
         ## TODO: verify the variables and variable names used here
         replay_buffer = BucketReplayBuffer(max_src_len=self.max_sent_length, max_output_len = self.max_output_length,
                                            n_splits = self.bucket_buffer_splits, max_buffer_size = self.replay_buffer_size)
@@ -888,7 +902,7 @@ class TrainManager:
         print(f"Main thread now executing {self.no_running_starts} on {self.n_actors} actors")
         if self.no_running_starts > 0:
             while running_starts_counter.value > 0:
-                replay_buffer.clear_queue(trajectory_queue)
+                replay_buffer.clear_queue(trajectory_queue, cost_manager=self.cost_manager)
                 time.sleep(0.5)
         print("All running starts have finished")
         print("Now checking if the replay buffer is filled.... if not, waiting for it to be filled")
@@ -899,18 +913,25 @@ class TrainManager:
         batch_size_seqs = 0
 
         for step in range(1, self.n_updates * self.batch_multiplier):
-            src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size)
+            print(f"new step, sampling from buffer", flush = True)
+            src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
             # TODO: calculate the advantage somehow using cost manager or other method
             batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=advantages,
-                                 pad_index = self.pad_index)
-            batch.to(self.learner_device)
+                                 pad_index = self.pad_index, bos_index = self.bos_index)
+            print(f"putting batch on gpu and forwarding", flush = True)
+            batch.to_device(self.learner_device)
+            #pdb.set_trace()
             out, hidden, att_probs, _ = self.model.forward(src=batch.src,
                                                            trg_input=batch.tgt_input,
                                                            src_mask=batch.src_mask,
                                                            src_lengths=src_lens,
                                                            trg_mask=batch.tgt_mask,
                                                            )
-            online_log_probs = get_log_probs(out, batch.tgt) * batch.loss_mask
+            print(f"processing output of network", flush = True)
+            #pdb.set_trace()
+            dims = out.shape
+            online_log_probs = get_log_probs(out.reshape(-1, dims[2]), batch.tgt.reshape(-1)).reshape(dims[0], dims[1]) * batch.loss_mask
+            #pdb.set_trace()
             offline_log_probs = batch.offline_log_probs * batch.loss_mask
             online_traj_probs = torch.sum(online_log_probs.detach(), dim = 1).unsqueeze(1) # should reduce to a 2-d array, but with dim 1 = 1
             offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
@@ -925,15 +946,26 @@ class TrainManager:
             loss = torch.sum(online_log_probs * advantages)
             loss/=sum(tgt_lens) # normalize by the number of total output tokens
             loss/=self.batch_multiplier # normalize by the batch multiplier
+            print(f"loss backwards", flush = True)
             loss.backward()
+            print(f"backward complete, batch multiplier is {self.batch_multiplier}, step is {step}", flush =True)
 
             if (step % self.batch_multiplier) == 0:
                 batch_size_seqs+=len(batch.src)
+                print("optimizer step and zero grad", flush = True)
                 self.optimizer.step()
-                self.scheduler.step()
+                #self.scheduler.step()
                 self.optimizer.zero_grad()
+                print("step / zero grad done, saving learner", flush = True)
                 self._save_learner()
-                avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue)
+                print("learner saved, clearing queue", flush = True)
+                avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue, cost_manager = self.cost_manager)
+                print("queue cleared", flush = True)
+                new_examples = max(new_examples, 1)
+                #print(f"trained on to new example ratio is {batch_size_seqs / new_examples}", flush = True)
+                #print(f"avg queue cost is {avg_queue_cost} and avg queue failures is {avg_queue_failures}", flush = True)
+                #print(f"new examples is {new_examples}", flush = True)
+                #print(f"number of examples trained on is {batch_size_seqs}", flush = True)
                 self.tb_writer.add_scalar("train/number-trained-per-new-observations",
                                           batch_size_seqs/new_examples, step // self.batch_multiplier)
                 self.tb_writer.add_scalar("train/avg_cost",
@@ -945,6 +977,7 @@ class TrainManager:
                 self.tb_writer.add_scalar("train/batch_size",
                                           batch_size_seqs, step // self.batch_multiplier)
                 batch_size_seqs = 0
+                print(" moving to next batch", flush = True)
 
             else:
                 batch_size_seqs += len(batch.src)

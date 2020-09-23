@@ -40,7 +40,7 @@ from typing import Union
 #from subproc import run
 # monkey patch
 
-
+from fairseq import pdb
 #subprocess.run = run
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
@@ -78,8 +78,9 @@ def cut_array_at_eos(array: np.array, eos_index: int, keep_eos = True):
             array = array[:indices[0]+1]
         else:
             array = array[:indices[0]]
-    elif keep_eos:
-        array = np.append(array, eos_index)
+    # it seems there is no need / harmful to extend this here
+    #elif keep_eos:
+    #    array = np.append(array, eos_index)
     length = len(array)
     return array, length
 
@@ -103,8 +104,10 @@ class BucketReplayBuffer:
         self.counts = [0 for _ in range(self.n_splits)]
         self.weights = [1/self.n_splits for _ in range(self.n_splits)]
         self.size = 0
-        self.split_divisor = math.ceil(self.max_seq_len / self.n_splits)
+        self.maximum_incoming_length = max(max_src_len, max_output_len)
+        self.split_divisor = math.ceil((self.maximum_incoming_length + 1) / self.n_splits)
     def _length_to_buffer_id(self, seq_length):
+        #pdb.set_trace()
         return max(0, (seq_length-1) // self.split_divisor)
     def _add(self, experience: Dict):
         seq_len = max(experience["src_len"], experience["out_len"])
@@ -119,14 +122,17 @@ class BucketReplayBuffer:
         while not queue.empty():
             experiences.append(queue.get())
         hash_stats = []
+        #if experiences != []: 
+            #pdb.set_trace()
         for experience in experiences:
             self._add(experience=experience)
             h = experience["hash"]
             stats = experience["stats"]
             avg_cost, _ = cost_manager.get_mean_stdv_cost(h)
             stats["normalized_advantage"] = stats["cost"] - avg_cost
-            stats["hypothesis_string"] = experience["hypothesis_string"]
+            stats["hypothesis_string"] = experience["formatted_hyp"]
             hash_stats.append((h, stats))
+            print(f"new example failed status is {stats['failed_cost']}, and cost is {stats['cost']}")
         if len(experiences) > 0: 
             avg_offline_cost, avg_pct_failures = cost_manager.update_buffers(hash_stats)
             cost_manager.log_buffer_stats([hash_stat[0] for hash_stat in hash_stats])
@@ -139,12 +145,12 @@ class BucketReplayBuffer:
         return avg_offline_cost, avg_pct_failures, number_of_new_examples
 
     def _get_sample_list(self, max_size) -> List[Dict]:
-        buffer_id = random.choices(population=self.buffer_dict.keys(), weights=self.weights, k = 1)
+        buffer_id = random.choices(population=list(self.buffer_dict.keys()), weights=self.weights, k = 1)[0]
         current_size = 1e9
         buffer = self.buffer_dict[buffer_id]
         hash_set = set()
         while current_size > max_size:
-            first_sample = random.sample()
+            first_sample = random.sample(buffer, k=1)[0]
             current_size = max(first_sample["src_len"], first_sample["out_len"])
 
         largest_seen_size = current_size
@@ -152,7 +158,7 @@ class BucketReplayBuffer:
         samples = [first_sample]
 
         while True:
-            sample = random.sample(buffer)
+            sample = random.sample(buffer, k=1)[0]
             h = sample["hash"]
             if h in hash_set:
                 continue
@@ -172,12 +178,12 @@ class BucketReplayBuffer:
         src_inputs = [sample["src_input"] for sample in samples]
         traj_outputs = [sample["traj_output"] for sample in samples]
         log_probs = [sample["log_probs"] for sample in samples]
-        costs = [sample["cost"] for sample in samples]
-        corrects = [sample["correct"] for sample in samples]
-        failed = [sample["failed"] for sample in samples]
+        costs = [sample["stats"]["cost"] for sample in samples]
+        corrects = [sample["stats"]["correct"] for sample in samples]
+        failed = [sample["stats"]["failed_cost"] for sample in samples]
         src_lens = [sample["src_len"] for sample in samples]
         tgt_lens = [sample["out_len"] for sample in samples]
-        advantages = [cost - cost_manager.get_mean_stdv_cost(h)[0] for cost, h in zip(hashes)]
+        advantages = [cost - cost_manager.get_mean_stdv_cost(h)[0] for cost, h in zip(costs, hashes)]
 
         return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens
 

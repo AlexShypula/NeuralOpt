@@ -12,7 +12,7 @@ class LearnerBatch:
     def __init__(self, src_seqs: List[Union[np.array, torch.Tensor]],
                  tgt_seqs: List[Union[np.array, torch.Tensor]],
                  log_probs: List[Union[np.array, torch.Tensor]],
-                 advantages: List[int], pad_index: int):
+                 advantages: List[int], pad_index: int, bos_index: int):
         if type(src_seqs[0]) != torch.Tensor:
             src_seqs = [torch.tensor(s) for s in src_seqs]
         if type(tgt_seqs[0]) != torch.Tensor:
@@ -23,13 +23,17 @@ class LearnerBatch:
         self.src_mask = (self.src != pad_index).unsqueeze(1) # per Batch outlined below
 
         tgt = pad_sequence(tgt_seqs, batch_first=True, padding_value=pad_index)
+        bos_vec = tgt.new_full(size=[tgt.size(0), 1], fill_value=bos_index,
+                                               dtype=torch.long)
+        tgt = torch.cat((tgt, bos_vec), dim =1) # add the bos along T dimension
         self.tgt_input = tgt[:, :-1] # like in Batch, the index is BOS -> second to last token to allow last token to be predicted
         self.tgt = tgt[:, 1:] # likewise, the tgt is offset by 1
         self.tgt_mask = (self.tgt_input != pad_index).unsqueeze(1) # for use with transformers, not for RNNs
 
-        self.loss_mask = (self.tgt != pad_index).unsqueeze(1)
-
+        self.loss_mask = (self.tgt != pad_index) # do not unsqueeze as this is used for post-processing 
+        # to match self.tgt we do not need to slice, as we do not add any additional <bos>
         self.offline_log_probs = pad_sequence(log_probs, batch_first=True, padding_value=0.0)
+        #self.loss_mask = (self.offline_log_probs !=0.0) # do not unsqueeze as this is used for post-processing 
 
         self.advantages = torch.tensor(advantages).unsqueeze(1) # turn into a tensor, but 1D -> 1D with extra 1 dimension for broadcasting
 
@@ -40,7 +44,7 @@ class LearnerBatch:
         self.tgt = self.tgt.to(device)
         self.tgt_mask = self.tgt_mask.to(device)
         self.loss_mask = self.loss_mask.to(device)
-        self.log_probs = self.log_probs.to(device)
+        self.offline_log_probs = self.offline_log_probs.to(device)
         self.advantages = self.advantages.to(device)
 
 

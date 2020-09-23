@@ -37,6 +37,7 @@ def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eo
 
 
     # decode back to symbols
+    #pdb.set_trace()
     decoded_src = model.src_vocab.arrays_to_sentences(arrays=batch.src,
                                                      cut_at_eos=True)
     decoded_hyp = model.trg_vocab.arrays_to_sentences(arrays=output,
@@ -54,10 +55,11 @@ def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eo
                             v in hypothesis_bpe_strings]
 
     # clean up the outputs and log probs by stripping any post-eos as well as padding
-    output_list, output_lengths = cut_arrays_at_eos(list(output.cpu().numpy()), eos_index = eos_index)
+    #pdb.set_trace()
+    output_list, output_lengths = cut_arrays_at_eos(list(output), eos_index = eos_index)
     log_probs_list = slice_arrays_with_lengths(list(log_probs.cpu().numpy()), output_lengths)
 
-    return output_list, log_probs_list, list(entropy.cpu()), output_lengths, src_bpe_strings, hypothesis_bpe_strings
+    return output_list, log_probs_list, entropy.detach().cpu(), output_lengths, src_bpe_strings, hypothesis_bpe_strings
 
 
 def eval_trajs(source_bpe_stings: str, hypothesis_bpe_strings: str, hash2metadata: Dict, requester: StokeRequest):
@@ -111,18 +113,18 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
           trajs_queue: mp.Queue, max_output_length: int, level: str, batch_size: int, pad_index: int, eos_index: int, 
           no_running_starts: int, actor_id: int, batch_type: str = "token", device: str = "cpu") -> None:
     print(f"actor id is {actor_id}", flush = True)
-    if actor_id == 0: 
-        pass
+    #if actor_id == 0: 
         #pdb.set_trace()
     model = build_model(model_cfg, src_vocab=src_vocab, trg_vocab=tgt_vocab)
-    current_model_id = latest_model_id.value
-    with model_lock.reader_lock():
+    current_model_id = latest_model_id #.value
+    #with model_lock.reader_lock():
+    with model_lock: 
         model_checkpoint = load_checkpoint(path = path_to_update_model, use_cuda = False)
-    #model.load_state_dict(model_checkpoint["model_state"], strict=False)
-    for model_key, ckpt_key in zip(model.state_dict(), model_checkpoint["model_state"]): 
-        model_param = model.state_dict()[model_key]
-        ckpt_param = model_checkpoint["model_state"][ckpt_key]
-        model_param.data = ckpt_param.data
+    model.load_state_dict(model_checkpoint["model_state"], strict=False)
+    #for model_key, ckpt_key in zip(model.state_dict(), model_checkpoint["model_state"]): 
+    #    model_param = model.state_dict()[model_key]
+    #    ckpt_param = model_checkpoint["model_state"][ckpt_key]
+    #    model_param.data = ckpt_param.data
 
     model.to(device)
 
@@ -140,32 +142,33 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
     running_starts_left = no_running_starts
     running_starts_flag = True if running_starts_left > 0 else False
 
-    while generate_trajs_flag.is_set():
+    while True: 
         for batch in iter(data_iter):
 
             # ensure no batch duplicates
             if not is_unique_batch(batch):
                 continue
-            pdb.set_trace()
+            #pdb.set_trace()
             batch = Batch(batch, pad_index=pad_index, use_cuda=False)
             src, src_lengths, n_seqs = batch.src, batch.src_lengths, batch.nseqs
             src_list = slice_arrays_with_lengths(list(src.cpu().numpy()), list(src_lengths.numpy()))
             batch.to_device(device)
-            pdb.set_trace()
-            with model_lock.reader_lock():
-                tmp_model_id = latest_model_id.value
-                if current_model_id != tmp_model_id:
-                    current_model_id = tmp_model_id
-                    model_checkpoint = load_checkpoint(path=path_to_update_model, use_cuda=False)
-                    #model.load_state_dict(model_checkpoint["model_state"])
-                    for model_key, ckpt_key in zip(model.state_dict(), model_checkpoint["model_state"]): 
-                        model_param = model.state_dict()[model_key]
-                        ckpt_param = model_checkpoint["model_state"][ckpt_key]
-                        model_param.data = ckpt_param.data
-                    model.to(device)
-            pdb.set_trace()
+            #pdb.set_trace()
+            #with model_lock.reader_lock():
+            #tmp_model_id = latest_model_id
+            #if current_model_id != tmp_model_id:
+            #current_model_id = tmp_model_id
+            with model_lock: 
+                model_checkpoint = load_checkpoint(path=path_to_update_model, use_cuda=False)
+            model.load_state_dict(model_checkpoint["model_state"])
+                #for model_key, ckpt_key in zip(model.state_dict(), model_checkpoint["model_state"]): 
+                #    model_param = model.state_dict()[model_key]
+                #    ckpt_param = model_checkpoint["model_state"][ckpt_key]
+                #    model_param.data = ckpt_param.data
+            model.to(device)
+            #pdb.set_trace()
             #output_list, log_probs_list, list(entropy.cpu()), output_lengths, src_bpe_strings, hypothesis_bpe_strings
-            output_list, log_prob_list, entropy_list, output_lengths, src_bpe_strings, hypothesis_bpe_strings = \
+            output_list, log_prob_list, entropy_value, output_lengths, src_bpe_strings, hypothesis_bpe_strings = \
                 get_trajs(model=model,
                     batch=batch,
                     max_output_length=max_output_length,
@@ -174,19 +177,19 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                     device=device)
 
             #TODO update the local metadata dictionary based off the api output
-            pdb.set_trace()
+            #pdb.set_trace()
             hashes, stats_list, metadatas, formatted_hyps = eval_trajs(source_bpe_stings=src_bpe_strings,
                                                                          hypothesis_bpe_strings=hypothesis_bpe_strings,
                                                                          hash2metadata=hash2metadata,
                                                                          requester=requester)
             for h, metadata_update in zip(hashes, metadatas):
                 hash2metadata[h] = metadata_update
-            pdb.set_trace()
+            #pdb.set_trace()
             for hash, src_input, traj_output, log_probs, stats, formatted_hyp, src_len, out_len in \
                zip(hashes, src_list, output_list, log_prob_list, stats_list, formatted_hyps,
                    src_lengths, output_lengths):
                 
-                trajs_queue.put({"hash": hashes,
+                trajs_queue.put({"hash": hash,
                                     "src_input": src_input,
                                     "traj_output": traj_output,
                                     "log_probs": log_probs,
@@ -195,7 +198,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                                     "src_len": src_len,
                                     "out_len": out_len
                                     })
-            pdb.set_trace()
+            #pdb.set_trace()
             if running_starts_flag:
                 running_starts_left-=1
                 print(f"actor number {actor_id} has {running_starts_left} running starts left", flush=True)

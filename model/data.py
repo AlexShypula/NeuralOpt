@@ -41,6 +41,15 @@ def shard_data(input_path: str, shard_path: str, src_lang: str, tgt_lang: str, n
     for fh in src_fhs + tgt_fhs:
         fh.close()
 
+#def tok_fun(s, level): 
+#    if level == "char": 
+#        return list(s)
+#    else: 
+#        return s.split()
+def char_tok(s): 
+    return list(s)
+def word_tok(s): 
+    return s.split()
 
 def load_data(data_cfg):
     """
@@ -74,7 +83,16 @@ def load_data(data_cfg):
     lowercase = data_cfg["lowercase"]
     max_sent_length = data_cfg["max_sent_length"]
 
-    tok_fun = lambda s: list(s) if level == "char" else s.split()
+    #tok_fun = lambda s: list(s) if level == "char" else s.split()
+    #def tok_fun(s): 
+    #    if level == "char": 
+    #        return list(s)
+    #    else: 
+    #        return s.split()
+    if level =="char": 
+        tok_fun = char_tok
+    else: 
+        tok_fun = word_tok
 
     src_field = data.Field(init_token=None, eos_token=EOS_TOKEN,
                            pad_token=PAD_TOKEN, tokenize=tok_fun,
@@ -88,14 +106,17 @@ def load_data(data_cfg):
                            batch_first=True, lower=lowercase,
                            include_lengths=True)
 
+    def filter_pred(x): 
+        return len(vars(x)["src"]) <= max_sent_length and len(vars(x)["trg"]) <= max_sent_length
+
     train_data = TranslationDataset(path=train_path,
                                     exts=("." + src_lang, "." + trg_lang),
                                     fields=(src_field, trg_field),
-                                    filter_pred=
-                                    lambda x: len(vars(x)['src'])
-                                    <= max_sent_length
-                                    and len(vars(x)['trg'])
-                                    <= max_sent_length)
+                                    filter_pred=filter_pred)
+                                    #lambda x: len(vars(x)['src'])
+                                    #<= max_sent_length
+                                    #and len(vars(x)['trg'])
+                                    #<= max_sent_length)
 
     src_max_size = data_cfg.get("src_voc_limit", sys.maxsize)
     src_min_freq = data_cfg.get("src_voc_min_freq", 1)
@@ -208,7 +229,6 @@ class MonoDataset(Dataset):
     def __init__(self, path: str, ext: str, field: Field, **kwargs) -> None:
         """
         Create a monolingual dataset (=only sources) given path and field.
-
         :param path: Prefix of path to the data file
         :param ext: Containing the extension to path for this language.
         :param field: Containing the fields that will be used for data.
