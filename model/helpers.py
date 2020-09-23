@@ -15,6 +15,7 @@ import subprocess
 import re
 import heapq
 import json
+import time
 import multiprocessing as mp
 import numpy as np
 from collections import deque
@@ -35,7 +36,7 @@ from os import makedirs
 from time import time
 from os.path import join, dirname, basename
 from batch import LearnerBatch
-
+import matplotlib.pyplot as plt
 from typing import Union
 #from subproc import run
 # monkey patch
@@ -62,6 +63,67 @@ evalReturncode2annotation = {
     4: "The best sample assembled, was correct, and was equal to the better of the gcc's",
     5: "The best sample assembled, was correct, and beat gcc"
 }
+
+class StopWatch:
+    def __init__(self, name: str):
+        self.time = 0
+        self.n_events = 0
+        self.timing = False
+        self.name = name
+    def start(self):
+        assert self.timing == False
+        self._start_time = time()
+        self.timing = True
+    def _stop_timing(self):
+        assert self.timing == True
+        self._end_time = time()
+        self.time += (self._end_time - self._start_time)
+        self.timing = False
+    def new_event(self, name = None):
+        self.n_events += 1
+        if not name:
+            name = f"unnamed_event_{self.n_events}"
+        setattr(self, name, StopWatch(name=name))
+    def _calculate_overhead(self):
+        assert self.timing == False
+        self.overhead = self.time
+        for k,v in self.__dict__.items():
+            #print(f"key: {k}, value: {v}")
+            if type(v) == type(self):
+                if v.timing == True:
+                    v._stop_timing()
+                self.overhead -= v.time
+        return self.overhead
+    def stop(self):
+        assert self.timing == True
+        self._stop_timing()
+        self._calculate_overhead()
+        return self.time, self.overhead
+    def _calculate_event_percentages(self):
+        assert self.timing == False
+        event_time_dict = {}
+        overhead = self._calculate_overhead()
+        event_time_dict["overhead"] = overhead / self.time
+        for k, v in self.__dict__.items():
+            if type(v) == type(self):
+                if v.timing == True:
+                    v._stop_timing()
+                name = v.name
+                event_time_dict[name] = v.time / self.time
+        return event_time_dict
+    def make_perf_plot(self, title: str, path: str):
+        D = self._calculate_event_percentages()
+        plt.bar(range(len(D)), list(D.values()), align='center')
+        plt.xticks(range(len(D)), list(D.keys()))
+        plt.title(f"{title} where total time was {self.time / 60:.2f} mins")
+        plt.ylabel("Percentage of total time")
+        for i, (name, pct) in enumerate(D.items()):
+            print(name)
+            print(pct)
+            plt.annotate(f"{pct * 100:.2f}%", (i, pct * 1.01), ha="center")
+
+        plt.savefig(path, dpi=200)
+
 
 def is_unique_batch(batch: Batch):
     src, _ = batch.src

@@ -34,7 +34,7 @@ from modeling import build_model
 from batch import Batch, LearnerBatch
 from helpers import log_data_info, load_config, log_cfg, \
     store_attention_plots, load_checkpoint, make_model_dir, \
-    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess, BucketReplayBuffer
+    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess, BucketReplayBuffer, StopWatch
 from modeling import Model
 from prediction import validate_on_data
 from loss import XentLoss, StokeCostManager
@@ -912,7 +912,14 @@ class TrainManager:
         print("Replay buffer is filled, now training ", flush = True)
         batch_size_seqs = 0
 
+        performance_timer = StopWatch(name = "stopwatch")
+        performance_timer.new_event("Model_Forward_Backward")
+        performance_timer.new_event("Save_Learner")
+        performance_timer.new_event("Clear_Queue")
+        performance_timer.new_event("Validation_Testing")
+        performance_timer.start()
         for step in range(1, self.n_updates * self.batch_multiplier):
+            performance_timer.Model_Forward_Backward.start()
             self.model.train()
             src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
             # TODO: calculate the advantage somehow using cost manager or other method
@@ -942,14 +949,19 @@ class TrainManager:
             loss/=sum(tgt_lens) # normalize by the number of total output tokens
             loss/=self.batch_multiplier # normalize by the batch multiplier
             loss.backward()
+            performance_timer.Model_Forward_Backward.stop()
 
             if (step % self.batch_multiplier) == 0:
                 update_no = step // self.batch_multiplier
                 batch_size_seqs+=len(batch.src)
                 self.optimizer.step()
                 self.optimizer.zero_grad()
+                performance_timer.Save_Learner.start()
                 self._save_learner()
+                performance_timer.Save_Learner.stop()
+                performance_timer.Clear_Queue.start()
                 avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue, cost_manager = self.cost_manager)
+                performance_timer.Clear_Queue.stop()
                 new_examples = max(new_examples, 1)
 
                 self.tb_writer.add_scalar("train/number-trained-per-new-observations",
@@ -968,6 +980,7 @@ class TrainManager:
                 batch_size_seqs = 0
 
                 if (update_no % self.validation_freq):
+                    performance_timer.Validation_Testing.start()
                     self.model.eval()
                     valid_score, valid_loss, valid_ppl, valid_sources, \
                     valid_sources_raw, valid_references, valid_hypotheses, \
@@ -987,7 +1000,7 @@ class TrainManager:
                         )
 
                     self.tb_writer.add_scalar("valid/valid_cost",
-                                              valid_score, self.steps)
+                                              valid_score, update_no)
 
                     ckpt_score = valid_score
 
@@ -1000,20 +1013,21 @@ class TrainManager:
                         if self.ckpt_queue.maxsize > 0:
                             self.logger.info("Saving new checkpoint.")
                             self._save_checkpoint()
+                    performance_timer.Validation_Testing.stop()
 
 
             else:
                 batch_size_seqs += len(batch.src)
 
         # gracefully shut down
+        print("shutting down the child processes")
         generate_trajectory_flag.clear()
         for p in processes: 
             p.terminate()
             p.join()
-        #self.actor_pool.close()
-        #self.actor_pool.join()
-
-
+        print("making performance plot")
+        performance_timer.make_perf_plot(title = "Learner Performance Behcnmarking",
+                                         path = "{}/learner_perf_plot.png".format(self.model_dir))
 
 
 def train(cfg_file: str) -> None:
