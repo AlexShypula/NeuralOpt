@@ -856,14 +856,6 @@ class TrainManager:
         device_indices = [i % len(self.actor_devices) for i in range(self.n_actors)]
         actor_device_list = [self.actor_devices[i] for i in device_indices]
 
-        pseudo_loss = torch.nn.CrossEntropyLoss(reduction="none")
-        # essentially off policy RL is selecting log-probs of the off policy network
-        # cross entropy does this, and multiplies by -1, so we need to reverse it
-        # otherwise we get positive log-probs
-        def get_log_probs(output, target): 
-            return -1*pseudo_loss(output, target)
-        #get_log_probs = lambda output, target: pseudo_loss(output, target)
-
         jobs = [{"model_cfg": self.model_cfg,
                 "src_field": src_field,
                 "hash2metadata": self.hash2metadata,
@@ -907,11 +899,17 @@ class TrainManager:
                 time.sleep(0.5)
         print("All running starts have finished", flush = True)
         print("Now checking if the replay buffer is filled.... if not, waiting for it to be filled", flush = True)
+
         while not replay_buffer.is_full():
             replay_buffer.clear_queue(queue=trajectory_queue, cost_manager=self.cost_manager)
             time.sleep(0.5)
         print("Replay buffer is filled, now training ", flush = True)
-        batch_size_seqs = 0
+
+        multi_batch_loss = 0
+        multi_batch_entropy = 0
+        multi_batch_n_seqs = 0
+        multi_batch_n_tokens = 0
+
 
         performance_timer = StopWatch(name = "stopwatch")
         performance_timer.new_event("Model_Forward_Backward")
@@ -936,8 +934,7 @@ class TrainManager:
                                                            src_lengths=src_lens,
                                                            trg_mask=batch.tgt_mask,
                                                            )
-            dims = out.shape
-            online_log_probs = get_log_probs(out.reshape(-1, dims[2]), batch.tgt.reshape(-1)).reshape(dims[0], dims[1]) * batch.loss_mask
+            online_log_probs, online_entropy = log_probs_and_entropy(logits = out, labels = batch.tgt, loss_mask = batch.loss_mask)
             offline_log_probs = batch.offline_log_probs * batch.loss_mask
             online_traj_probs = torch.sum(online_log_probs.detach(), dim = 1).unsqueeze(1) # should reduce to a 2-d array, but with dim 1 = 1
             offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
@@ -949,17 +946,24 @@ class TrainManager:
                                        batch.advantages*clipped_importance_sampling_ratio)
             else:
                 advantages = batch.advantages
-            loss = torch.sum(online_log_probs * advantages)
-            loss/=sum(tgt_lens) # normalize by the number of total output tokens
-            loss/=self.batch_multiplier # normalize by the batch multiplier
+
+            n_tokens = sum(tgt_lens)
+            # maximizing exploration entropy = minimizing negative entropy
+            loss = torch.sum(online_log_probs * advantages) - online_entropy * self.beta_entropy
+            loss /= n_tokens# normalize by the number of total output tokens
+            loss /= self.batch_multiplier # normalize by the batch multiplier
             #print("loss processed, now backward")
             loss.backward()
+            multi_batch_loss += loss.detach().cpu().item()
+            multi_batch_entropy += (online_entropy.detach().cpu().item() / n_tokens)
+            multi_batch_n_seqs += len(batch.src)
+            multi_batch_n_tokens += n_tokens
+
             #print("backward done")
             performance_timer.Model_Forward_Backward.stop()
 
             if (step % self.batch_multiplier) == 0:
                 update_no = step // self.batch_multiplier
-                batch_size_seqs+=len(batch.src)
                 #print("optimizer step")
                 self.optimizer.step()
                 self.optimizer.zero_grad()
@@ -980,7 +984,7 @@ class TrainManager:
                                               avg_queue_failures, update_no)
 
                 self.tb_writer.add_scalar("train/number-trained-per-new-observations",
-                                          batch_size_seqs/new_examples, update_no)
+                                          multi_batch_n_seqs/new_examples, update_no)
                 #self.tb_writer.add_scalar("train/avg_cost",
                 #                          avg_queue_cost, update_no)
                 #self.tb_writer.add_scalar("train/avg_failure_rate",
@@ -988,11 +992,19 @@ class TrainManager:
                 self.tb_writer.add_scalar("train/queue_size",
                                           new_examples, update_no)
                 self.tb_writer.add_scalar("train/batch_size",
-                                          batch_size_seqs, update_no)
+                                          multi_batch_n_seqs, update_no)
                 self.tb_writer.add_scalar("train/no_baselines_beat",
                                           self.cost_manager.no_beat_baselines, update_no)
+                self.tb_writer.add_scalar("train/avg_entropy",
+                                          multi_batch_entropy, update_no)
+                self.tb_writer.add_scalar("train/batch_size_tokens",
+                                          multi_batch_n_tokens, update_no)
 
-                batch_size_seqs = 0
+                multi_batch_loss = 0
+                multi_batch_entropy = 0
+                multi_batch_n_seqs = 0
+                multi_batch_n_tokens = 0
+
                 print(f"update no is {update_no} and valdation_freq is {self.validation_freq}")
                 print(f"eval modulo evaluates as {(update_no % self.validation_freq)}")
                 if (update_no % self.validation_freq) == 0:
@@ -1033,9 +1045,6 @@ class TrainManager:
                             self._save_checkpoint()
                     performance_timer.Validation_Testing.stop()
 
-
-            else:
-                batch_size_seqs += len(batch.src)
 
         # gracefully shut down
         performance_timer.stop()

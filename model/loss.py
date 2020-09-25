@@ -4,6 +4,8 @@ Module to implement training loss
 """
 
 import torch
+import torch.nn.functional as F
+from torch.distributions.utils import clamp_probs
 import numpy as np
 import re
 import pickle
@@ -26,6 +28,19 @@ COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
 
 STOKE_TRAINING_SET_REGEX = re.compile("(?=})") # when you do sub, you need to include an extra space after the integer
+
+
+def log_probs_and_entropy(logits, labels, loss_mask, clamp = False):
+    dims = logits.size()
+    all_log_probs = F.log_softmax(logits, dim = -1)
+    probs = torch.exp(all_log_probs)
+    if clamp:
+        probs = clamp_probs(probs)
+    entropy = -1 * torch.sum(all_log_probs * probs * loss_mask)
+    action_log_probs = -1 * F.nll_loss(all_log_probs.reshape(-1, dims[2]), labels.reshape(-1), reduction="none")
+    action_log_probs = action_log_probs.reshape(dims[0], dims[1])
+    return action_log_probs, entropy
+
 
 class StokeCostManager:
     def __init__(self, hash2metadata, host_path_to_volume, container_path_to_volume,
