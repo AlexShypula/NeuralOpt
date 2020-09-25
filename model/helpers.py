@@ -174,7 +174,7 @@ class BucketReplayBuffer:
         self.split_divisor = math.ceil((self.maximum_incoming_length + 1) / self.n_splits)
     def _length_to_buffer_id(self, seq_length):
         #pdb.set_trace()
-        return max(0, (seq_length-1) // self.split_divisor)
+        return 0 # int(max(0, (seq_length-1) // self.split_divisor))
     def _add(self, experience: Dict):
         seq_len = max(experience["src_len"], experience["out_len"])
         buffer_id = self._length_to_buffer_id(seq_len)

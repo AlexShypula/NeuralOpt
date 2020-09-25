@@ -114,6 +114,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
           trajs_queue: mp.Queue, max_output_length: int, level: str, batch_size: int, pad_index: int, eos_index: int, 
           no_running_starts: int, actor_id: int, performance_plot_path: str,
           batch_type: str = "token", device: str = "cpu") -> None:
+    batch_size/=2
     print(f"actor id is {actor_id}", flush = True)
     #if actor_id == 0: 
         #pdb.set_trace()
@@ -151,7 +152,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
     performance_timer.new_event("Evaluate_With_Stoke")
     performance_timer.new_event("Add_to_Queue")
     performance_timer.start()
-    while True: 
+    while generate_trajs_flag.is_set(): 
         for batch in iter(data_iter):
 
             # ensure no batch duplicates
@@ -199,7 +200,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                                                                          requester=requester)
             for h, metadata_update in zip(hashes, metadatas):
                 hash2metadata[h] = metadata_update
-            performance_timer.Evaluate_With_Stoke.start()
+            performance_timer.Evaluate_With_Stoke.stop()
             #pdb.set_trace()
             performance_timer.Add_to_Queue.start()
             for hash, src_input, traj_output, log_probs, stats, formatted_hyp, src_len, out_len in \
@@ -228,7 +229,8 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
 
 
             if not generate_trajs_flag.is_set():
-                performance_timer.stop()
+                if performance_timer.timing: 
+                    performance_timer.stop()
                 performance_timer.make_perf_plot(title="Actor no {} Performance Benchmarking".format(actor_id),
                                                  path=performance_plot_path)
                 break
