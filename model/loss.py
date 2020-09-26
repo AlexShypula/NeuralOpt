@@ -36,9 +36,10 @@ def log_probs_and_entropy(logits, labels, loss_mask, clamp = False):
     probs = torch.exp(all_log_probs)
     if clamp:
         probs = clamp_probs(probs)
-    entropy = -1 * torch.sum(all_log_probs * probs * loss_mask)
+    entropy = -1 * torch.sum(all_log_probs * probs * loss_mask.unsqueeze(2)) # broadcast loss mash whcih is B X T -> B X T X 1, while probs are B x T x out_dim
     action_log_probs = -1 * F.nll_loss(all_log_probs.reshape(-1, dims[2]), labels.reshape(-1), reduction="none")
     action_log_probs = action_log_probs.reshape(dims[0], dims[1])
+    action_log_probs = action_log_probs * loss_mask
     return action_log_probs, entropy
 
 

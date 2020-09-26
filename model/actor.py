@@ -124,6 +124,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
     with model_lock: 
         model_checkpoint = load_checkpoint(path = path_to_update_model, use_cuda = False)
     model.load_state_dict(model_checkpoint["model_state"], strict=False)
+    #model.eval()
     #for model_key, ckpt_key in zip(model.state_dict(), model_checkpoint["model_state"]): 
     #    model_param = model.state_dict()[model_key]
     #    ckpt_param = model_checkpoint["model_state"][ckpt_key]
@@ -179,6 +180,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                 #    ckpt_param = model_checkpoint["model_state"][ckpt_key]
                 #    model_param.data = ckpt_param.data
             model.to(device)
+            #model.eval()
             performance_timer.Load_Model.stop()
             #pdb.set_trace()
             #output_list, log_probs_list, list(entropy.cpu()), output_lengths, src_bpe_strings, hypothesis_bpe_strings
@@ -203,11 +205,11 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
             performance_timer.Evaluate_With_Stoke.stop()
             #pdb.set_trace()
             performance_timer.Add_to_Queue.start()
-            for hash, src_input, traj_output, log_probs, stats, formatted_hyp, src_len, out_len in \
+            for h, src_input, traj_output, log_probs, stats, formatted_hyp, src_len, out_len in \
                zip(hashes, src_list, output_list, log_prob_list, stats_list, formatted_hyps,
                    src_lengths, output_lengths):
                 
-                trajs_queue.put({"hash": hash,
+                trajs_queue.put({"hash": h,
                                     "src_input": src_input,
                                     "traj_output": traj_output,
                                     "log_probs": log_probs,

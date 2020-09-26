@@ -37,7 +37,7 @@ from helpers import log_data_info, load_config, log_cfg, \
     make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess, BucketReplayBuffer, StopWatch
 from modeling import Model
 from prediction import validate_on_data
-from loss import XentLoss, StokeCostManager
+from loss import XentLoss, StokeCostManager, log_probs_and_entropy
 from data import load_data, make_data_iter, shard_data
 from builders import build_optimizer, build_scheduler, \
     build_gradient_clipper
@@ -52,7 +52,7 @@ from collections import deque
 from copy import deepcopy
 from fairseq import pdb
 
-os.environ["CUDA_VISIBLE_DEVICES"]="2"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 def init(l, model_id, ctr):
     global model_lock
@@ -909,7 +909,7 @@ class TrainManager:
         multi_batch_entropy = 0
         multi_batch_n_seqs = 0
         multi_batch_n_tokens = 0
-
+        multi_batch_advantage = 0
 
         performance_timer = StopWatch(name = "stopwatch")
         performance_timer.new_event("Model_Forward_Backward")
@@ -946,7 +946,7 @@ class TrainManager:
                                        batch.advantages*clipped_importance_sampling_ratio)
             else:
                 advantages = batch.advantages
-
+            advantages/=torch.std(advantages)
             n_tokens = sum(tgt_lens)
             # maximizing exploration entropy = minimizing negative entropy
             loss = torch.sum(online_log_probs * advantages) - online_entropy * self.beta_entropy
@@ -958,6 +958,7 @@ class TrainManager:
             multi_batch_entropy += (online_entropy.detach().cpu().item() / n_tokens)
             multi_batch_n_seqs += len(batch.src)
             multi_batch_n_tokens += n_tokens
+            multi_batch_advantage += torch.mean(advantages).item()/self.batch_multiplier
 
             #print("backward done")
             performance_timer.Model_Forward_Backward.stop()
@@ -999,14 +1000,19 @@ class TrainManager:
                                           multi_batch_entropy, update_no)
                 self.tb_writer.add_scalar("train/batch_size_tokens",
                                           multi_batch_n_tokens, update_no)
+                self.tb_writer.add_scalar("train/batch_loss", 
+                                            multi_batch_loss, update_no)
+                self.tb_writer.add_scalar("train/avg_advantage", 
+                                                multi_batch_advantage, update_no)
 
                 multi_batch_loss = 0
                 multi_batch_entropy = 0
                 multi_batch_n_seqs = 0
                 multi_batch_n_tokens = 0
+                multi_batch_advantage = 0
 
-                print(f"update no is {update_no} and valdation_freq is {self.validation_freq}")
-                print(f"eval modulo evaluates as {(update_no % self.validation_freq)}")
+                #print(f"update no is {update_no} and valdation_freq is {self.validation_freq}")
+                #print(f"eval modulo evaluates as {(update_no % self.validation_freq)}")
                 if (update_no % self.validation_freq) == 0:
                 #if update_no > 300: 
                     print("doing validation loop")
