@@ -46,6 +46,9 @@ class StokePipeline:
         container_abs_path_to_testcases = join(self.path_to_volume, self.volume_path_to_data, data_path_to_testcases)
 
         metadata["cost_conf"]["training_set"] = "{ 0 ... 9999 }"
+        assert os.path.exists(container_abs_path_to_functions), "paths to functions doesn't exist"
+        assert os.path.exists(container_abs_path_to_target), "paths to target"
+        assert os.path.exists(container_abs_path_to_testcases), "paths to testcases"
 
         cost, failed_tunit, failed_cost, is_correct = get_stoke_cost(hypothesis_string=hypothesis_string,
                                                             container_abs_path_raw_rewrite=container_abs_path_raw_rewrite,
@@ -56,6 +59,8 @@ class StokePipeline:
                                                             assembly_name=metadata["name"],
                                                             cost_conf=metadata["cost_conf"],
                                                             max_cost=1e9)
+        print("cost is {}".format(cost))
+        print("failed tunit is {}".format(failed_tunit), flush = True)
 
         return {"metadata": metadata, "stats": {"cost": cost,
                                          "correct": is_correct,
@@ -149,6 +154,7 @@ class StokePipeline:
         return {"metadata": metadata, "stats": {"cost": effective_cost,
                                                  "failed_tunit": failed_tunit,
                                                  "failed_cost": failed_cost,
+						 "correct": is_correct, 
                                                  "hypothesis_string": hypothesis_string,
                                                  "new_record_returncode": new_record_returncode}}
 
