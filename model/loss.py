@@ -257,7 +257,6 @@ class StokeCostManager:
             cost = result_dict["stats"]["cost"]
             correct = result_dict["stats"]["correct"]
             failed = result_dict["stats"]["failed_cost"]
-            breakpoint()
 
             if failed:
                 rc = -1
@@ -318,14 +317,15 @@ class StokeCostManager:
             low_benchmark = metadata["low_benchmark"]
             high_benchmark = metadata["high_benchmark"]
 
+            # use if instead of the elif paradigm because it is possible O0 == Og
             if old_returncode < 1 and rewrite_cost > high_benchmark:
                 new_returncode = 1
-            elif old_returncode < 2 and rewrite_cost == high_benchmark:
+            if old_returncode < 2 and rewrite_cost == high_benchmark:
                 new_returncode = 2
-            elif old_returncode < 3 and rewrite_cost < high_benchmark and rewrite_cost > low_benchmark:
+            if old_returncode < 3 and rewrite_cost < high_benchmark and rewrite_cost > low_benchmark:
                 assert rewrite_cost <= high_benchmark
                 new_returncode = 3
-            elif old_returncode < 4 and rewrite_cost == low_benchmark:
+            if old_returncode < 4 and rewrite_cost == low_benchmark:
                 assert rewrite_cost <= high_benchmark
                 new_returncode = 4
             elif old_returncode < 5 and rewrite_cost < low_benchmark:
@@ -339,19 +339,19 @@ class StokeCostManager:
 
         for i in range(-2, 6):
             rc_stats_dict[i] = {"counts": 0, "costs": []}
-
-        for metadata in self.hash2metadata.items():
+        #breakpoint()
+        for metadata in self.hash2metadata.values():
             best_seq_returncode = metadata["best_seq_returncode"]
             best_cost_so_far = metadata["best_cost_so_far"]
             rc_stats_dict[best_seq_returncode]["counts"]+=1
             rc_stats_dict[best_seq_returncode]["costs"].append(best_cost_so_far)
-
+        #breakpoint()
         percentage_dict = {}
         cost_dict = {}
 
         for rc, stats in rc_stats_dict.items():
             mean_cost = np.mean(stats["costs"]) if len(stats["costs"]) > 0 else -1
-            n_seqs = len(metadata) - rc_stats_dict[-2]["counts"]
+            n_seqs = len(self.hash2metadata) - rc_stats_dict[-2]["counts"]
             pct_of_trained = stats["counts"] / n_seqs
             if rc != -2:
                 title = rc2axis[rc]
@@ -404,14 +404,16 @@ class StokeCostManager:
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
 
         # place a text box in upper left in axes coords
-        plt.text(6, max_val, textstr, fontsize=12,
+        plt.text(7, max_val, textstr, fontsize=12,
                  verticalalignment='top', bbox=props)
 
         plt.savefig(join(output_path, "cost.png"), dpi=300, pad_inches=2, bbox_inches="tight")
         plt.clf()
 
     def save_best_seq_stats(self):
+        #breakpoint()
         percentage_dict, cost_dict = self._calculate_best_seq_statistics()
+        #breakpoint()
         self._plot_best_seq_stats(percentage_dict=percentage_dict, cost_dict=cost_dict)
 
     def update_buffers(self, hash_stats_list: Tuple[str, Dict]):
@@ -426,6 +428,8 @@ class StokeCostManager:
             hypothesis_string = stats["hypothesis_string"]
             new_record_returncode = stats["new_record_returncode"]
             correct = stats["correct"]
+            #print("failed cost is {}, correct is {}, and effective cost is {}".format(failed_cost, correct, effective_cost))
+            #breakpoint()
             best_seq_returncode, best_cost_so_far = self._get_updated_rewrite_returncode(
                                                                             rewrite_cost = effective_cost,
                                                                             rewrite_failed = failed_cost,

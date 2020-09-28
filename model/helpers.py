@@ -225,16 +225,18 @@ class BucketReplayBuffer:
         largest_seen_size = current_size
         hash_set.add(first_sample["hash"])
         samples = [first_sample]
-
+        duplicates_sampled = 0
         while True:
+           # print("inside sample while loop")
             sample = random.sample(buffer, k=1)[0]
             h = sample["hash"]
             if h in hash_set:
+                duplicates_sampled+=1
                 continue
             current_size = max(sample["src_len"],sample["out_len"])
             largest_seen_size = max(current_size, largest_seen_size)
             running_size = largest_seen_size * (len(samples) + 1)
-            if running_size > max_size:
+            if duplicates_sampled > 10 or running_size > max_size:
                 break
             else:
                 hash_set.add(h)
@@ -242,7 +244,9 @@ class BucketReplayBuffer:
 
         return samples
     def sample(self, max_size, cost_manager):
+        #print("sampling ", flush = True)
         samples = self._get_sample_list(max_size=max_size)
+        #print("got the sample", flush = True)
         hashes = [sample["hash"] for sample in samples]
         src_inputs = [sample["src_input"] for sample in samples]
         traj_outputs = [sample["traj_output"] for sample in samples]

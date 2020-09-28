@@ -123,6 +123,9 @@ class TrainManager:
         self.learner_device = train_config.get("learner_device", "cuda:0")
         self.replay_buffer_size = train_config.get("replay_buffer_size", 512)
         self.save_learner_every = train_config.get("save_learner_every", 1)
+        
+        valid_freq = train_config.get("validation_freq", 1000)
+        self.log_best_seq_stats_every = train_config.get("log_best_seq_stats_every", valid_freq)
         self.n_updates = train_config.get("n_updates", 0)
         self.bucket_buffer_splits = train_config.get("n_buffer_splits", 4)
         self.ppo_flag = train_config.get("ppo_flag", True)
@@ -919,16 +922,17 @@ class TrainManager:
         performance_timer.new_event("Validation_Testing")
         performance_timer.start()
         for step in range(1, self.n_updates * self.batch_multiplier):
-            #print("starting and sampling from queue")
+            #print("starting and sampling from queue", flush = True)
+            #breakpoint()
             performance_timer.Model_Forward_Backward.start()
             self.model.train()
             src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
             # TODO: calculate the advantage somehow using cost manager or other method
-            #print("queue samples, now processing batch")
+            #print("queue samples, now processing batch", flush = True)
             batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=advantages,
                                  pad_index = self.pad_index, bos_index = self.bos_index)
             batch.to_device(self.learner_device)
-            #print("batch processed and on device, doing forward")
+            #print("batch processed and on device, doing forward", flush = True)
             out, hidden, att_probs, _ = self.model.forward(src=batch.src,
                                                            trg_input=batch.tgt_input,
                                                            src_mask=batch.src_mask,
@@ -954,7 +958,7 @@ class TrainManager:
             loss = torch.sum(online_log_probs * advantages) - online_entropy * self.beta_entropy
             loss /= n_tokens# normalize by the number of total output tokens
             loss /= self.batch_multiplier # normalize by the batch multiplier
-            #print("loss processed, now backward")
+            #print("loss processed, now backward", flush = True)
             loss.backward()
             multi_batch_loss += loss.detach().cpu().item()
             multi_batch_entropy += (online_entropy.detach().cpu().item() / n_tokens)
@@ -962,25 +966,25 @@ class TrainManager:
             multi_batch_n_tokens += n_tokens
             multi_batch_advantage += torch.mean(advantages).item()/self.batch_multiplier
 
-            #print("backward done")
+            #print("backward done", flush = True)
             performance_timer.Model_Forward_Backward.stop()
 
             if (step % self.batch_multiplier) == 0:
                 update_no = step // self.batch_multiplier
-                #print("optimizer step")
+                #print("optimizer step", flush = True)
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 performance_timer.Save_Learner.start()
-                #print("step done, saving learner")
+                #print("step done, saving learner", flush = True)
                 if (update_no % self.save_learner_every) == 0: 
                     self._save_learner()
                 performance_timer.Save_Learner.stop()
                 performance_timer.Clear_Queue.start()
-                #print("saving done, clearing queue")
+                #print("saving done, clearing queue", flush = True)
                 avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue, cost_manager = self.cost_manager)
                 performance_timer.Clear_Queue.stop()
                 new_examples = max(new_examples, 1)
-                #print("queue done, tensorboard writing")
+                #print("queue done, tensorboard writing", flush = True)
                 if avg_queue_cost > 0: 
                     self.tb_writer.add_scalar("train/avg_cost",
                                               avg_queue_cost, update_no)
@@ -1013,9 +1017,12 @@ class TrainManager:
                 multi_batch_n_seqs = 0
                 multi_batch_n_tokens = 0
                 multi_batch_advantage = 0
-
-                if (update_no % 100) == 0:
+                #print("tensorboard writing done, update no {}".format(update_no), flush = True)
+                if (update_no % self.log_best_seq_stats_every) == 0:
+                    #print("inside cost manager save best seq stats", flush = True)
+                    #pdb.set_trace()
                     self.cost_manager.save_best_seq_stats()
+                    #print("saved those stats", flush = True)
 
                 #print(f"update no is {update_no} and valdation_freq is {self.validation_freq}")
                 #print(f"eval modulo evaluates as {(update_no % self.validation_freq)}")
