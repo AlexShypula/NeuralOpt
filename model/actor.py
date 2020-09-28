@@ -114,7 +114,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
           trajs_queue: mp.Queue, max_output_length: int, level: str, batch_size: int, pad_index: int, eos_index: int, 
           no_running_starts: int, actor_id: int, performance_plot_path: str,
           batch_type: str = "token", device: str = "cpu") -> None:
-    batch_size/=2
+    batch_size/=4    #2
     print(f"actor id is {actor_id}", flush = True)
     #if actor_id == 0: 
         #pdb.set_trace()
@@ -139,7 +139,6 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                                 batch_size=batch_size,
                                 batch_type=batch_type,
                                 train=True, shuffle=True)
-
     hash2metadata = prune_hash2metadata(hash2metadata=hash2metadata, model=model, level=level, data_iter=data_iter, pad_index = pad_index)
     requester = StokeRequest(port = stoke_container_port_no)
 
@@ -200,8 +199,12 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                                                                          hypothesis_bpe_strings=hypothesis_bpe_strings,
                                                                          hash2metadata=hash2metadata,
                                                                          requester=requester)
+            #if not running_starts_flag: 
             for h, metadata_update in zip(hashes, metadatas):
                 hash2metadata[h] = metadata_update
+            #else: 
+            #    for stats in stats_list: 
+            #        stats["new_record_returncode"] = 0 # suppress informing the learner a new record was beat
             performance_timer.Evaluate_With_Stoke.stop()
             #pdb.set_trace()
             performance_timer.Add_to_Queue.start()

@@ -835,6 +835,7 @@ class TrainManager:
     def train_and_validate_actor_learner(self, valid_data: Dataset, src_field: Field, src_vocab, tgt_vocab):
 
         if self.shard_data:
+            print("sharding the data")
             # shard_data(input_path: str, shard_path: str, src_lang: str, tgt_lang: str, n_shards: int)
             shard_data(input_path=self.train_path, shard_path = self.shard_path,
                        src_lang = self.src_lang, tgt_lang = self.tgt_lang, n_shards = self.n_actors)
@@ -946,7 +947,8 @@ class TrainManager:
                                        batch.advantages*clipped_importance_sampling_ratio)
             else:
                 advantages = batch.advantages
-            advantages/=torch.std(advantages)
+            advantages = advantages - torch.mean(advantages)
+            advantages/=torch.max(torch.std(advantages), torch.ones_like(advantages))   
             n_tokens = sum(tgt_lens)
             # maximizing exploration entropy = minimizing negative entropy
             loss = torch.sum(online_log_probs * advantages) - online_entropy * self.beta_entropy
@@ -970,7 +972,8 @@ class TrainManager:
                 self.optimizer.zero_grad()
                 performance_timer.Save_Learner.start()
                 #print("step done, saving learner")
-                self._save_learner()
+                if (update_no % self.save_learner_every) == 0: 
+                    self._save_learner()
                 performance_timer.Save_Learner.stop()
                 performance_timer.Clear_Queue.start()
                 #print("saving done, clearing queue")
@@ -1051,7 +1054,8 @@ class TrainManager:
                             self._save_checkpoint()
                     performance_timer.Validation_Testing.stop()
 
-
+        self.cost_manager._save_trailing_stats()
+        shutil.copy2(self.cost_manager.trailing_stats_out_path, os.path.join(self.model_dir, "ending_trailing_stats.pkl"))
         # gracefully shut down
         performance_timer.stop()
         print("shutting down the child processes")
