@@ -1014,6 +1014,9 @@ class TrainManager:
                 multi_batch_n_tokens = 0
                 multi_batch_advantage = 0
 
+                if (update_no % 100) == 0:
+                    self.cost_manager.save_best_seq_stats()
+
                 #print(f"update no is {update_no} and valdation_freq is {self.validation_freq}")
                 #print(f"eval modulo evaluates as {(update_no % self.validation_freq)}")
                 if (update_no % self.validation_freq) == 0:

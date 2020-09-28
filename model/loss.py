@@ -23,11 +23,21 @@ import os
 from copy import copy
 from req import StokeRequest
 import warnings
+import matplotlib.pyplot as plt
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
 
 STOKE_TRAINING_SET_REGEX = re.compile("(?=})") # when you do sub, you need to include an extra space after the integer
+
+rc2axis = {-2: "not trained on yet",
+           -1: "failed",
+           0: "incorrect",
+           1: "worse than -O0",
+           2: "matched -O0",
+           3: "between -O0 and -Og",
+           4: "matched -Og",
+           5: "better than -Og"}
 
 
 def log_probs_and_entropy(logits, labels, loss_mask, clamp = False):
@@ -88,6 +98,13 @@ class StokeCostManager:
             self.hash2metadata[h]["cost_conf"]["training_set"] = f"{{ 0 ... {n_testcases-1} }}"
             self.hash2metadata[h]["rolling_baseline_cost"] = copy(self.hash2metadata[h][self.baseline_cost_key])
             self.hash2metadata[h]['reference_score'] = copy(self.hash2metadata[h][self.baseline_cost_key])
+            # TODO undo the hard-coding here
+            self.hash2metadata[h]['low_benchmark'] = min(self.hash2metadata[h]["O0_cost"], self.hash2metadata[h]["Og_cost"])
+            self.hash2metadata[h]['high_benchmark'] = max(self.hash2metadata[h]["O0_cost"], self.hash2metadata[h]["Og_cost"])
+            self.hash2metadata[h]['best_cost_so_far'] = 1e9
+            self.hash2metadata[h]['best_seq_returncode'] = -2
+
+
             if not self.trailing_stats_in_path:
                 self.trailing_stats_dict[h] = {"costs": deque(maxlen = max_len),
                                                 "failed_tunit": deque(maxlen = max_len),
@@ -160,30 +177,34 @@ class StokeCostManager:
             i = int(i) # quirks of conversion int -> string
             cost = result_dict["stats"]["cost"]
             correct = result_dict["stats"]["correct"]
-            if cost < best_cost: 
-                if rc < 0 and not correct:
+            failed = result_dict["stats"]["failed_cost"]
+            if cost < best_cost:
+                if rc < 0 and failed:
+                    best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+                    best_cost = cost
+                if rc < 0 and not correct and not failed:
                     rc = 0
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
                     best_cost = cost
-                elif rc < 1 and cost > high_benchmark:
+                elif rc < 1 and cost > high_benchmark and correct:
                     rc = 1
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
                     best_cost = cost
-                elif rc < 2 and cost == high_benchmark:
+                elif rc < 2 and cost == high_benchmark and correct:
                     rc = 2
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
                     best_cost = cost
-                elif rc < 3 and cost < high_benchmark and cost > low_benchmark:
+                elif rc < 3 and cost < high_benchmark and cost > low_benchmark and correct:
                     assert cost <= high_benchmark
                     rc = 3
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
                     best_cost = cost
-                elif rc < 4 and cost == low_benchmark:
+                elif rc < 4 and cost == low_benchmark and correct:
                     assert cost <= high_benchmark
                     rc = 4
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
                     best_cost = cost
-                elif rc < 5 and cost < low_benchmark:
+                elif rc < 5 and cost < low_benchmark and correct:
                     assert cost < low_benchmark and cost < high_benchmark
                     rc = 5
                     best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
@@ -193,7 +214,7 @@ class StokeCostManager:
                         best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
                         best_cost = cost
                     else: 
-                        raise Error 
+                        raise ValueError
 
         comparison_string = annotate_eval_string(reference_string = formatted_src,
                                                                 hypothesis_string = best_result["hypothesis_string"],
@@ -281,6 +302,116 @@ class StokeCostManager:
 
         return result_tuples
 
+    def _get_updated_rewrite_returncode(self, rewrite_cost, rewrite_failed, rewrite_correct, metadata):
+        old_returncode = metadata["best_seq_returncode"]
+        best_cost_so_far = metadata["best_cost_so_far"]
+        if old_returncode < -1:
+            new_returncode = -1 # -2 -> not trained on yet
+        if old_returncode < 0 and not rewrite_failed:
+            new_returncode = 0 # -1 -> failed, so this re-write did not fail
+        if old_returncode < 1 and rewrite_correct:
+            new_returncode = 1 # 1 is the baseline meaning, this is worse than O0, we try to see if we
+                                    # need to modify this next
+        if rewrite_cost < best_cost_so_far and rewrite_correct and not rewrite_failed:
+            best_cost_so_far = rewrite_cost
+            low_benchmark = metadata["low_benchmark"]
+            high_benchmark = metadata["high_benchmark"]
+
+            if old_returncode < 1 and rewrite_cost > high_benchmark:
+                new_returncode = 1
+            elif old_returncode < 2 and rewrite_cost == high_benchmark:
+                new_returncode = 2
+            elif old_returncode < 3 and rewrite_cost < high_benchmark and rewrite_cost > low_benchmark:
+                assert rewrite_cost <= high_benchmark
+                new_returncode = 3
+            elif old_returncode < 4 and rewrite_cost == low_benchmark:
+                assert rewrite_cost <= high_benchmark
+                new_returncode = 4
+            elif old_returncode < 5 and rewrite_cost < low_benchmark:
+                assert rewrite_cost < low_benchmark and rewrite_cost < high_benchmark
+                new_returncode = 5
+
+        return new_returncode, best_cost_so_far
+
+    def _calculate_best_seq_statistics(self):
+        rc_stats_dict = {}
+
+        for i in range(-2, 6):
+            rc_stats_dict[i] = {"counts": 0, "costs": []}
+
+        for metadata in self.hash2metadata.items():
+            best_seq_returncode = metadata["best_seq_returncode"]
+            best_cost_so_far = metadata["best_cost_so_far"]
+            rc_stats_dict[best_seq_returncode]["counts"]+=1
+            rc_stats_dict[best_seq_returncode]["costs"].append(best_cost_so_far)
+
+        percentage_dict = {}
+        cost_dict = {}
+
+        for rc, stats in rc_stats_dict.items():
+            mean_cost = np.mean(stats["costs"]) if len(stats["costs"]) > 0 else -1
+            n_seqs = len(metadata) - rc_stats_dict[-2]["counts"]
+            pct_of_trained = stats["counts"] / n_seqs
+            if rc != -2:
+                title = rc2axis[rc]
+                percentage_dict[title] = pct_of_trained * 100
+                cost_dict[title] = mean_cost
+
+        return percentage_dict, cost_dict
+
+    def _plot_best_seq_stats(self, percentage_dict, cost_dict):
+        output_path = os.path.dirname(self.trailing_stats_out_path) # by default model dir
+
+        # PERCENTAGE DICT
+        plt.rcParams["font.family"] = "sans-serif"
+        plt.rc('axes', axisbelow=True)
+
+        plt.grid(color='gray', linestyle='dashed')
+        max_val = max(percentage_dict.values())
+        annotation_dict = {k: (f'{v:.2f}%' if v != -1 else "NA") for k, v in percentage_dict.items()}
+        textstr = "Percentages per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
+        # these are matplotlib.patch.Patch properties
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+
+        # place a text box in upper left in axes coords
+        plt.text(7, max_val, textstr, fontsize=12,
+                 verticalalignment='top', bbox=props)
+
+        plt.bar(percentage_dict.keys(), percentage_dict.values(), color="darkgreen")
+        plt.title("Distribution of Result Types During Training")
+        plt.ylabel("Percentage")
+        plt.xticks(rotation=75)
+        plt.savefig(join(output_path, "percentage.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+        plt.clf()
+
+        # COST DICT
+        max_val = max(cost_dict.values())
+
+        plt.rc('axes', axisbelow=True)
+        plt.rcParams["font.family"] = "sans-serif"
+        plt.grid(color='gray', linestyle='dashed')
+
+        plt.bar(cost_dict.keys(), cost_dict.values(), color="darkgreen")
+        plt.title("Average Stoke Cost by Performance Bucket During Training")
+        plt.ylabel("Stoke Cost")
+        plt.yscale("log")
+        plt.xticks(rotation=75)
+
+        annotation_dict = {k: (f'{v:.2f}' if v != -1 else "NA") for k, v in cost_dict.items()}
+        textstr = "Costs per Bucket:" + "\n\n" + '\n'.join([f"{k} = {v}" for k, v in annotation_dict.items()])
+        # these are matplotlib.patch.Patch properties
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+
+        # place a text box in upper left in axes coords
+        plt.text(6, max_val, textstr, fontsize=12,
+                 verticalalignment='top', bbox=props)
+
+        plt.savefig(join(output_path, "cost.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+        plt.clf()
+
+    def save_best_seq_stats(self):
+        percentage_dict, cost_dict = self._calculate_best_seq_statistics()
+        self._plot_best_seq_stats(percentage_dict=percentage_dict, cost_dict=cost_dict)
 
     def update_buffers(self, hash_stats_list: Tuple[str, Dict]):
 
@@ -293,6 +424,17 @@ class StokeCostManager:
             failed_cost = stats["failed_cost"]
             hypothesis_string = stats["hypothesis_string"]
             new_record_returncode = stats["new_record_returncode"]
+            correct = stats["correct"]
+            best_seq_returncode, best_cost_so_far = self.__get_updated_rewrite_returncode(
+                                                                            rewrite_cost = effective_cost,
+                                                                            rewrite_failed = failed_cost,
+                                                                            rewrite_correct = correct,
+                                                                            metadata = self.hash2metadata[h]
+                                                                                            )
+            self.hash2metadata[h]["best_seq_returncode"] = best_seq_returncode
+            self.hash2metadata[h]["best_cost_so_far"] = best_cost_so_far
+
+
             if new_record_returncode == 3:
                 print(f"for {self.hash2metadata[h]['name']} the baseline was beat and verified")
                 print(f"the cost was {stats['cost']} whereas the reference was {self.hash2metadata[h]['reference_score']}")
@@ -319,6 +461,8 @@ class StokeCostManager:
             self.trailing_stats_dict[h]["failed_cost"].append(failed_cost)
             self.trailing_stats_dict[h]["best_sequence_priority_queue"].append(effective_cost,
                                                                                beat_baseline_str + hypothesis_string)
+            # update
+
 
             batch_cost += effective_cost
             pct_failures += failed_cost
