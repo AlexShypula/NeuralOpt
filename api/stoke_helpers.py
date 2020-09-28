@@ -89,7 +89,7 @@ def verify_rewrite(target_f: str,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            timeout=25)
+            timeout=300)
         return verify_test.returncode
     except subprocess.TimeoutExpired as err:
         print(f"verify timed out with error {err}")
