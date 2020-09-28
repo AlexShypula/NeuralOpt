@@ -305,6 +305,7 @@ class StokeCostManager:
     def _get_updated_rewrite_returncode(self, rewrite_cost, rewrite_failed, rewrite_correct, metadata):
         old_returncode = metadata["best_seq_returncode"]
         best_cost_so_far = metadata["best_cost_so_far"]
+        new_returncode = old_returncode
         if old_returncode < -1:
             new_returncode = -1 # -2 -> not trained on yet
         if old_returncode < 0 and not rewrite_failed:
@@ -425,7 +426,7 @@ class StokeCostManager:
             hypothesis_string = stats["hypothesis_string"]
             new_record_returncode = stats["new_record_returncode"]
             correct = stats["correct"]
-            best_seq_returncode, best_cost_so_far = self.__get_updated_rewrite_returncode(
+            best_seq_returncode, best_cost_so_far = self._get_updated_rewrite_returncode(
                                                                             rewrite_cost = effective_cost,
                                                                             rewrite_failed = failed_cost,
                                                                             rewrite_correct = correct,
