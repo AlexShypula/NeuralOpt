@@ -888,7 +888,7 @@ class TrainManager:
         #breakpoint()
         #actor_pool = mp.Pool(self.n_actors, initializer=init, initargs=(model_lock, latest_model_id, running_starts_counter))
         #actor_pool.map(actor_wrapper, jobs)
-        processes = [mp.Process(target=actor_wrapper, args=(job,)) for job in jobs]
+        processes = [mp.Process(target=actor_wrapper, args=(job,), daemon=True) for job in jobs]
         for p in processes: 
             p.start()
         ## TODO: verify the variables and variable names used here
