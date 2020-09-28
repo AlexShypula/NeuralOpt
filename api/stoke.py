@@ -188,7 +188,7 @@ def get_stoke_cost(hypothesis_string: str,
 
     tunit_failed = False if tunit_rc == 0 else True
     cost_failed = False if tunit_rc == 0 and cost_rc == 0 else True
-    correct = False if cost_failed else correct
+    correct = False if cost_failed else (correct == "yes") # correct will be a string, and if 'yes' then correct
 
     if tunit_rc == 0 and cost_rc == 0:
         return float(cost), tunit_failed, cost_failed, correct
