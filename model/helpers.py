@@ -186,7 +186,10 @@ class BucketReplayBuffer:
     def clear_queue(self, queue: mp.Queue, cost_manager):
         experiences = []
         while not queue.empty():
-            experiences.append(queue.get())
+            try: 
+                experiences.append(queue.get())
+            except FileNotFoundError: 
+                break
         hash_stats = []
         #if experiences != []: 
             #pdb.set_trace()
@@ -250,6 +253,7 @@ class BucketReplayBuffer:
         src_lens = [sample["src_len"] for sample in samples]
         tgt_lens = [sample["out_len"] for sample in samples]
         advantages = [cost - cost_manager.get_mean_stdv_cost(h)[0] for cost, h in zip(costs, hashes)]
+        #print(["cost: {}, advantage: {}".format(c, a) for c, a in zip(costs, advantages)])
 
         return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens
 
