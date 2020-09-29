@@ -119,7 +119,7 @@ class TrainManager:
 
         #actor-learner
         self.n_actors = train_config.get("n_actors", 1)
-        self.actor_devices = train_config.get("actor_devices", "cpu").split(":")
+        self.actor_devices = train_config.get("actor_devices", "cpu").split("/")
         self.learner_device = train_config.get("learner_device", "cuda:0")
         self.replay_buffer_size = train_config.get("replay_buffer_size", 512)
         self.save_learner_every = train_config.get("save_learner_every", 1)
@@ -1071,8 +1071,7 @@ class TrainManager:
         print("shutting down the child processes")
         generate_trajectory_flag.clear()
         for p in processes:
-            p.terminate()
-            p.join()
+            p.join(timeout=10)
         print("making performance plot")
         performance_timer.make_perf_plot(title = "Learner Performance Benchmarking",
                                          path = "{}/learner_perf_plot.png".format(self.model_dir))
@@ -1127,10 +1126,10 @@ def train(cfg_file: str) -> None:
 
     # predict with the best model on validation and test
     # (if test data is available)
-    ckpt = "{}/{}.ckpt".format(trainer.model_dir, trainer.best_ckpt_iteration)
-    output_name = "{:08d}.hyps".format(trainer.best_ckpt_iteration)
-    output_path = os.path.join(trainer.model_dir, output_name)
-    test(cfg_file, ckpt=ckpt, output_path=output_path, logger=trainer.logger)
+    #ckpt = "{}/{}.ckpt".format(trainer.model_dir, trainer.best_ckpt_iteration)
+    #output_name = "{:08d}.hyps".format(trainer.best_ckpt_iteration)
+    #output_path = os.path.join(trainer.model_dir, output_name)
+    #test(cfg_file, ckpt=ckpt, output_path=output_path, logger=trainer.logger)
 
 
 if __name__ == "__main__":
