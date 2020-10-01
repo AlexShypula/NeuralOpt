@@ -188,7 +188,10 @@ class BucketReplayBuffer:
         while not queue.empty():
             try: 
                 experiences.append(queue.get())
-            except FileNotFoundError: 
+	# may also be able to use torch.multiprocessing.set_sharing_strategy('file_system') to avoid 
+	# 'RuntimeError: received 0 items of ancdata'
+            except (FileNotFoundError, RuntimeError) as e:
+                print(f"while trying to clear from the queue, we got error: {e}") 
                 break
         hash_stats = []
         #if experiences != []: 
@@ -204,7 +207,7 @@ class BucketReplayBuffer:
             #print(f"new example failed status is {stats['failed_cost']}, and cost is {stats['cost']}")
         if len(experiences) > 0: 
             avg_offline_cost, avg_pct_failures = cost_manager.update_buffers(hash_stats)
-            cost_manager.log_buffer_stats([hash_stat[0] for hash_stat in hash_stats])
+            #cost_manager.log_buffer_stats([hash_stat[0] for hash_stat in hash_stats])
             self.adjust_weights()
         else: 
             avg_offline_cost, avg_pct_failures = 0, 0

@@ -52,7 +52,7 @@ from collections import deque
 from copy import deepcopy
 from fairseq import pdb
 
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"
 
 def init(l, model_id, ctr):
     global model_lock
@@ -852,14 +852,16 @@ class TrainManager:
         #ctx = mp.get_context("spawn")
         model_lock = mp.Lock() #rwlock.RWLockWrite()
         self._save_learner()
+        #trajectory_queue = mp.Queue(maxsize=self.replay_buffer_size)
         trajectory_queue = mp.Queue()
         generate_trajectory_flag = mp.Event()
         generate_trajectory_flag.set()
         running_starts_counter = mp.Value("i", 1) #self.n_actors)
+        print(f"Learner has {torch.cuda.device_count()} available gpus and {torch.cuda.current_device()} is current device")
 
         device_indices = [i % len(self.actor_devices) for i in range(self.n_actors)]
         actor_device_list = [self.actor_devices[i] for i in device_indices]
-
+        print(f"actor device list is {actor_device_list}")
         jobs = [{"model_cfg": self.model_cfg,
                 "src_field": src_field,
                 "hash2metadata": self.hash2metadata,

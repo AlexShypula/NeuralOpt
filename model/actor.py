@@ -130,8 +130,9 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
     #    ckpt_param = model_checkpoint["model_state"][ckpt_key]
     #    model_param.data = ckpt_param.data
 
+    print(f"desired device is {device} and trying to put on, {torch.cuda.device_count()} counts and {torch.cuda.current_device()} is current device")
     model.to(device)
-
+    print(f"desired device is {device} and it succeeded !")
     data = MonoDataset(path=path_to_data, ext="." + src_suffix,
                             field=src_field)
 
@@ -140,7 +141,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                                 batch_type=batch_type,
                                 train=True, shuffle=True)
     hash2metadata = prune_hash2metadata(hash2metadata=hash2metadata, model=model, level=level, data_iter=data_iter, pad_index = pad_index)
-    requester = StokeRequest(port = stoke_container_port_no)
+    requester = StokeRequest(base_url = "http://127.0.0.1", port = stoke_container_port_no)
 
     running_starts_left = no_running_starts
     running_starts_flag = True if running_starts_left > 0 else False

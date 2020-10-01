@@ -63,7 +63,7 @@ class StokeCostManager:
         self.hash2metadata = hash2metadata
         # self.container_name = container_name
         self.container_port = container_port
-        self.requester = StokeRequest(port = self.container_port)
+        self.requester = StokeRequest(base_url = "http://127.0.0.1", port = self.container_port)
         self.host_path_to_volume = host_path_to_volume
         self.container_path_to_volume = container_path_to_volume
         self.volume_path_to_data = volume_path_to_data
