@@ -154,6 +154,59 @@ class StokeCostManager:
             hashes_advantages_stats.append((h, normalized_advantage, stats))
         return hashes_advantages_stats
 
+    def eval_beams_v2(self, source_bpe_str: str, hyp_bpe_beams: str):
+        jobs = {}
+        h = hash_file(source_bpe_str.strip())
+        metadata = self.hash2metadata[h]
+
+        formatted_src, _ = bpe2formatted(assembly_string = source_bpe_str, function_name = metadata["name"],
+                                      remove_header = True, remove_footer = True)
+        for i, hyp in enumerate(hyp_bpe_beams):
+            formatted_hyp, _ = bpe2formatted(assembly_string = hyp, function_name = metadata["name"],
+                                          remove_header = True, remove_footer = True)
+            jobs[i] = {"hypothesis_string": formatted_hyp, "metadata": metadata}
+        results = self.requester.eval(jobs)
+        metadata['best_cost_so_far'] = 1e9
+        metadata['best_seq_returncode'] = -1
+        metadata['low_benchmark'] = min(metadata["O0_cost"], metadata["Og_cost"])
+        metadata['high_benchmark'] = max(metadata["O0_cost"], metadata["Og_cost"])
+
+        best_result = {"hypothesis_string": jobs[0]["hypothesis_string"], "stats": results["0"]["stats"]}
+        for i, result_dict in results.items():
+            i = int(i) # quirks of conversion int -> string
+            cost = result_dict["stats"]["cost"]
+            correct = result_dict["stats"]["correct"]
+            failed = result_dict["stats"]["failed_cost"]
+
+            old_returncode = metadata["best_seq_returncode"]
+            old_cost = metadata["best_cost_so_far"]
+
+            new_returncode, new_best_cost_so_far = self._get_updated_rewrite_returncode(rewrite_cost=cost,
+                                                                  rewrite_failed=failed,
+                                                                  rewrite_correct=correct,
+                                                                  metadata=metadata)
+
+
+            if new_returncode > old_returncode:
+                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+            elif new_best_cost_so_far < old_cost:
+                best_result = {"hypothesis_string": jobs[i]["hypothesis_string"], "stats": result_dict["stats"]}
+
+            metadata["best_seq_returncode"] = new_returncode
+            metadata["best_cost_so_far"] = new_best_cost_so_far
+
+
+        comparison_string = annotate_eval_string(reference_string = formatted_src,
+                                                                hypothesis_string = best_result["hypothesis_string"],
+                                                                function_name=metadata["name"],
+                                                                best_cost = best_result["stats"]["cost"],
+                                                                unopt_cost = metadata["O0_cost"],
+                                                                opt_cost = metadata["Og_cost"],
+                                                                correctness_flag = best_result["stats"]["correct"],
+                                                                return_code = metadata["best_seq_returncode"])
+
+        return metadata["best_seq_returncode"], best_result["hypothesis_string"], best_result["stats"], comparison_string, metadata
+
     def eval_beams(self, source_bpe_str: str, hyp_bpe_beams: str):
         jobs = {}
         h = hash_file(source_bpe_str.strip())

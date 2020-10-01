@@ -195,7 +195,7 @@ def validate_on_data(model: Model, data: Dataset,
             individual_record_list = []
             pbar = tqdm(total = len(valid_beams), smoothing=0, desc="evaluating all beams with STOKE")
             for source, hypotheses in zip(valid_sources, valid_beams):
-                rc, hypothesis_string, stats, comparison_string, metadata = cost_manager.eval_beams(source, hypotheses)
+                rc, hypothesis_string, stats, comparison_string, metadata = cost_manager.eval_beams_v2(source, hypotheses)
                 rc_stats_dict[rc]["counts"]+=1
                 rc_stats_dict[rc]["costs"].append(stats["cost"])
                 valid_hypotheses.append(hypothesis_string)
@@ -384,7 +384,7 @@ def test(cfg_file,
                                         random_state=random.getstate())
         test_data = keep
 
-    data_to_predict = {"train": train_data, "dev": dev_data, "test": test_data}
+    data_to_predict =  {"test": test_data} #{"train": train_data, "dev": dev_data, "test": test_data}
 
     # load model state from disk
     model_checkpoint = load_checkpoint(ckpt, use_cuda=use_cuda)
