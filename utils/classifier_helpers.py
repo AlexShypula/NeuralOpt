@@ -28,6 +28,18 @@ from torch.nn.utils.rnn import pad_sequence
 from typing import List, Union
 
 
+def load_checkpoint(path: str, use_cuda: bool = True) -> dict:
+    """
+    Load model from saved checkpoint.
+
+    :param path: path to checkpoint
+    :param use_cuda: using cuda or not
+    :return: checkpoint (dict)
+    """
+    assert os.path.isfile(path), "Checkpoint %s not found" % path
+    checkpoint = torch.load(path, map_location='cuda' if use_cuda else 'cpu')
+    return checkpoint
+
 
 
 def load_config(path="configs/default.yaml") -> dict:

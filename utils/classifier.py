@@ -47,6 +47,8 @@ def classification_pipeline(cfg: str):
     set_seed(seed=train_config.get("random_seed", 42))
     print("initializing the model !")
     model = build_model(model_config, src_vocab=src_vocab, trg_vocab=trg_vocab)
+    model_checkpoint = load_checkpoint(path=train_config["load_model"], use_cuda=train_config["use_cuda"])
+    model.load_state_dict(model_checkpoint["model_state"])
     breakpoint()
     seq2seq_output_dim = model.decoder.output_layer.weight.size(1)
 
