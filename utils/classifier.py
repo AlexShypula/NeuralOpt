@@ -10,6 +10,7 @@ from classifier_helpers import *
 from torchtext import data
 from sklearn.metrics import auc, roc_curve
 from torch import optim
+from tqdm import tqdm
 
 
 class BinaryClassifier(nn.Module):
@@ -57,7 +58,7 @@ def classification_pipeline(cfg: str):
                                         linear_hidden_size=train_config.get("linear_hidden_size", 1024))
 
 
-
+    print("model loaded successfully, getting data ready")
     model_dir = train_config["model_dir"]
     tb_writer = SummaryWriter(
         log_dir=model_dir + "/tensorboard/")
@@ -102,6 +103,7 @@ def classification_pipeline(cfg: str):
 
     binary_xent_loss = nn.BCELoss()
     optimizer = optim.Adam(classifier_model.parameters(), lr=train_config["learning_rate"])
+    print("now training")
     train(model=classifier_model, loss=binary_xent_loss, optimizer=optimizer,
           epochs=train_config["epochs"], dataloaders=dataloaders, tb_writer=tb_writer, model_dir = model_dir,
           threshold = train_config.get("classification_threshold", 0.5))
@@ -113,17 +115,17 @@ def train(model: Model, loss: nn.Module, optimizer, epochs,
 
 
     for epoch_no in range(1, epochs + 1):
-        for phase in ["val", "train"]:
+
+        for phase in ["val", "train", "test"]:
+            print(f"epoch {epoch_no} phase {phase}")
             epoch_losses = []
             epoch_labs = []
             epoch_outputs = []
             epoch_correct_preds = []
-            for batch in iter(dataloaders[phase]):
-                inputs = batch.text
-                labels = batch.label
+            for batch in tqdm(iter(dataloaders[phase]), desc=f"epoch {epoch_no} phase {phase}"):
                 with torch.set_grad_enabled(phase == 'train'):
                     output_probs = model(inputs = batch.text)
-                    loss = loss(output_probs, labels)
+                    loss = loss(output_probs, batch.label)
                     preds = output_probs > threshold
                     correct_preds = (preds == batch.label)
                     if phase == 'train':
@@ -135,7 +137,7 @@ def train(model: Model, loss: nn.Module, optimizer, epochs,
                         tb_writer.add_scalar("train/batch_accuracy", acc)
                     breakpoint()
                     epoch_losses.append(loss.item())
-                    epoch_labs.extend(list(labels.numpy()))
+                    epoch_labs.extend(list(batch.label.numpy()))
                     epoch_outputs.extend(list(output_probs.numpy()))
                     epoch_correct_preds.extend(list(correct_preds.numpy()))
 
@@ -149,6 +151,7 @@ def train(model: Model, loss: nn.Module, optimizer, epochs,
             auc_score = auc_score(false_pos_rte, true_pos_rte)
 
             if phase != "test":
+                print(f"epoch {epoch_no} and acc is {epoch_acc} and auc is {auc_score}")
 
                 tb_writer.add_scalar("{}/loss".format(phase), epoch_loss)
                 tb_writer.add_scalar("{}/accuracy".format(phase), epoch_acc)
