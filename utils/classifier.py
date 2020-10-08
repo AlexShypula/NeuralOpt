@@ -79,7 +79,7 @@ def classification_pipeline(cfg: str):
                                              test=data_config["test_path"],
                                              format="csv",
                                              skip_header=True,
-                                             fields=[('text', TEXT)], ('label', LABEL))
+                                             fields=[('text', src_field), ('label', label_field)])
 
     train_iter = data.BucketIterator(
         repeat=False, sort=False, dataset=train,
