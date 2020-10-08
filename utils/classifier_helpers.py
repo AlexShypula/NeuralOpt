@@ -1,4 +1,5 @@
 import yaml
+import os
 import torch
 import numpy as np
 import random
@@ -25,7 +26,57 @@ from collections import defaultdict, Counter
 from typing import List
 
 from torch.nn.utils.rnn import pad_sequence
-from typing import List, Union
+from typing import List, Union, Optional
+
+class Vocabulary:
+    """ Vocabulary represents mapping between tokens and indices. """
+
+    def __init__(self, tokens: List[str] = None, file: str = None) -> None:
+        """
+        Create vocabulary from list of tokens or file.
+
+        Special tokens are added if not already in file or list.
+        File format: token with index i is in line i.
+
+        :param tokens: list of tokens
+        :param file: file to load vocabulary from
+        """
+        # don't rename stoi and itos since needed for torchtext
+        # warning: stoi grows with unknown tokens, don't use for saving or size
+
+        # special symbols
+        self.specials = [UNK_TOKEN, PAD_TOKEN, BOS_TOKEN, EOS_TOKEN]
+
+        self.stoi = defaultdict(DEFAULT_UNK_ID)
+        self.itos = []
+        if tokens is not None:
+            self._from_list(tokens)
+        elif file is not None:
+            self._from_file(file)
+
+    def _from_list(self, tokens: List[str] = None) -> None:
+        """
+        Make vocabulary from list of tokens.
+        Tokens are assumed to be unique and pre-selected.
+        Special symbols are added if not in list.
+
+        :param tokens: list of tokens
+        """
+        self.add_tokens(tokens=self.specials+tokens)
+        assert len(self.stoi) == len(self.itos)
+
+    def _from_file(self, file: str) -> None:
+        """
+        Make vocabulary from contents of file.
+        File format: token with index i is in line i.
+
+        :param file: path to file where the vocabulary is loaded from
+        """
+        tokens = []
+        with open(file, "r") as open_file:
+            for line in open_file:
+                tokens.append(line.strip("\n"))
+        self._from_list(tokens)
 
 
 def load_checkpoint(path: str, use_cuda: bool = True) -> dict:
@@ -71,7 +122,7 @@ def set_seed(seed: int) -> None:
 
 def build_model(cfg: dict = None,
                 src_vocab: Vocabulary = None,
-                trg_vocab: Vocabulary = None) -> Model:
+                trg_vocab: Vocabulary = None):
     """
     Build and initialize the model according to the configuration.
 
@@ -2682,7 +2733,7 @@ class Model(nn.Module):
 
         return stacked_output, transposed_log_probs, entropy
 
-    def get_rl_loss_for_batch(self, batch: Batch, cost_manager: StokeCostManager, beta_entropy: float,
+    def get_rl_loss_for_batch(self, batch: Batch, cost_manager, beta_entropy: float,
                               use_cuda: bool, max_output_length: int,
                               level: str) -> Tensor:
         """

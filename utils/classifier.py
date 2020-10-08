@@ -1,4 +1,5 @@
 import torch
+import os
 from torch import nn
 import torch.nn.functional as F
 import argparse
@@ -19,13 +20,13 @@ class BinaryClassifier(nn.Module):
         super(BinaryClassifier, self).__init__()
         self.seq2seq_model = seq2seq_model
         last_output_dim = seq2seq_output_dim * 2 # you want to mean and max pool
-        self.linear_list = nn.ModuleList[]
-        for _ in n_linear_layers:
+        self.linear_list = nn.ModuleList()
+        for _ in range(n_linear_layers):
             self.linear_list.append(nn.Linear(last_output_dim, linear_hidden_size))
             last_output_dim = linear_hidden_size
         self.output_layer = nn.Linear(last_output_dim, 1) # binary output
     def forward(self, input: torch.Tensor):
-        output, _ = self.seq2seq_model.run_batch(input)
+        output, _ = self.seq2seq_model.run_batch(input, max_output_length = 200, beam_size = 1, beam_alpha = -1)
         avg_pool = torch.mean(output, dim=1)
         max_pool = torch.max(output, dim=1)
         output = torch.cat((avg_pool, max_pool), dim=1)
@@ -38,7 +39,7 @@ class BinaryClassifier(nn.Module):
 
 
 def classification_pipeline(cfg: str):
-    cfg = load_config(cfg_file)
+    cfg = load_config(cfg)
     train_config = cfg["training"]
     data_config = cfg["data"]
     model_config = cfg["model"]
@@ -47,10 +48,21 @@ def classification_pipeline(cfg: str):
 
     set_seed(seed=train_config.get("random_seed", 42))
     print("initializing the model !")
+    level = data_config["level"]
+    lowercase = data_config["lowercase"]
+    tok_fun = lambda s: list(s) if level == "char" else s.split()
+    src_field = data.Field(init_token=None, eos_token=EOS_TOKEN,
+                           pad_token=PAD_TOKEN, tokenize=tok_fun,
+                           batch_first=True, lower=lowercase,
+                           unk_token=UNK_TOKEN,
+                           include_lengths=True)
+
+    src_vocab = Vocabulary(file = data_config["src_vocab"])
+    trg_vocab = Vocabulary(file = data_config["trg_vocab"])
+    src_field.vocab = src_vocab
     model = build_model(model_config, src_vocab=src_vocab, trg_vocab=trg_vocab)
     model_checkpoint = load_checkpoint(path=train_config["load_model"], use_cuda=train_config["use_cuda"])
     model.load_state_dict(model_checkpoint["model_state"])
-    breakpoint()
     seq2seq_output_dim = model.decoder.output_layer.weight.size(1)
 
     classifier_model = BinaryClassifier(seq2seq_model=model, seq2seq_output_dim=seq2seq_output_dim,
@@ -62,15 +74,7 @@ def classification_pipeline(cfg: str):
     model_dir = train_config["model_dir"]
     tb_writer = SummaryWriter(
         log_dir=model_dir + "/tensorboard/")
-
-    src_field = data.Field(init_token=None, eos_token=EOS_TOKEN,
-                           pad_token=PAD_TOKEN, tokenize=tok_fun,
-                           batch_first=True, lower=lowercase,
-                           unk_token=UNK_TOKEN,
-                           include_lengths=True)
-
-    src_vocab = Vocabulary(file = data_config["vocab_path"])
-    src_field.vocab = src_vocab
+    batch_size = train_config["batch_size"]
 
     label_field = data.Field(sequential=False, use_vocab=False, batch_first=True)
 
@@ -80,23 +84,23 @@ def classification_pipeline(cfg: str):
                                              test=data_config["test_path"],
                                              format="csv",
                                              skip_header=True,
-                                             fields=[('text', src_field), ('label', label_field)])
+                                             fields=[('src', src_field), ('label', label_field)])
 
     train_iter = data.BucketIterator(
         repeat=False, sort=False, dataset=train,
-        batch_size=batch_size, batch_size_fn=batch_size_fn,
+        batch_size=batch_size, batch_size_fn=token_batch_size_fn,
         train=True, sort_within_batch=True,
         sort_key=lambda x: len(x.src), shuffle=True, device=device)
 
     valid_iter = data.BucketIterator(
         repeat=False, sort=False, dataset=val,
-        batch_size=batch_size, batch_size_fn=batch_size_fn,
-        train=False, sort = False, shuffle=True, device=device)
+        batch_size=batch_size, batch_size_fn=token_batch_size_fn,
+        train=False, shuffle=True, device=device)
 
     test_iter = data.BucketIterator(
         repeat=False, sort=False, dataset=val,
-        batch_size=batch_size, batch_size_fn=batch_size_fn,
-        train=False, sort = False, shuffle=True, device=device)
+        batch_size=batch_size, batch_size_fn=token_batch_size_fn,
+        train=False, shuffle=True, device=device)
 
     dataloaders = {"train": train_iter, "valid": valid_iter, "test": test_iter}
 
@@ -104,19 +108,19 @@ def classification_pipeline(cfg: str):
     binary_xent_loss = nn.BCELoss()
     optimizer = optim.Adam(classifier_model.parameters(), lr=train_config["learning_rate"])
     print("now training")
-    train(model=classifier_model, loss=binary_xent_loss, optimizer=optimizer,
+    train_loop(model=classifier_model, loss=binary_xent_loss, optimizer=optimizer,
           epochs=train_config["epochs"], dataloaders=dataloaders, tb_writer=tb_writer, model_dir = model_dir,
           threshold = train_config.get("classification_threshold", 0.5))
 
 
 
-def train(model: Model, loss: nn.Module, optimizer, epochs,
+def train_loop(model: Model, loss: nn.Module, optimizer, epochs,
           dataloaders, tb_writer, model_dir, threshold = 0.5):
 
 
     for epoch_no in range(1, epochs + 1):
 
-        for phase in ["val", "train", "test"]:
+        for phase in ["train", "valid", "test"]:
             print(f"epoch {epoch_no} phase {phase}")
             epoch_losses = []
             epoch_labs = []
@@ -124,7 +128,8 @@ def train(model: Model, loss: nn.Module, optimizer, epochs,
             epoch_correct_preds = []
             for batch in tqdm(iter(dataloaders[phase]), desc=f"epoch {epoch_no} phase {phase}"):
                 with torch.set_grad_enabled(phase == 'train'):
-                    output_probs = model(inputs = batch.text)
+                    breakpoint()
+                    output_probs = model(input = batch.src)
                     loss = loss(output_probs, batch.label)
                     preds = output_probs > threshold
                     correct_preds = (preds == batch.label)
