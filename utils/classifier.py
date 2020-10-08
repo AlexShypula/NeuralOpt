@@ -103,7 +103,7 @@ def classification_pipeline(cfg: str):
     binary_xent_loss = nn.BCELoss()
     optimizer = optim.Adam(classifier_model.parameters(), lr=train_config["learning_rate"])
     train(model=classifier_model, loss=binary_xent_loss, optimizer=optimizer,
-          epochs=train_config["epochs"], tb_writer = tb_writer, model_dir = model_dir,
+          epochs=train_config["epochs"], dataloaders=dataloaders, tb_writer=tb_writer, model_dir = model_dir,
           threshold = train_config.get("classification_threshold", 0.5))
 
 
