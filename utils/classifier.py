@@ -19,7 +19,7 @@ class Batch:
     Input is a batch from a torch text iterator.
     """
 
-    def __init__(self, torch_batch, labels, pad_index, use_cuda=False):
+    def __init__(self, torch_batch, pad_index, use_cuda=False):
         """
         Create a new joey batch from a torch batch.
         This batch extends torch text's batch attributes with src and trg
@@ -32,7 +32,7 @@ class Batch:
         """
         self.src, self.src_lengths = torch_batch.src
         self.src_mask = (self.src != pad_index).unsqueeze(1)
-        self.labels = labels
+        self.label = torch_batch.label.type(torch.float32)
         self.nseqs = self.src.size(0)
         self.trg_input = None
         self.trg = None
@@ -126,10 +126,11 @@ class BinaryClassifier(nn.Module):
             self.linear_list.append(nn.Linear(last_output_dim, linear_hidden_size))
             last_output_dim = linear_hidden_size
         self.output_layer = nn.Linear(last_output_dim, 1) # binary output
-    def forward(self, input: torch.Tensor):
+    def forward(self, input: Batch):
         output, _ = self.seq2seq_model.run_batch(input, max_output_length = 200, beam_size = 1, beam_alpha = -1)
+        #breakpoint()
         avg_pool = torch.mean(output, dim=1)
-        max_pool = torch.max(output, dim=1)
+        max_pool, _ = torch.max(output, dim=1)
         output = torch.cat((avg_pool, max_pool), dim=1)
         for layer in self.linear_list:
             output = layer(output)
@@ -209,6 +210,7 @@ def classification_pipeline(cfg: str):
     binary_xent_loss = nn.BCELoss()
     optimizer = optim.Adam(classifier_model.parameters(), lr=train_config["learning_rate"])
     print("now training")
+    classifier_model.to(device)
     train_loop(model=classifier_model, loss=binary_xent_loss, optimizer=optimizer,
           epochs=train_config["epochs"], dataloaders=dataloaders, tb_writer=tb_writer, model_dir = model_dir,
           threshold = train_config.get("classification_threshold", 0.5))
@@ -217,37 +219,42 @@ def classification_pipeline(cfg: str):
 
 def train_loop(model: Model, loss: nn.Module, optimizer, epochs,
           dataloaders, tb_writer, model_dir, threshold = 0.5):
-
+    update_no = 0
 
     for epoch_no in range(1, epochs + 1):
 
         for phase in ["train", "valid", "test"]:
             print(f"epoch {epoch_no} phase {phase}")
+            if phase == "train": 
+                model.train()
+            else: 
+                model.eval()
             epoch_losses = []
             epoch_labs = []
             epoch_outputs = []
             epoch_correct_preds = []
-            for batch in tqdm(iter(dataloaders[phase]), desc=f"epoch {epoch_no} phase {phase}"):
-                batch = Batch(batch.src, batch.label, pad_index= model.seq2seq_model.pad_index)
+            for i, batch in enumerate(tqdm(iter(dataloaders[phase]), desc=f"epoch {epoch_no} phase {phase}")):
+                #breakpoint()
+                batch = Batch(batch, pad_index= model.seq2seq_model.pad_index)
                 with torch.set_grad_enabled(phase == 'train'):
-                    breakpoint()
-                    output_probs = model(input = batch.src)
-                    loss = loss(output_probs, batch.label)
-                    preds = output_probs > threshold
+                    #breakpoint()
+                    output_probs = model(input = batch)
+                    loss_value = loss(output_probs.squeeze(1), batch.label)
+                    preds = output_probs.squeeze(1) > threshold
                     correct_preds = (preds == batch.label)
                     if phase == 'train':
-                        loss.backward()
+                        loss_value.backward()
                         optimizer.step()
                         optimizer.zero_grad()
-                        acc = torch.mean(correct_preds)
-                        tb_writer.add_scalar("train/batch_loss", loss.detach())
-                        tb_writer.add_scalar("train/batch_accuracy", acc)
-                    breakpoint()
-                    epoch_losses.append(loss.item())
-                    epoch_labs.extend(list(batch.label.numpy()))
-                    epoch_outputs.extend(list(output_probs.numpy()))
-                    epoch_correct_preds.extend(list(correct_preds.numpy()))
-
+                        acc = torch.mean(correct_preds.type(torch.float32))
+                        tb_writer.add_scalar("train/batch_loss", loss_value.detach(), update_no)
+                        tb_writer.add_scalar("train/batch_accuracy", acc.item(), update_no)
+                        update_no+=1
+                    #breakpoint()
+                    epoch_losses.append(loss_value.item())
+                    epoch_labs.extend(list(batch.label.detach().cpu().numpy()))
+                    epoch_outputs.extend(list(output_probs.detach().cpu().numpy()))
+                    epoch_correct_preds.extend(list(correct_preds.detach().cpu().numpy()))
 
 
             epoch_loss = np.mean(epoch_losses)
@@ -255,14 +262,14 @@ def train_loop(model: Model, loss: nn.Module, optimizer, epochs,
 
             false_pos_rte, true_pos_rte, thresholds = roc_curve(y_true=np.array(epoch_labs),
                                                                 y_score=np.array(epoch_outputs), pos_label=1)
-            auc_score = auc_score(false_pos_rte, true_pos_rte)
+            auc_score = auc(false_pos_rte, true_pos_rte)
 
             if phase != "test":
                 print(f"epoch {epoch_no} and acc is {epoch_acc} and auc is {auc_score}")
 
-                tb_writer.add_scalar("{}/loss".format(phase), epoch_loss)
-                tb_writer.add_scalar("{}/accuracy".format(phase), epoch_acc)
-                tb_writer.add_scalar("{}/auc_score".format(phase), auc_score)
+                tb_writer.add_scalar("{}/loss".format(phase), epoch_loss, epoch_no)
+                tb_writer.add_scalar("{}/accuracy".format(phase), epoch_acc, epoch_no)
+                tb_writer.add_scalar("{}/auc_score".format(phase), auc_score, epoch_no)
 
             if phase in ("valid", "test"):
 
@@ -274,12 +281,13 @@ def train_loop(model: Model, loss: nn.Module, optimizer, epochs,
                 plt.ylim([0.0, 1.05])
                 plt.xlabel('False Positive Rate')
                 plt.ylabel('True Positive Rate')
-                plt.title('Validation Receiver operating characteristic at epoch {}'.format(epoch_no))
+                plt.title('Validation ROC Curve to Predict if Harvestable by STOKE at Epoch {}'.format(epoch_no))
                 plt.legend(loc="lower right")
-                plt.savefig("{}/validation_roc_curve_ep_{}.png".format(model_dir, epoch_no))
+                plt.savefig("{}/validation_roc_curve_ep_{}.png".format(model_dir, epoch_no), dpi=300, pad_inches=2)
+        if (epoch_no % 2) == 0: 
 
-        state_dict = {"model_state": model.state_dict()}
-        torch.save(state_dict, "{}/model_epoch_{}.ckpt".format(model_dir))
+            state_dict = {"model_state": model.state_dict()}
+            torch.save(state_dict, "{}/model_epoch_{}.ckpt".format(model_dir, epoch_no))
 
 
 

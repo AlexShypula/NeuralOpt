@@ -1789,8 +1789,10 @@ def recurrent_greedy(
 
         # greedy decoding: choose arg max over vocabulary in each step
         next_word = torch.argmax(logits, dim=-1)  # batch x time=1
-        output.append(next_word.squeeze(1).detach().cpu().numpy())
-        prev_y = next_word
+        #output.append(next_word.squeeze(1).detach().cpu().numpy())
+        #breakpoint()
+        output.append(hidden[-1][-1])
+        #prev_y = next_word
         attention_scores.append(att_probs.squeeze(1).detach().cpu().numpy())
         # batch, max_src_lengths
 
@@ -1801,7 +1803,9 @@ def recurrent_greedy(
         if (finished >= 1).sum() == batch_size:
             break
 
-    stacked_output = np.stack(output, axis=1)  # batch, time
+    #breakpoint()
+
+    stacked_output = torch.stack(output, dim=1)  # batch, time
     stacked_attention_scores = np.stack(attention_scores, axis=1)
     return stacked_output, stacked_attention_scores
 
