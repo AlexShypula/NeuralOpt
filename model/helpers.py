@@ -172,14 +172,20 @@ class BucketReplayBuffer:
         self.size = 0
         self.maximum_incoming_length = max(max_src_len, max_output_len)
         self.split_divisor = math.ceil((self.maximum_incoming_length + 1) / self.n_splits)
+        self.good_experience_buffer = []
     def _length_to_buffer_id(self, seq_length):
         #pdb.set_trace()
         return 0 # int(max(0, (seq_length-1) // self.split_divisor))
-    def _add(self, experience: Dict):
+    def _add(self, experience: Dict, cost_manager):
         seq_len = max(experience["src_len"], experience["out_len"])
         buffer_id = self._length_to_buffer_id(seq_len)
         self.buffer_dict[buffer_id].append(experience)
         self.counts[buffer_id]+=1
+        cost = experience["stats"]["cost"]
+        h = experience["hash"]
+        ref_cost = cost_manager.hash2metadata[h]["Og_cost"]
+        if cost < ref_cost: 
+            self.good_experience_buffer.append(experience)
     def adjust_weights(self):
         total = sum(self.counts)
         self.weights = [c / total for c in self.counts]
@@ -197,7 +203,7 @@ class BucketReplayBuffer:
         #if experiences != []: 
             #pdb.set_trace()
         for experience in experiences:
-            self._add(experience=experience)
+            self._add(experience=experience, cost_manager=cost_manager)
             h = experience["hash"]
             stats = experience["stats"]
             avg_cost, _ = cost_manager.get_mean_stdv_cost(h)
@@ -217,6 +223,12 @@ class BucketReplayBuffer:
         return avg_offline_cost, avg_pct_failures, number_of_new_examples
 
     def _get_sample_list(self, max_size) -> List[Dict]:
+        good_experience_len = len(self.good_experience_buffer)
+        #if random.random() < (0.1 * good_experience_len / 500) and good_experience_len > 50: 
+        #    buffer = self.good_experience_buffer
+        #    current_size = 1e9
+        #    hash_set = set()
+        #else: 
         buffer_id = random.choices(population=list(self.buffer_dict.keys()), weights=self.weights, k = 1)[0]
         current_size = 1e9
         buffer = self.buffer_dict[buffer_id]
@@ -231,7 +243,10 @@ class BucketReplayBuffer:
         duplicates_sampled = 0
         while True:
            # print("inside sample while loop")
-            sample = random.sample(buffer, k=1)[0]
+            if random.random() < (0.1 * good_experience_len / 500) and good_experience_len > 50: 
+                sample = random.sample(self.good_experience_buffer, k=1)[0]
+            else: 
+                sample = random.sample(buffer, k=1)[0]
             h = sample["hash"]
             if h in hash_set:
                 duplicates_sampled+=1

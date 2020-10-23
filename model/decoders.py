@@ -344,6 +344,8 @@ class RecurrentDecoder(Decoder):
         # initialize decoder hidden state from final encoder hidden state
         if hidden is None:
             hidden = self._init_hidden(encoder_hidden, batch_size = encoder_output.size(0), device=device)
+        elif type(hidden) == type(tuple()):
+            hidden = tuple([h.to(device) for h in hidden])
 
         # pre-compute projected encoder outputs
         # (the "keys" for the attention mechanism)

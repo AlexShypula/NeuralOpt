@@ -52,6 +52,12 @@ from collections import deque
 from copy import deepcopy
 from fairseq import pdb
 
+import resource
+rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+print(f"rlimit is {rlimit}")
+resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
+
+
 os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"
 
 def init(l, model_id, ctr):
@@ -1020,6 +1026,9 @@ class TrainManager:
                 multi_batch_n_tokens = 0
                 multi_batch_advantage = 0
                 #print("tensorboard writing done, update no {}".format(update_no), flush = True)
+                if (update_no % 5000) == 0: 
+                    state = {"model_state": self.model.state_dict()}
+                    torch.save(state, "{}/model_{}.ckpt".format(self.model_dir, update_no)) 
                 if (update_no % self.log_best_seq_stats_every) == 0:
                     #print("inside cost manager save best seq stats", flush = True)
                     #pdb.set_trace()
