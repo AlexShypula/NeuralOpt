@@ -129,6 +129,7 @@ class TrainManager:
         self.learner_device = train_config.get("learner_device", "cuda:0")
         self.replay_buffer_size = train_config.get("replay_buffer_size", 512)
         self.save_learner_every = train_config.get("save_learner_every", 1)
+        self.synchronized_al = train_config.get("synchronized_al", False)
         
         valid_freq = train_config.get("validation_freq", 1000)
         self.log_best_seq_stats_every = train_config.get("log_best_seq_stats_every", valid_freq)
@@ -152,6 +153,7 @@ class TrainManager:
         self.container_port = data_config.get("container_port", 6000)
         self.learner_model_path = "{}/learner.ckpt".format(self.model_dir)
         self.learner_tmp_path = "{}/tmp.ckpt".format(self.model_dir)
+
 
 
 
@@ -922,6 +924,8 @@ class TrainManager:
         multi_batch_n_seqs = 0
         multi_batch_n_tokens = 0
         multi_batch_advantage = 0
+        multi_batch_costs = []
+        multi_batch_failures = []
 
         performance_timer = StopWatch(name = "stopwatch")
         performance_timer.new_event("Model_Forward_Backward")
@@ -934,7 +938,13 @@ class TrainManager:
             #breakpoint()
             performance_timer.Model_Forward_Backward.start()
             self.model.train()
-            src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
+            if self.synchronized_al:
+                src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.synchronous_sample(
+                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager)
+                multi_batch_costs.extend(costs)
+                multi_batch_failures.extend(failed)
+            else:
+                src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
             # TODO: calculate the advantage somehow using cost manager or other method
             #print("queue samples, now processing batch", flush = True)
             batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=advantages,
@@ -959,8 +969,8 @@ class TrainManager:
                                        batch.advantages*clipped_importance_sampling_ratio)
             else:
                 advantages = batch.advantages
-            advantages = advantages - torch.mean(advantages)
-            advantages/=torch.max(torch.std(advantages), torch.ones_like(advantages))   
+            #advantages = advantages - torch.mean(advantages)
+            #advantages/=torch.max(torch.std(advantages), torch.ones_like(advantages))
             n_tokens = sum(tgt_lens)
             # maximizing exploration entropy = minimizing negative entropy
             loss = torch.sum(online_log_probs * advantages) - online_entropy * self.beta_entropy
@@ -987,26 +997,28 @@ class TrainManager:
                 if (update_no % self.save_learner_every) == 0: 
                     self._save_learner()
                 performance_timer.Save_Learner.stop()
-                performance_timer.Clear_Queue.start()
-                #print("saving done, clearing queue", flush = True)
-                avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue, cost_manager = self.cost_manager)
-                performance_timer.Clear_Queue.stop()
-                new_examples = max(new_examples, 1)
+
+                if not self.synchronized_al:
+                    performance_timer.Clear_Queue.start()
+                    #print("saving done, clearing queue", flush = True)
+                    avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue, cost_manager = self.cost_manager)
+                    performance_timer.Clear_Queue.stop()
+                    new_examples = max(new_examples, 1)
+                    self.tb_writer.add_scalar("train/number-trained-per-new-observations",
+                                              multi_batch_n_seqs / new_examples, update_no)
+                    self.tb_writer.add_scalar("train/queue_size",
+                                              new_examples, update_no)
+                else:
+                    avg_queue_cost = np.mean(multi_batch_costs)
+                    avg_queue_failures = np.mean(multi_batch_failures)
                 #print("queue done, tensorboard writing", flush = True)
+
                 if avg_queue_cost > 0: 
                     self.tb_writer.add_scalar("train/avg_cost",
                                               avg_queue_cost, update_no)
                     self.tb_writer.add_scalar("train/avg_failure_rate",
                                               avg_queue_failures, update_no)
 
-                self.tb_writer.add_scalar("train/number-trained-per-new-observations",
-                                          multi_batch_n_seqs/new_examples, update_no)
-                #self.tb_writer.add_scalar("train/avg_cost",
-                #                          avg_queue_cost, update_no)
-                #self.tb_writer.add_scalar("train/avg_failure_rate",
-                #                          avg_queue_failures, update_no)
-                self.tb_writer.add_scalar("train/queue_size",
-                                          new_examples, update_no)
                 self.tb_writer.add_scalar("train/batch_size",
                                           multi_batch_n_seqs, update_no)
                 self.tb_writer.add_scalar("train/no_baselines_beat",
@@ -1025,6 +1037,8 @@ class TrainManager:
                 multi_batch_n_seqs = 0
                 multi_batch_n_tokens = 0
                 multi_batch_advantage = 0
+                multi_batch_costs = []
+                multi_batch_failures = []
                 #print("tensorboard writing done, update no {}".format(update_no), flush = True)
                 if (update_no % 5000) == 0: 
                     state = {"model_state": self.model.state_dict()}

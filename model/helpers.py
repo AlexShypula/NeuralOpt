@@ -262,6 +262,7 @@ class BucketReplayBuffer:
 
         return samples
     def sample(self, max_size, cost_manager):
+
         #print("sampling ", flush = True)
         samples = self._get_sample_list(max_size=max_size)
         #print("got the sample", flush = True)
@@ -278,6 +279,45 @@ class BucketReplayBuffer:
         #print(["cost: {}, advantage: {}".format(c, a) for c, a in zip(costs, advantages)])
 
         return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens
+
+    def _synchronous_get_sample_list(self, queue, max_size=max_size):
+        max_size -= self.maximum_incoming_length
+        while True:
+            first_sample = queue.get()
+            current_size = max(first_sample["src_len"], first_sample["out_len"])
+            if current_size < max_size:
+                break
+        samples = [first_sample]
+        largest_seen_size = current_size
+        n_sampled = 1
+        while current_size < max_size:
+            new_sample = queue.get()
+            new_sample_size = max(new_sample["src_len"], new_sample["out_len"])
+            largest_seen_size = max(new_sample_size, largest_seen_size)
+            samples.append(new_sample)
+            n_sampled+=1
+            current_size=largest_seen_size*n_sampled
+        return samples
+
+    def synchronous_sample(self, queue, max_size, cost_manager):
+        samples = self._synchronous_get_sample_list(queue=queue, max_size=max_size)
+        # print("got the sample", flush = True)
+        hashes = [sample["hash"] for sample in samples]
+        src_inputs = [sample["src_input"] for sample in samples]
+        traj_outputs = [sample["traj_output"] for sample in samples]
+        log_probs = [sample["log_probs"] for sample in samples]
+        costs = [sample["stats"]["cost"] for sample in samples]
+        corrects = [sample["stats"]["correct"] for sample in samples]
+        failed = [sample["stats"]["failed_cost"] for sample in samples]
+        src_lens = [sample["src_len"] for sample in samples]
+        tgt_lens = [sample["out_len"] for sample in samples]
+        means, stdevs = zip(*(cost_manager.get_mean_stdv_cost(h) for h in hashes))
+        advantages = [(cost - mean)/stdev for cost, mean, stdev in zip(costs, means, stdevs)]
+        #advantages = [cost - cost_manager.get_mean_stdv_cost(h)[0] for cost, h in zip(costs, hashes)]
+        # print(["cost: {}, advantage: {}".format(c, a) for c, a in zip(costs, advantages)])
+        return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens
+
+
 
 
     def is_full(self):

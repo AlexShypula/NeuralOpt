@@ -118,6 +118,7 @@ class StokeCostManager:
 
         cost_std = 1 if len(self.trailing_stats_dict[h]["costs"]) < 2 else np.std(
             self.trailing_stats_dict[h]["costs"])
+        cost_std = 1 if cost_std < 1e-9 else cost_std
         cost_mean = 0 if len(self.trailing_stats_dict[h]["costs"]) < 2 else np.mean(
             self.trailing_stats_dict[h]["costs"])
 
