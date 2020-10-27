@@ -280,7 +280,7 @@ class BucketReplayBuffer:
 
         return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens
 
-    def _synchronous_get_sample_list(self, queue, max_size=max_size):
+    def _synchronous_get_sample_list(self, queue, max_size):
         max_size -= self.maximum_incoming_length
         while True:
             first_sample = queue.get()
