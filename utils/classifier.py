@@ -283,7 +283,7 @@ def train_loop(model: Model, loss: nn.Module, optimizer, epochs,
                 plt.ylabel('True Positive Rate')
                 plt.title('Validation ROC Curve to Predict if Harvestable by STOKE at Epoch {}'.format(epoch_no))
                 plt.legend(loc="lower right")
-                plt.savefig("{}/validation_roc_curve_ep_{}.png".format(model_dir, epoch_no), dpi=300, pad_inches=2)
+                plt.savefig("{}/{}_roc_curve_ep_{}.png".format(model_dir, phase, epoch_no), dpi=300, pad_inches=2)
         if (epoch_no % 2) == 0: 
 
             state_dict = {"model_state": model.state_dict()}
