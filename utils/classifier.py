@@ -290,11 +290,96 @@ def train_loop(model: Model, loss: nn.Module, optimizer, epochs,
             torch.save(state_dict, "{}/model_epoch_{}.ckpt".format(model_dir, epoch_no))
 
 
+def eval_thresholds(cfg: str, model_path: str, valid_data_path: str = None):
+    cfg = load_config(cfg)
+    train_config = cfg["training"]
+    data_config = cfg["data"]
+    model_config = cfg["model"]
+    device = train_config["device"]
+
+    set_seed(seed=train_config.get("random_seed", 42))
+    print("initializing the model !")
+    level = data_config["level"]
+    lowercase = data_config["lowercase"]
+    tok_fun = lambda s: list(s) if level == "char" else s.split()
+    src_field = data.Field(init_token=None, eos_token=EOS_TOKEN,
+                           pad_token=PAD_TOKEN, tokenize=tok_fun,
+                           batch_first=True, lower=lowercase,
+                           unk_token=UNK_TOKEN,
+                           include_lengths=True)
+
+    src_vocab = Vocabulary(file=data_config["src_vocab"])
+    trg_vocab = Vocabulary(file=data_config["trg_vocab"])
+    src_field.vocab = src_vocab
+    model = build_model(model_config, src_vocab=src_vocab, trg_vocab=trg_vocab)
+    model_checkpoint = load_checkpoint(path=model_path, use_cuda=train_config["use_cuda"])
+    model.load_state_dict(model_checkpoint["model_state"])
+    seq2seq_output_dim = model.decoder.output_layer.weight.size(1)
+
+    classifier_model = BinaryClassifier(seq2seq_model=model, seq2seq_output_dim=seq2seq_output_dim,
+                                        n_linear_layers=train_config.get("n_linear_layers", 1),
+                                        linear_hidden_size=train_config.get("linear_hidden_size", 1024))
+
+    print("model loaded successfully from {}, getting data ready".format(model_path))
+    model_dir = train_config["model_dir"]
+    batch_size = train_config["batch_size"]
+    label_field = data.Field(sequential=False, use_vocab=False, batch_first=True)
+    valid_data_path = valid_data_path if valid_data_path else data_config["dev_path"]
+    val = data.TabularDataset(path = valid_data_path, format="csv", skip_header=True,
+                                           fields=[('src', src_field), ('label', label_field)])
+
+
+    valid_iter = data.BucketIterator(
+        repeat=False, sort=False, dataset=val,
+        batch_size=batch_size, batch_size_fn=token_batch_size_fn,
+        train=False, shuffle=True, device=device)
+
+    classifier_model.to(device)
+
+    all_labs = []
+    all_outputs = []
+
+    for i, batch in enumerate(tqdm(valid_iter), desc="valid eval"):
+        # breakpoint()
+        batch = Batch(batch, pad_index=model.seq2seq_model.pad_index)
+        with torch.no_grad():
+            # breakpoint()
+            output_probs = model(input=batch)
+            all_labs.extend(list(batch.label.detach().cpu().numpy()))
+            all_outputs.extend(list(output_probs.detach().cpu().numpy()))
+    thresholds = [i/100 for i in range(0,100)]
+    fprs = []
+    tprs = []
+    labs_arr = np.array(all_labs)
+    for threshold in thresholds:
+        preds = np.array(all_outputs) > threshold
+        tpr = (preds & labs_arr) / np.sum(labs_arr)
+        fpr = (preds & (1 - labs_arr)) / np.sum(1 - labs_arr)
+        tprs.append(tpr)
+        fprs.append(fpr)
+
+    plt.figure()
+    plt.plot(tprs, thresholds, label="true positive rate", color = "darkgreen")
+    plt.plot(fprs, thresholds, label="false positive rate", color = "darkred")
+    plt.xlim([-0.05, 1.05])
+    plt.ylim([-0.05, 1.05])
+    plt.xlabel('Threshold Value')
+    plt.ylabel('True / False Positive Rate')
+    plt.title('True / False Positive Rates over Thresholds')
+    plt.legend(loc="lower right")
+    plt.savefig("{}/eval_threshold.png".format(model_dir), dpi=300, pad_inches=2)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Classifier')
-    parser.add_argument("config", type=str,
+    parser.add_argument("--config", type=str,
                         help="config file for classification ")
+    parser.add_argument("--train", type=bool, dest="train", help="flag for training")
+    parser.add_argument("--eval_threshold", type=bool, dest="eval_threshold", help="flag for setting threshold")
+    parser.add_argument("--model_path", type=str, dest="model_path", help="path to model to evaluate")
     args = parser.parse_args()
-    classification_pipeline(cfg=args.config)
+    if args.train:
+        classification_pipeline(cfg=args.config)
+    elif args.eval_threshold:
+
+
