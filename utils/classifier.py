@@ -12,7 +12,10 @@ from torchtext import data
 from sklearn.metrics import auc, roc_curve
 from torch import optim
 from tqdm import tqdm
+from os.path import join
+import pandas as pd
 
+os.environ["CUDA_VISIBLE_DEVICES"]="3"
 
 class Batch:
     """Object for holding a batch of data with mask during training.
@@ -312,21 +315,23 @@ def eval_thresholds(cfg: str, model_path: str, valid_data_path: str = None):
     trg_vocab = Vocabulary(file=data_config["trg_vocab"])
     src_field.vocab = src_vocab
     model = build_model(model_config, src_vocab=src_vocab, trg_vocab=trg_vocab)
-    model_checkpoint = load_checkpoint(path=model_path, use_cuda=train_config["use_cuda"])
-    model.load_state_dict(model_checkpoint["model_state"])
     seq2seq_output_dim = model.decoder.output_layer.weight.size(1)
 
     classifier_model = BinaryClassifier(seq2seq_model=model, seq2seq_output_dim=seq2seq_output_dim,
                                         n_linear_layers=train_config.get("n_linear_layers", 1),
                                         linear_hidden_size=train_config.get("linear_hidden_size", 1024))
 
-    print("model loaded successfully from {}, getting data ready".format(model_path))
     model_dir = train_config["model_dir"]
+    model_path = join(model_dir, model_path)
+    classifier_model.load_state_dict(torch.load(model_path)["model_state"])
+
+    print("model loaded successfully from {}, getting data ready".format(model_path))
     batch_size = train_config["batch_size"]
     label_field = data.Field(sequential=False, use_vocab=False, batch_first=True)
     valid_data_path = valid_data_path if valid_data_path else data_config["dev_path"]
     val = data.TabularDataset(path = valid_data_path, format="csv", skip_header=True,
                                            fields=[('src', src_field), ('label', label_field)])
+    print("data loaded from {}".format(valid_data_path))
 
 
     valid_iter = data.BucketIterator(
@@ -338,37 +343,45 @@ def eval_thresholds(cfg: str, model_path: str, valid_data_path: str = None):
 
     all_labs = []
     all_outputs = []
+    pbar = tqdm(total = len(val), desc = "predicting")
 
-    for i, batch in enumerate(tqdm(valid_iter), desc="valid eval"):
+    for i, batch in enumerate(iter(valid_iter)):
         # breakpoint()
-        batch = Batch(batch, pad_index=model.seq2seq_model.pad_index)
+        batch = Batch(batch, pad_index=classifier_model.seq2seq_model.pad_index)
         with torch.no_grad():
             # breakpoint()
-            output_probs = model(input=batch)
+            output_probs = classifier_model(input=batch)
             all_labs.extend(list(batch.label.detach().cpu().numpy()))
             all_outputs.extend(list(output_probs.detach().cpu().numpy()))
+            pbar.update(len(batch.label))
+
     thresholds = [i/100 for i in range(0,100)]
     fprs = []
     tprs = []
-    labs_arr = np.array(all_labs)
-    for threshold in thresholds:
+    labs_arr = np.array(all_labs).reshape(-1)
+    for threshold in tqdm(thresholds, desc = "threshold iteration"):
         preds = np.array(all_outputs) > threshold
-        tpr = (preds & labs_arr) / np.sum(labs_arr)
-        fpr = (preds & (1 - labs_arr)) / np.sum(1 - labs_arr)
+        preds = preds.reshape(-1)
+        tpr = np.sum((preds * labs_arr)) / np.sum(labs_arr)
+        fpr = np.sum((preds * (1 - labs_arr))) / np.sum(1 - labs_arr)
         tprs.append(tpr)
         fprs.append(fpr)
+    print('done with thresholds')
 
     plt.figure()
+    breakpoint()
     plt.plot(tprs, thresholds, label="true positive rate", color = "darkgreen")
     plt.plot(fprs, thresholds, label="false positive rate", color = "darkred")
-    plt.xlim([-0.05, 1.05])
-    plt.ylim([-0.05, 1.05])
+    plt.xlim([-0.05, 1.20])
+    plt.ylim([-0.05, 1.20])
     plt.xlabel('Threshold Value')
     plt.ylabel('True / False Positive Rate')
     plt.title('True / False Positive Rates over Thresholds')
-    plt.legend(loc="lower right")
+    plt.legend(loc="lower left")
     plt.savefig("{}/eval_threshold.png".format(model_dir), dpi=300, pad_inches=2)
-
+    df = pd.DataFrame(list(zip(thresholds, tprs, fprs)), 
+                           columns =['threshold', 'tpr', 'fpr'])
+    df.to_csv("{}/eval_threshold.csv".format(model_dir), index = False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Classifier')
@@ -377,9 +390,11 @@ if __name__ == "__main__":
     parser.add_argument("--train", type=bool, dest="train", help="flag for training")
     parser.add_argument("--eval_threshold", type=bool, dest="eval_threshold", help="flag for setting threshold")
     parser.add_argument("--model_path", type=str, dest="model_path", help="path to model to evaluate")
+    parser.add_argument("--eval_data_path", type=str, dest="eval_data_path", default = None, help="path to data to evaluate on")
     args = parser.parse_args()
     if args.train:
         classification_pipeline(cfg=args.config)
     elif args.eval_threshold:
+        eval_thresholds(cfg=args.config, model_path=args.model_path, valid_data_path=args.eval_data_path)
 
 
