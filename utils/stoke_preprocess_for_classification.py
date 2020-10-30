@@ -34,7 +34,7 @@ class ParseOptions:
 	unopt_prefix: str = "O0"
 	opt_prefix: str = "Og"
 	fun_dir_suff: str = field(metadata=dict(args=["-fun_dir_suff", "--functions_folder_name"]), default='functions')
-	stats_csv: str = field(metadata=dict(args=["-stats_out", "--statistics_file_name"]), default='stats.csv')
+	out_csv: str = field(metadata=dict(args=["-out_csv", "--output_csv_path"]), default='stats.csv')
 	max_seq_len: int = field(metadata=dict(args=["-max_len", "--max_seq_len"]), default=None)
 	spm_model_path: str = field(metadata=dict(args=["-spm_model_path", "--sent_piece_model_path"]), default=None)
 	separator: str = ","
@@ -48,7 +48,7 @@ def parallel_extract_asm(path_list: List[str],
 					   opt_prefix: str = "Og",
 					   fun_dir_suff: str = "functions",
 					   max_seq_len: int = 256,
-					   stats_csv: str = "stats.csv",
+					   out_csv: str = "stats.csv",
 					   separator: str = ",",
 					   n_workers: int = 8,
 					   filter_unsupported: bool = True,
@@ -57,7 +57,7 @@ def parallel_extract_asm(path_list: List[str],
 	stop_watch = StopWatch()
 	stop_watch.start()
 
-	stats_csv_fh = open(stats_csv, "w")
+	stats_csv_fh = open(out_csv, "w")
 	field_names = FIELDNAMES
 	print("field names for csv are {}".format(field_names))
 
@@ -114,8 +114,8 @@ def extract_asm_from_bin_directory(path: str,
 	unopt_fun_dir = join(path, unopt_prefix, fun_dir_suff)
 	opt_fun_dir = join(path, opt_prefix, fun_dir_suff)
 
-	src_lst = [f for f in listdir(unopt_fun_dir) if isfile(join(unopt_fun_dir, f))]
-	tgt_lst = [f for f in listdir(unopt_fun_dir) if isfile(join(opt_fun_dir, f))]
+	src_lst = [f for f in listdir(join("docker/disassembly/",unopt_fun_dir)) if isfile(join("docker/disassembly/", unopt_fun_dir, f))]
+	tgt_lst = [f for f in listdir(join("docker/disassembly/", unopt_fun_dir)) if isfile(join("docker/disassembly/", opt_fun_dir, f))]
 
 	csv_rows = []
 
@@ -138,7 +138,7 @@ def extract_asm_from_bin_directory(path: str,
 			csv_row_dict["path_to_binary"] = path
 			csv_row_dict["path_binary_to_unopt_flag"] = unopt_prefix
 			csv_row_dict["path_opt_flag_to_function_dir_name"] = fun_dir_suff
-			csv_row_dict["function_file_namme"] = fun_file
+			csv_row_dict["function_file_name"] = fun_file
 			csv_rows.append(csv_row_dict)
 
 	return csv_rows
@@ -148,7 +148,7 @@ def extract_tokenized_asm(fun_dir: str, fun_file: str, asbly_hash_set: Set[str],
 						spm_model: spm.SentencePieceProcessor, filter_unsupported: bool = False,
 						max_seq_len: int = 256):
 
-	path_to_function = join(fun_dir, fun_file)
+	path_to_function = join("docker/disassembly/", fun_dir, fun_file)
 
 	with open(path_to_function) as f:
 		assembly = f.read()
