@@ -14,6 +14,7 @@ from torch import optim
 from tqdm import tqdm
 from os.path import join
 import pandas as pd
+import json
 
 os.environ["CUDA_VISIBLE_DEVICES"]="3"
 
@@ -22,7 +23,7 @@ class Batch:
     Input is a batch from a torch text iterator.
     """
 
-    def __init__(self, torch_batch, pad_index, use_cuda=False):
+    def __init__(self, torch_batch, pad_index, has_label=True, use_cuda=False):
         """
         Create a new joey batch from a torch batch.
         This batch extends torch text's batch attributes with src and trg
@@ -35,7 +36,8 @@ class Batch:
         """
         self.src, self.src_lengths = torch_batch.src
         self.src_mask = (self.src != pad_index).unsqueeze(1)
-        self.label = torch_batch.label.type(torch.float32)
+        if has_label:
+            self.label = torch_batch.label.type(torch.float32)
         self.nseqs = self.src.size(0)
         self.trg_input = None
         self.trg = None
@@ -139,7 +141,7 @@ class BinaryClassifier(nn.Module):
             output = layer(output)
             output = F.gelu(output)
         output = self.output_layer(output)
-        output = F.sigmoid(output)
+        output = torch.sigmoid(output)
         return output
 
 
@@ -383,6 +385,87 @@ def eval_thresholds(cfg: str, model_path: str, valid_data_path: str = None):
                            columns =['threshold', 'tpr', 'fpr'])
     df.to_csv("{}/eval_threshold.csv".format(model_dir), index = False)
 
+
+def predict(cfg: str, model_path: str, prediction_threshold: float, predict_data_path: str ):
+    cfg = load_config(cfg)
+    train_config = cfg["training"]
+    data_config = cfg["data"]
+    model_config = cfg["model"]
+    device = train_config["device"]
+
+    set_seed(seed=train_config.get("random_seed", 42))
+    print("initializing the model !")
+    level = data_config["level"]
+    lowercase = data_config["lowercase"]
+    tok_fun = lambda s: list(s) if level == "char" else s.split()
+    src_field = data.Field(init_token=None, eos_token=EOS_TOKEN,
+                           pad_token=PAD_TOKEN, tokenize=tok_fun,
+                           batch_first=True, lower=lowercase,
+                           unk_token=UNK_TOKEN,
+                           include_lengths=True)
+
+    src_vocab = Vocabulary(file=data_config["src_vocab"])
+    trg_vocab = Vocabulary(file=data_config["trg_vocab"])
+    src_field.vocab = src_vocab
+    model = build_model(model_config, src_vocab=src_vocab, trg_vocab=trg_vocab)
+    seq2seq_output_dim = model.decoder.output_layer.weight.size(1)
+
+    classifier_model = BinaryClassifier(seq2seq_model=model, seq2seq_output_dim=seq2seq_output_dim,
+                                        n_linear_layers=train_config.get("n_linear_layers", 1),
+                                        linear_hidden_size=train_config.get("linear_hidden_size", 1024))
+
+    model_dir = train_config["model_dir"]
+    model_path = join(model_dir, model_path)
+    classifier_model.load_state_dict(torch.load(model_path)["model_state"])
+
+    print("model loaded successfully from {}, getting data ready".format(model_path))
+    batch_size = train_config["batch_size"]
+    predict_data = data.TabularDataset(path = predict_data_path, format="csv", skip_header=True,
+                                           fields=[('src', src_field),
+                                                   ('bpe_assembly_hash', None)
+                                                   ('canonicalized_assembly_hash', None),
+                                                   ('path_to_binary', None),
+                                                   ('path_binary_to_unopt_flag', None),
+                                                   ('path_opt_flag_to_function_dir_name', None),
+                                                   ('function_file_name', None)])
+    print("data loaded from {}".format(predict_data_path))
+
+    valid_iter = data.BucketIterator(
+        repeat=False, sort=False, dataset=predict_data,
+        batch_size=batch_size, batch_size_fn=token_batch_size_fn,
+        train=False, shuffle=True, device=device)
+
+    classifier_model.to(device)
+
+    all_outputs = []
+    pbar = tqdm(total = len(predict_data), desc = "predicting")
+
+    for i, batch in enumerate(iter(valid_iter)):
+        # breakpoint()
+        batch = Batch(batch, pad_index=classifier_model.seq2seq_model.pad_index, has_label=False)
+        with torch.no_grad():
+            # breakpoint()
+            output_probs = classifier_model(input=batch)
+            all_outputs.extend(list(output_probs.detach().cpu().numpy()))
+            pbar.update(len(batch.src))
+
+    print("predictions finished, now adding to a new csv and aggregating into a csv")
+    predict_data_df = pd.read_csv(predict_data_path)
+    predict_data_df["model_outputs"] = all_outputs
+    predict_data_df["predictions"] = predict_data_df["model_outputs"] > prediction_threshold
+    positive_predict_data_df = predict_data_df[predict_data_df["predictions"] == True]
+    positive_predict_dict = positive_predict_data_df.groupby(['path_to_binary'])['function_file_name']\
+        .apply(lambda grp: list(grp.value_counts().index)).to_dict()
+
+    experiment_name = os.path.splitext(predict_data_path)[0]
+
+    predict_data_df.to_csv("{}/all_predictions_{}_threshold_{}.csv"\
+                           .format(model_dir,experiment_name, str(prediction_threshold)), index=False)
+    with open("{}/positive_predictions_{}_threshold_{}.json"\
+                      .format(model_dir, experiment_name, str(prediction_threshold))) as fh:
+        json.dump(positive_predict_dict, fh)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Classifier')
     parser.add_argument("--config", type=str,
@@ -391,10 +474,20 @@ if __name__ == "__main__":
     parser.add_argument("--eval_threshold", type=bool, dest="eval_threshold", help="flag for setting threshold")
     parser.add_argument("--model_path", type=str, dest="model_path", help="path to model to evaluate")
     parser.add_argument("--eval_data_path", type=str, dest="eval_data_path", default = None, help="path to data to evaluate on")
+    parser.add_argument("--predict", type=bool, dest= "predict", help="flag for doing prediction")
+    parser.add_argument("--prediction_threshold", type=float, dest="prediction_threshold", help="threshold for predictions")
+    parser.add_argument("--predict_data_path", type=str, dest="predict_data_path",
+                        help="path to csv with data to predict")
+
+    prediction_threshold: float, predict_data_path: str
+
     args = parser.parse_args()
     if args.train:
         classification_pipeline(cfg=args.config)
     elif args.eval_threshold:
         eval_thresholds(cfg=args.config, model_path=args.model_path, valid_data_path=args.eval_data_path)
+    elif args.predict:
+        predict(cfg=args.config, model_path=args.model_path, prediction_threshold=args.prediction_threshold,
+                predict_data_path=args.predict_data_path)
 
 
