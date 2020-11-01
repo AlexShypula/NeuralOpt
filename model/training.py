@@ -140,8 +140,9 @@ class TrainManager:
         #actor-learner required data
         self.shard_data = data_config.get("shard_data", True)
         self.shard_path = data_config.get("shard_path", None)
-        if self.shard_data:
-            assert self.shard_path, "if sharding the data, a shard path must be specified"
+        self.use_shards = data.config.get("use_shards", True)
+        if self.shard_data or self.use_shards:
+            assert self.shard_path, "if sharding the data or using shards, a shard path must be specified"
         self.src_lang = data_config["src"]
         self.tgt_lang = data_config["trg"]
         self.train_path = data_config["train"]
@@ -850,7 +851,10 @@ class TrainManager:
             # shard_data(input_path: str, shard_path: str, src_lang: str, tgt_lang: str, n_shards: int)
             shard_data(input_path=self.train_path, shard_path = self.shard_path,
                        src_lang = self.src_lang, tgt_lang = self.tgt_lang, n_shards = self.n_actors)
-        actor_data_prefixes = [self.shard_path + "_{}".format(i) for i in range(self.n_actors)]
+        if self.use_shards:
+            actor_data_prefixes = [self.shard_path + "_{}".format(i) for i in range(self.n_actors)]
+        else:
+            actor_data_prefixes = [self.train_path] * self.n_actors # use original data set
         #m = mp.Manager()
         global latest_model_id
         global model_lock
