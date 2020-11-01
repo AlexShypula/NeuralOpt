@@ -55,7 +55,7 @@ def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eo
     for src_bpe_string, hyp_bpe_string, traj_output, log_probs, src_input, src_len, out_len in \
         zip(src_bpe_strings, hypothesis_bpe_strings, output_list, log_probs_list, src_list, src_lengths, output_lengths):
         h = hash_file(src_bpe_string.strip())
-        trajs_dict[h] = {"hyp_bpe_string": hyp_bpe_string, "traj_output": traj_output, "log_probs": log_probs
+        trajs_dict[h] = {"hyp_bpe_string": hyp_bpe_string, "traj_output": traj_output, "log_probs": log_probs, 
                          "src_input": src_input, "src_len": src_len, "out_len": out_len
                          }
     return trajs_dict
@@ -66,6 +66,7 @@ def eval_trajs(trajs_dict: Dict, hash2metadata: Dict, requester: StokeRequest):
 
     for h, traj_dict in trajs_dict.items():
         metadata = hash2metadata[h]
+        hypothesis_bpe_str = traj_dict["hyp_bpe_string"]
         formatted_hypothesis, _ = bpe2formatted(assembly_string=hypothesis_bpe_str, function_name=metadata["name"],
                                                 remove_header=True, remove_footer=True)
         jobs[h] = {"hypothesis_string": formatted_hypothesis, "metadata": metadata}
@@ -73,7 +74,7 @@ def eval_trajs(trajs_dict: Dict, hash2metadata: Dict, requester: StokeRequest):
 
     results = requester.get(jobs)
     update_hash2metadata = {}
-    for h in trajs_dict.keys()
+    for h in trajs_dict.keys():
         result_dict = results[h]
         trajs_dict[h]["stats"] = result_dict["stats"]
         update_hash2metadata[h] = result_dict["metadata"]
@@ -133,7 +134,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                                 batch_type=batch_type,
                                 train=True, shuffle=True)
     hash2metadata = prune_hash2metadata(hash2metadata=hash2metadata, model=model, level=level, data_iter=data_iter, pad_index = pad_index)
-    requester = StokeRequest(base_url = "http://", port = stoke_container_port_no)
+    requester = StokeRequest(base_url = "http://127.0.0.1", port = stoke_container_port_no)
 
     running_starts_left = no_running_starts
     running_starts_flag = True if running_starts_left > 0 else False
@@ -172,7 +173,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
             #def eval_trajs(trajs_dict: Dict, hash2metadata: Dict, requester: StokeRequest):
             trajs_dict, update_hash2metadata = eval_trajs(trajs_dict=trajs_dict, hash2metadata=hash2metadata,
                                                           requester=requester)
-            for h, metadata_update in update_hash2metadata:
+            for h, metadata_update in update_hash2metadata.items():
                 hash2metadata[h] = metadata_update
             performance_timer.Evaluate_With_Stoke.stop()
             #pdb.set_trace()
