@@ -1,4 +1,5 @@
 import csv
+import json
 import subprocess
 import sentencepiece as spm
 import re
@@ -100,9 +101,10 @@ SPMMODELFIELDS = ["unopt_full_canon_hash", "opt_full_canon_hash"]
 
 @dataclass
 class ParseOptions:
-	path_list: str = field(metadata=dict(args=["-path_list", "--list_of_decompiled_binaries"]))
 	unopt_prefix: str = "O0"
 	opt_prefix: str = "Og"
+	path_list: str = field(metadata=dict(args=["-path_list", "--list_of_decompiled_binaries"]), default=None)
+	path_dict: str = field(metadata=dict(args=["-path_dict", "--dict_of_decompiled_binaries_and_files"]), default=None)
 	fun_dir_suff: str = field(metadata=dict(args=["-fun_dir_suff", "--functions_folder_name"]), default='functions')
 	tc_dir_suff: str =  field(metadata=dict(args=["-tc_dir_suff", "--testcases_folder_name"]), default='testcases')
 	stats_csv: str = field(metadata=dict(args=["-stats_out", "--statistics_file_name"]), default='stats.csv')
@@ -183,6 +185,7 @@ def mini_watch_test():
 
 
 def parallel_eval_cost(path_list: List[str],
+					   path_dict: Dict[str, List] = None,
 					   unopt_prefix: str = "O0",
 					   opt_prefix: str = "Og",
 					   fun_dir_suff: str = "functions",
@@ -246,6 +249,7 @@ def parallel_eval_cost(path_list: List[str],
 
 	template_dict = {"path": None,
 						"asbly_hash_set": asbly_hash_set,
+					 	"files": None
 						"fun_dir_suff":  fun_dir_suff,
 						"tc_dir_suff": tc_dir_suff,
 						"unopt_prefix": unopt_prefix,
@@ -268,6 +272,9 @@ def parallel_eval_cost(path_list: List[str],
 	for path in path_list:
 		job = template_dict.copy()
 		job["path"] = path
+		if path_dict:
+			files = path_dict[path]
+			job["files"] = files
 		jobs.append(job)
 
 	with tqdm(total=len(jobs), smoothing=0) as pbar:
@@ -290,6 +297,7 @@ def par_test_binary_directory(args_dict):
 
 def test_binary_directory(path: str,
 						asbly_hash_set: List[str],
+						files: List[str] = None,
 						fun_dir_suff: str = "functions",
 						tc_dir_suff: str = "testcases",
 						unopt_prefix: str = "O0",
@@ -315,8 +323,11 @@ def test_binary_directory(path: str,
 	tc_dir = join(path, tc_dir_suff)
 	mkdir(tc_dir)
 
-	src_lst = [f for f in listdir(unopt_fun_dir) if isfile(join(unopt_fun_dir, f))]
-	tgt_lst = [f for f in listdir(unopt_fun_dir) if isfile(join(opt_fun_dir, f))]
+	if not files:
+		files = listdir(unopt_fun_dir)
+
+	src_lst = [f for f in files if isfile(join(unopt_fun_dir, f))]
+	tgt_lst = [f for f in files if isfile(join(opt_fun_dir, f))]
 
 	csv_rows = []
 	tcgen_list = []
@@ -772,8 +783,14 @@ if __name__ == "__main__":
     parser = ArgumentParser(ParseOptions)
     print(parser.parse_args())
     args = parser.parse_args()
-    with open(args.path_list) as f:
-        path_list = f.readlines()
-    path_list = [p.strip() for p in path_list]
-    args.path_list = path_list
+	if args.path_dict:
+		path_dict = json.load(open(args.path_dict))
+		path_list = list(path_dict.keys())
+		args.path_dict = path_dict
+		args.path_list = path_list
+	elif args.path_list:
+		with open(args.path_list) as f:
+			path_list = f.readlines()
+		path_list = [p.strip() for p in path_list]
+		args.path_list = path_list
     parallel_eval_cost(**vars(args))
