@@ -30,6 +30,7 @@ def Process():
     res = pipeline.run_parallel_pipeline(jobs=jobs, debug=app.config["DEBUG"])
     res_dict = {}
     for k, v in zip(req.keys(), res):
+        assert req[k]["metadata"]["hash"] == res["metadata"]["hash"]
         res_dict[k] = v
     return res_dict
 

@@ -86,6 +86,10 @@ class TrainManager:
         with open(data_config.get("hash2metadata")) as fh:
             self.hash2metadata = json.load(fh)
 
+        # augment hash2metadata to contain the hash within it
+        for h, metadata in self.hash2metadata.items():
+            if "hash" not in metadata.keys():
+                self.hash2metadata[h]["hash"] = h
 
         # files for logging and storing
         self.model_dir = make_model_dir(train_config["model_dir"],

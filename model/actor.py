@@ -52,11 +52,12 @@ def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eo
     log_probs_list = slice_arrays_with_lengths(list(log_probs.cpu().numpy()), output_lengths)
 
     trajs_dict = {}
-    for src_bpe_string, hyp_bpe_string, traj_output, log_probs, src_input, src_len, out_len in \
-        zip(src_bpe_strings, hypothesis_bpe_strings, output_list, log_probs_list, src_list, src_lengths, output_lengths):
+    for i, (src_bpe_string, hyp_bpe_string, traj_output, log_probs, src_input, src_len, out_len) in \
+        enumerate(zip(src_bpe_strings, hypothesis_bpe_strings, output_list,
+                      log_probs_list, src_list, src_lengths, output_lengths)):
         h = hash_file(src_bpe_string.strip())
-        trajs_dict[h] = {"hyp_bpe_string": hyp_bpe_string, "traj_output": traj_output, "log_probs": log_probs, 
-                         "src_input": src_input, "src_len": src_len, "out_len": out_len
+        trajs_dict[i] = {"hash": h, "hyp_bpe_string": hyp_bpe_string, "traj_output": traj_output,
+                         "log_probs": log_probs, "src_input": src_input, "src_len": src_len, "out_len": out_len,
                          }
     return trajs_dict
 
@@ -64,19 +65,23 @@ def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eo
 def eval_trajs(trajs_dict: Dict, hash2metadata: Dict, requester: StokeRequest):
     jobs = {}
 
-    for h, traj_dict in trajs_dict.items():
+    for i, traj_dict in trajs_dict.items():
+        h = trajs_dict["hash"]
         metadata = hash2metadata[h]
+        assert metadata["hash"] == h
         hypothesis_bpe_str = traj_dict["hyp_bpe_string"]
         formatted_hypothesis, _ = bpe2formatted(assembly_string=hypothesis_bpe_str, function_name=metadata["name"],
                                                 remove_header=True, remove_footer=True)
-        jobs[h] = {"hypothesis_string": formatted_hypothesis, "metadata": metadata}
-        trajs_dict[h]["formatted_hyp"] = formatted_hypothesis
+        jobs[i] = {"hypothesis_string": formatted_hypothesis, "metadata": metadata}
+        trajs_dict[i]["formatted_hyp"] = formatted_hypothesis
 
     results = requester.get(jobs)
     update_hash2metadata = {}
-    for h in trajs_dict.keys():
-        result_dict = results[h]
-        trajs_dict[h]["stats"] = result_dict["stats"]
+    for i in trajs_dict.keys():
+        h = trajs_dict[i]["hash"]
+        result_dict = results[i]
+        assert result_dict["metadata"]["hash"] == h
+        trajs_dict[i]["stats"] = result_dict["stats"]
         update_hash2metadata[h] = result_dict["metadata"]
 
     return trajs_dict, update_hash2metadata
@@ -179,7 +184,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
             #pdb.set_trace()
             performance_timer.Add_to_Queue.start()
             for h, traj_dict in trajs_dict.items():
-                trajs_queue.put({"hash": h, **traj_dict})
+                trajs_queue.put({ **traj_dict})
             performance_timer.Add_to_Queue.stop()
             #pdb.set_trace()
             if running_starts_flag:
