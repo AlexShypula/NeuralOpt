@@ -422,7 +422,7 @@ def predict(cfg: str, model_path: str, prediction_threshold: float, predict_data
     batch_size = train_config["batch_size"]
     predict_data = data.TabularDataset(path = predict_data_path, format="csv", skip_header=True,
                                            fields=[('src', src_field),
-                                                   ('bpe_assembly_hash', None)
+                                                   ('bpe_assembly_hash', None), 
                                                    ('canonicalized_assembly_hash', None),
                                                    ('path_to_binary', None),
                                                    ('path_binary_to_unopt_flag', None),
@@ -433,7 +433,7 @@ def predict(cfg: str, model_path: str, prediction_threshold: float, predict_data
     valid_iter = data.BucketIterator(
         repeat=False, sort=False, dataset=predict_data,
         batch_size=batch_size, batch_size_fn=token_batch_size_fn,
-        train=False, shuffle=True, device=device)
+        train=False, shuffle=False, device=device)
 
     classifier_model.to(device)
 
@@ -441,10 +441,10 @@ def predict(cfg: str, model_path: str, prediction_threshold: float, predict_data
     pbar = tqdm(total = len(predict_data), desc = "predicting")
 
     for i, batch in enumerate(iter(valid_iter)):
-        # breakpoint()
+        #breakpoint()
         batch = Batch(batch, pad_index=classifier_model.seq2seq_model.pad_index, has_label=False)
         with torch.no_grad():
-            # breakpoint()
+            #breakpoint()
             output_probs = classifier_model(input=batch)
             all_outputs.extend(list(output_probs.detach().cpu().numpy()))
             pbar.update(len(batch.src))
@@ -462,8 +462,8 @@ def predict(cfg: str, model_path: str, prediction_threshold: float, predict_data
     predict_data_df.to_csv("{}/all_predictions_{}_threshold_{}.csv"\
                            .format(model_dir,experiment_name, str(prediction_threshold)), index=False)
     with open("{}/positive_predictions_{}_threshold_{}.json"\
-                      .format(model_dir, experiment_name, str(prediction_threshold))) as fh:
-        json.dump(positive_predict_dict, fh)
+                      .format(model_dir, experiment_name, str(prediction_threshold)), "w+") as fh:
+        json.dump(positive_predict_dict, fh, indent=4, sort_keys=True)
 
 
 if __name__ == "__main__":
@@ -479,7 +479,6 @@ if __name__ == "__main__":
     parser.add_argument("--predict_data_path", type=str, dest="predict_data_path",
                         help="path to csv with data to predict")
 
-    prediction_threshold: float, predict_data_path: str
 
     args = parser.parse_args()
     if args.train:
