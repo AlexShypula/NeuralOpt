@@ -313,7 +313,13 @@ class BucketReplayBuffer:
         tgt_lens = [sample["out_len"] for sample in samples]
         means, stdevs = zip(*(cost_manager.get_mean_stdv_cost(h) for h in hashes))
         advantages = [(cost - mean)/stdev for cost, mean, stdev in zip(costs, means, stdevs)]
-        cost_manager.update_buffers(zip(hashes, [sample["stats"] for sample in samples))
+        stats_list = []
+        for sample, advantage in zip(samples, advantages): 
+            stats = sample["stats"]
+            stats["normalized_advantage"] = advantage
+            stats_list.append(stats)
+        cost_manager.update_buffers(list(zip(hashes, stats_list)))
+        cost_manager.log_buffer_stats(hashes)
         #advantages = [cost - cost_manager.get_mean_stdv_cost(h)[0] for cost, h in zip(costs, hashes)]
         # print(["cost: {}, advantage: {}".format(c, a) for c, a in zip(costs, advantages)])
         return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens
