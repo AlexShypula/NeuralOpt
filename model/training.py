@@ -59,6 +59,7 @@ resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
 
 
 os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"
+torch.set_num_threads(8)
 
 def init(l, model_id, ctr):
     global model_lock
@@ -144,7 +145,7 @@ class TrainManager:
         #actor-learner required data
         self.shard_data = data_config.get("shard_data", True)
         self.shard_path = data_config.get("shard_path", None)
-        self.use_shards = data.config.get("use_shards", True)
+        self.use_shards = data_config.get("use_shards", True)
         if self.shard_data or self.use_shards:
             assert self.shard_path, "if sharding the data or using shards, a shard path must be specified"
         self.src_lang = data_config["src"]
@@ -987,7 +988,7 @@ class TrainManager:
             #print("loss processed, now backward", flush = True)
             loss.backward()
             multi_batch_loss += loss.detach().cpu().item()
-            multi_batch_entropy += (online_entropy.detach().cpu().item() / n_tokens)
+            multi_batch_entropy += (online_entropy.detach().cpu().item() / n_tokens)/self.batch_multiplier
             multi_batch_n_seqs += len(batch.src)
             multi_batch_n_tokens += n_tokens
             multi_batch_advantage += torch.mean(advantages).item()/self.batch_multiplier
