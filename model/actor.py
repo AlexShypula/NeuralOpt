@@ -56,7 +56,7 @@ def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eo
         enumerate(zip(src_bpe_strings, hypothesis_bpe_strings, output_list,
                       log_probs_list, src_list, src_lengths, output_lengths)):
         h = hash_file(src_bpe_string.strip())
-        trajs_dict[i] = {"hash": h, "hyp_bpe_string": hyp_bpe_string, "traj_output": traj_output,
+        trajs_dict[str(i)] = {"hash": h, "hyp_bpe_string": hyp_bpe_string, "traj_output": traj_output,
                          "log_probs": log_probs, "src_input": src_input, "src_len": src_len, "out_len": out_len,
                          }
     return trajs_dict
@@ -66,7 +66,7 @@ def eval_trajs(trajs_dict: Dict, hash2metadata: Dict, requester: StokeRequest):
     jobs = {}
 
     for i, traj_dict in trajs_dict.items():
-        h = trajs_dict["hash"]
+        h = traj_dict["hash"]
         metadata = hash2metadata[h]
         assert metadata["hash"] == h
         hypothesis_bpe_str = traj_dict["hyp_bpe_string"]
@@ -112,7 +112,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
           trajs_queue: mp.Queue, max_output_length: int, level: str, batch_size: int, pad_index: int, eos_index: int, 
           no_running_starts: int, actor_id: int, performance_plot_path: str,
           batch_type: str = "token", device: str = "cpu") -> None:
-    batch_size/=4    #2
+    batch_size/=2    #2
     print(f"actor id is {actor_id}", flush = True)
     #if actor_id == 0: 
         #pdb.set_trace()

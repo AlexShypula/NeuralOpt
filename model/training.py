@@ -980,6 +980,7 @@ class TrainManager:
                 advantages = batch.advantages
             #advantages = advantages - torch.mean(advantages)
             #advantages/=torch.max(torch.std(advantages), torch.ones_like(advantages))
+            #advantages[advantages>0] = 0
             n_tokens = sum(tgt_lens)
             # maximizing exploration entropy = minimizing negative entropy
             loss = torch.sum(online_log_probs * advantages) - online_entropy * self.beta_entropy
