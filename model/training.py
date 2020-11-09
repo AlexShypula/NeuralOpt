@@ -1005,6 +1005,9 @@ class TrainManager:
             if (step % self.batch_multiplier) == 0:
                 update_no = step // self.batch_multiplier
                 #print("optimizer step", flush = True)
+                if self.clip_grad_fun is not None:
+                    # clip gradients (in-place)
+                    self.clip_grad_fun(params=self.model.parameters())
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 performance_timer.Save_Learner.start()
