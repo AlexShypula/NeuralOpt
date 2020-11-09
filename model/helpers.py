@@ -299,7 +299,7 @@ class BucketReplayBuffer:
             current_size=largest_seen_size*n_sampled
         return samples
 
-    def synchronous_sample(self, queue, max_size, cost_manager):
+    def synchronous_sample(self, queue, max_size, cost_manager, step_no):
         samples = self._synchronous_get_sample_list(queue=queue, max_size=max_size)
         # print("got the sample", flush = True)
         hashes = [sample["hash"] for sample in samples]
@@ -313,18 +313,38 @@ class BucketReplayBuffer:
         tgt_lens = [sample["out_len"] for sample in samples]
         means, stdevs = zip(*(cost_manager.get_mean_stdv_cost(h) for h in hashes))
         advantages = [(cost - mean)/stdev for cost, mean, stdev in zip(costs, means, stdevs)]
+        names = [cost_manager.hash2metadata[h]["name"] for h in hashes]
+        ref_scores = [cost_manager.hash2metadata[h]["reference_score"] for h in hashes]
+
         stats_list = []
-        for sample, advantage in zip(samples, advantages): 
+        result_strings = []
+        for sample, name, cost, mean, stdev, advantage, ref_score in \
+                zip(samples, names, costs, means, stdevs, advantages, ref_scores):
+
             stats = sample["stats"]
             stats["normalized_advantage"] = advantage
             stats_list.append(stats)
+
+            src = sample["formatted_src"]
+            hyp = sample["formatted_hyp"]
+            stats_hyp = sample["stats"]["formatted_hypothesis"]
+            assert hyp == stats_hyp, "hyp in dict is {} and in stats is {}".format(hyp, stats_hyp)
+            failed = sample["stats"]["failed_cost"]
+            correct = sample["stats"]["correct"]
+            beat_baseline_str = "" if ref_score < cost else "... Beat Baseline !!"
+            prefix_str = f"\n\n{'*'* 40}\n{'*'* 40}\n\nProgram: {name}, at step {str(step_no)}, cost is {str(cost)}" \
+                         f"and reference cost is {ref_score} {beat_baseline_str}\n\n" \
+                         f"Program failed: {str(failed)}, program is correct: {str(correct)}, mean is {mean}, " \
+                         f"stdev is {stdev}, and (cost - mean) / stdev is {advantage}\n\n"
+            paste_str = paste(src, hyp)
+            result_strings.append(prefix_str + paste_str)
+
         cost_manager.update_buffers(list(zip(hashes, stats_list)))
         cost_manager.log_buffer_stats(hashes)
         #advantages = [cost - cost_manager.get_mean_stdv_cost(h)[0] for cost, h in zip(costs, hashes)]
         # print(["cost: {}, advantage: {}".format(c, a) for c, a in zip(costs, advantages)])
-        return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens
-
-
+        return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens, \
+               result_strings
 
 
     def is_full(self):
@@ -338,9 +358,6 @@ class BucketReplayBuffer:
             if len(buffer) < threshold:
                 return False
         return True
-
-
-
 
 
 def paste(reference_string: str, hypothesis_string: str):

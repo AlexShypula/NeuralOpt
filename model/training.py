@@ -928,6 +928,9 @@ class TrainManager:
             time.sleep(0.5)
         print("Replay buffer is filled, now training ", flush = True)
 
+        if self.synchronized_al:
+            train_output_fh = open(os.path.join(self.model_dir, "train_outputs.txt") "w+")
+
         multi_batch_loss = 0
         multi_batch_entropy = 0
         multi_batch_n_seqs = 0
@@ -948,13 +951,15 @@ class TrainManager:
             performance_timer.Model_Forward_Backward.start()
             self.model.train()
             if self.synchronized_al:
-                src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.synchronous_sample(
-                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager)
+                src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens, \
+                    result_strings = replay_buffer.synchronous_sample(
+                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager, step_no=step)
+                train_output_fh.write("\n\n".join(result_strings))
                 multi_batch_costs.extend(costs)
                 multi_batch_failures.extend(failed)
             else:
                 src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
-            # TODO: calculate the advantage somehow using cost manager or other method
+
             #print("queue samples, now processing batch", flush = True)
             batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=advantages,
                                  pad_index = self.pad_index, bos_index = self.bos_index)
@@ -1107,6 +1112,7 @@ class TrainManager:
         generate_trajectory_flag.clear()
         for p in processes:
             p.join(timeout=10)
+        train_output_fh.close()
         print("making performance plot")
         performance_timer.make_perf_plot(title = "Learner Performance Benchmarking",
                                          path = "{}/learner_perf_plot.png".format(self.model_dir))

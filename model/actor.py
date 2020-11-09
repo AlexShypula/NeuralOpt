@@ -56,8 +56,8 @@ def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eo
         enumerate(zip(src_bpe_strings, hypothesis_bpe_strings, output_list,
                       log_probs_list, src_list, src_lengths, output_lengths)):
         h = hash_file(src_bpe_string.strip())
-        trajs_dict[str(i)] = {"hash": h, "hyp_bpe_string": hyp_bpe_string, "traj_output": traj_output,
-                         "log_probs": log_probs, "src_input": src_input, "src_len": src_len, "out_len": out_len,
+        trajs_dict[str(i)] = {"hash": h, "hyp_bpe_string": hyp_bpe_string, "src_bpe_string": src_bpe_string,
+    "traj_output": traj_output,"log_probs": log_probs, "src_input": src_input, "src_len": src_len, "out_len": out_len,
                          }
     return trajs_dict
 
@@ -70,10 +70,14 @@ def eval_trajs(trajs_dict: Dict, hash2metadata: Dict, requester: StokeRequest):
         metadata = hash2metadata[h]
         assert metadata["hash"] == h
         hypothesis_bpe_str = traj_dict["hyp_bpe_string"]
+        src_bpe_str = traj_dict["src_bpe_string"]
         formatted_hypothesis, _ = bpe2formatted(assembly_string=hypothesis_bpe_str, function_name=metadata["name"],
+                                                remove_header=True, remove_footer=True)
+        formatted_src, _ = bpe2formatted(assembly_string=src_bpe_str, function_name=metadata["name"],
                                                 remove_header=True, remove_footer=True)
         jobs[i] = {"hypothesis_string": formatted_hypothesis, "metadata": metadata}
         trajs_dict[i]["formatted_hyp"] = formatted_hypothesis
+        trajs_dict[i]["formatted_src"] = formatted_src
 
     results = requester.get(jobs)
     update_hash2metadata = {}
