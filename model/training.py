@@ -938,6 +938,7 @@ class TrainManager:
         multi_batch_advantage = 0
         multi_batch_costs = []
         multi_batch_failures = []
+        multi_batch_corrects = []
 
         performance_timer = StopWatch(name = "stopwatch")
         performance_timer.new_event("Model_Forward_Backward")
@@ -953,11 +954,12 @@ class TrainManager:
             if self.synchronized_al:
                 src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens, \
                     result_strings = replay_buffer.synchronous_sample(
-                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager, step_no=step/self.batch_multiplier)
-                if ((step/self.batch_multiplier) % 10) == 0:
+                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager, step_no=step//self.batch_multiplier)
+                if ((step//self.batch_multiplier) % 10) == 0:
                     train_output_fh.write("\n\n".join(result_strings))
                 multi_batch_costs.extend(costs)
                 multi_batch_failures.extend(failed)
+                multi_batch_corrects.extend(corrects)
             else:
                 src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
 
@@ -1030,6 +1032,13 @@ class TrainManager:
                 else:
                     avg_queue_cost = np.mean(multi_batch_costs)
                     avg_queue_failures = np.mean(multi_batch_failures)
+                    not_failed_arr = (~np.array(multi_batch_failures))
+                    costs_arr = np.array(multi_batch_costs)
+                    corrects_arr = np.array(multi_batch_corrects)
+                    avg_not_failed_cost = sum(np.multiply(not_failed_arr, costs_arr))/sum(not_failed_arr)
+                    avg_not_failed_correct = sum(np.multiply(not_failed_arr, corrects_arr))/sum(not_failed_arr)
+                    self.tb_writer.add_scalar("train/avg_not_failed_cost", avg_not_failed_cost, update_no)
+                    self.tb_writer.add_scalar("train/pct_correct_when_not_failed", avg_not_failed_correct, update_no)
                 #print("queue done, tensorboard writing", flush = True)
 
                 if avg_queue_cost > 0: 
@@ -1058,6 +1067,7 @@ class TrainManager:
                 multi_batch_advantage = 0
                 multi_batch_costs = []
                 multi_batch_failures = []
+                multi_batch_corrects = []
                 #print("tensorboard writing done, update no {}".format(update_no), flush = True)
                 if (update_no % 5000) == 0: 
                     state = {"model_state": self.model.state_dict()}
