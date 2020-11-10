@@ -324,20 +324,21 @@ class BucketReplayBuffer:
             stats = sample["stats"]
             stats["normalized_advantage"] = advantage
             stats_list.append(stats)
-
-            src = sample["formatted_src"]
-            hyp = sample["formatted_hyp"]
-            stats_hyp = sample["stats"]["formatted_hypothesis"]
-            assert hyp == stats_hyp, "hyp in dict is {} and in stats is {}".format(hyp, stats_hyp)
-            failed = sample["stats"]["failed_cost"]
-            correct = sample["stats"]["correct"]
-            beat_baseline_str = "" if ref_score < cost else "... Beat Baseline !!"
-            prefix_str = f"\n\n{'*'* 40}\n{'*'* 40}\n\nProgram: {name}, at step {str(step_no)}, cost is {str(cost)}" \
+            
+            if (step_no % 10) == 0: 
+                src = sample["formatted_src"]
+                hyp = sample["formatted_hyp"]
+                stats_hyp = sample["stats"]["hypothesis_string"]
+                assert hyp == stats_hyp, "hyp in dict is {} and in stats is {}".format(hyp, stats_hyp)
+                fail = sample["stats"]["failed_cost"]
+                correct = sample["stats"]["correct"]
+                beat_baseline_str = "" if ref_score <= cost else "... Beat Baseline !!"
+                prefix_str = f"\n\n{'*'* 40}\n{'*'* 40}\n\nProgram: {name}, at step {str(step_no)}, cost is {str(cost)} " \
                          f"and reference cost is {ref_score} {beat_baseline_str}\n\n" \
-                         f"Program failed: {str(failed)}, program is correct: {str(correct)}, mean is {mean}, " \
+                         f"Program failed: {str(fail)}, program is correct: {str(correct)}, mean is {mean}, " \
                          f"stdev is {stdev}, and (cost - mean) / stdev is {advantage}\n\n"
-            paste_str = paste(src, hyp)
-            result_strings.append(prefix_str + paste_str)
+                #paste_str = paste(src, hyp)
+                result_strings.append(prefix_str + hyp)
 
         cost_manager.update_buffers(list(zip(hashes, stats_list)))
         cost_manager.log_buffer_stats(hashes)

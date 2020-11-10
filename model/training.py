@@ -58,7 +58,7 @@ print(f"rlimit is {rlimit}")
 resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
 
 
-os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
 torch.set_num_threads(8)
 
 def init(l, model_id, ctr):
@@ -929,7 +929,7 @@ class TrainManager:
         print("Replay buffer is filled, now training ", flush = True)
 
         if self.synchronized_al:
-            train_output_fh = open(os.path.join(self.model_dir, "train_outputs.txt") "w+")
+            train_output_fh = open(os.path.join(self.model_dir, "train_outputs.txt"), "w+")
 
         multi_batch_loss = 0
         multi_batch_entropy = 0
@@ -953,8 +953,9 @@ class TrainManager:
             if self.synchronized_al:
                 src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens, \
                     result_strings = replay_buffer.synchronous_sample(
-                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager, step_no=step)
-                train_output_fh.write("\n\n".join(result_strings))
+                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager, step_no=step/self.batch_multiplier)
+                if ((step/self.batch_multiplier) % 10) == 0:
+                    train_output_fh.write("\n\n".join(result_strings))
                 multi_batch_costs.extend(costs)
                 multi_batch_failures.extend(failed)
             else:
