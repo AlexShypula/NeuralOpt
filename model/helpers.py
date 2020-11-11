@@ -194,8 +194,8 @@ class BucketReplayBuffer:
         while not queue.empty():
             try: 
                 experiences.append(queue.get())
-	# may also be able to use torch.multiprocessing.set_sharing_strategy('file_system') to avoid 
-	# 'RuntimeError: received 0 items of ancdata'
+            # may also be able to use torch.multiprocessing.set_sharing_strategy('file_system') to avoid
+            # 'RuntimeError: received 0 items of ancdata'
             except (FileNotFoundError, RuntimeError) as e:
                 print(f"while trying to clear from the queue, we got error: {e}") 
                 break
@@ -261,6 +261,7 @@ class BucketReplayBuffer:
                 samples.append(sample)
 
         return samples
+
     def sample(self, max_size, cost_manager):
 
         #print("sampling ", flush = True)
@@ -320,12 +321,18 @@ class BucketReplayBuffer:
 
         stats_list = []
         result_strings = []
-        for sample, name, cost, mean, stdev, advantage, ref_score in \
-                zip(samples, names, costs, means, stdevs, advantages, ref_scores):
+        for h, sample, name, cost, mean, stdev, advantage, ref_score, traj_out, traj_len in \
+                zip(hashes, samples, names, costs, means, stdevs, advantages, ref_scores, traj_outputs, tgt_lens):
 
             stats = sample["stats"]
             stats["normalized_advantage"] = advantage
             stats_list.append(stats)
+
+            if hasattr(self, "hash2best_seq") and cost < ref_score:
+                if cost < self.hash2best_seq[h]["cost"]:
+                    self.hash2best_seq[h]["cost"] = cost
+                    self.hash2best_seq[h]["tgt"] = traj_out
+                    self.hash2best_seq[h]["tgt_len"] = traj_len
             
             if (step_no % 10) == 0: 
                 src = sample["formatted_src"]
@@ -348,6 +355,38 @@ class BucketReplayBuffer:
         # print(["cost: {}, advantage: {}".format(c, a) for c, a in zip(costs, advantages)])
         return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens, \
                result_strings
+
+    def _get_sample_of_best_seqs(self, max_size) -> List[Dict]:
+
+        assert self.hash2best_seq
+        current_size = 1e9
+        hash_set = set()
+        keys_list = list(self.hash2best_seq.keys())
+        while current_size > max_size:
+            first_key = random.sample(keys_list, k=1)[0]
+            first_sample = self.hash2best_seq[first_key]
+            current_size = max(first_sample["src_len"], first_sample["out_len"])
+        largest_seen_size = current_size
+        hash_set.add(first_key)
+        samples = [first_sample]
+        duplicates_sampled = 0
+        while True:
+           # print("inside sample while loop")
+            key_sample = random.sample(keys_list, k=1)[0]
+            if key_sample in hash_set:
+                duplicates_sampled+=1
+                continue
+            sample = self.hash2best_seq[key_sample]
+            current_size = max(sample["src_len"],sample["out_len"])
+            largest_seen_size = max(current_size, largest_seen_size)
+            running_size = largest_seen_size * (len(samples) + 1)
+            if duplicates_sampled > 10 or running_size > max_size:
+                break
+            else:
+                hash_set.add(key_sample)
+                samples.append(sample)
+
+        return samples
 
 
     def is_full(self):

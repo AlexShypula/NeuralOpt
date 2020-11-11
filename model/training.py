@@ -34,7 +34,8 @@ from modeling import build_model
 from batch import Batch, LearnerBatch
 from helpers import log_data_info, load_config, log_cfg, \
     store_attention_plots, load_checkpoint, make_model_dir, \
-    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess, BucketReplayBuffer, StopWatch
+    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess, BucketReplayBuffer, StopWatch \
+    cut_arrays_at_eos, hash_file
 from modeling import Model
 from prediction import validate_on_data
 from loss import XentLoss, StokeCostManager, log_probs_and_entropy
@@ -849,7 +850,8 @@ class TrainManager:
             for hyp in hypotheses:
                 opened_file.write("{}\n".format(hyp))
 
-    def train_and_validate_actor_learner(self, valid_data: Dataset, src_field: Field, src_vocab, tgt_vocab):
+    def train_and_validate_actor_learner(self, train_data: Dataset, valid_data: Dataset, src_field: Field,
+                                         src_vocab, tgt_vocab):
 
         if self.shard_data:
             print("sharding the data")
@@ -913,6 +915,39 @@ class TrainManager:
         ## TODO: verify the variables and variable names used here
         replay_buffer = BucketReplayBuffer(max_src_len=self.max_sent_length, max_output_len = self.max_output_length,
                                            n_splits = self.bucket_buffer_splits, max_buffer_size = self.replay_buffer_size)
+
+        train_iter = make_data_iter(train_data, batch_size=self.batch_size,
+                                    batch_type=self.batch_type, train=False, shuffle=False)
+        replay_buffer.hash2best_seq = {}
+        pbar = tqdm(total=len(train_data), smoothing=0, position=0, desc="creating ref baseline dict")
+        for batch in iter(train_iter):
+            batch = Batch(batch)
+            src_list, src_lens = cut_arrays_at_eos(list(batch.src), eos_index = self.eos_index, keep_eos = True)
+            tgt_list, tgt_lens = cut_arrays_at_eos(list(batch.tgt), eos_index=self.eos_index, keep_eos=True)
+            decoded_src = self.model.trg_vocab.arrays_to_sentences(arrays=batch.src, cut_at_eos=True)
+            join_char = " " if self.level in ["word", "bpe"] else ""
+            train_sources = [join_char.join(t) for t in decoded_src]
+            if self.level == "bpe":
+                train_sources = [bpe_postprocess(s) for s in train_sources]
+            hashes = [hash_file(src) for src in train_sources]
+            for h, src, tgt, src_len, tgt_len in zip(hashes, src_list, tgt_list, src_lens, tgt_lens):
+                metadata = self.cost_manager.hash2metadata[h]
+                O0_cost = metadata["O0_cost"]
+                Og_cost = metadata["Og_cost"]
+                best_seq_dict = {}
+                best_seq_dict["src"] = src
+                best_seq_dict["src_len"] = src_len
+                if Og_cost <= O0_cost:
+                    best_seq_dict["cost"] = Og_cost
+                    best_seq_dict["tgt"] = tgt
+                    best_seq_dict["out_len"] = tgt_len
+                else:
+                    best_seq_dict["cost"] = O0_cost
+                    best_seq_dict["tgt"] = src
+                    best_seq_dict["out_len"] = src_len
+                replay_buffer.hash2best_seq[h] = best_seq_dict
+            pbar.update(len(train_sources))
+
 
 
         print(f"Main thread now executing {self.no_running_starts} on {self.n_actors} actors", flush = True)
@@ -1180,7 +1215,7 @@ def train(cfg_file: str) -> None:
     # train the model
     actor_learner_flag = cfg["training"].get("actor_learner", False)
     if actor_learner_flag:
-        trainer.train_and_validate_actor_learner(valid_data=dev_data, src_field=src_field,
+        trainer.train_and_validate_actor_learner(train_data=train_data, valid_data=dev_data, src_field=src_field,
                                                  src_vocab=src_vocab, tgt_vocab=trg_vocab)
     else:
         trainer.train_and_validate(train_data=train_data, valid_data=dev_data, src_vocab=src_vocab, tgt_vocab=trg_vocab)
