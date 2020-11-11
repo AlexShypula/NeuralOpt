@@ -312,6 +312,8 @@ class BucketReplayBuffer:
         src_lens = [sample["src_len"] for sample in samples]
         tgt_lens = [sample["out_len"] for sample in samples]
         means, stdevs = zip(*(cost_manager.get_mean_stdv_cost(h) for h in hashes))
+        #means = [np.mean(means)] * len(means)
+        #stdevs = [np.mean(stdevs)] * len(stdevs)
         advantages = [(cost - mean)/stdev for cost, mean, stdev in zip(costs, means, stdevs)]
         names = [cost_manager.hash2metadata[h]["name"] for h in hashes]
         ref_scores = [cost_manager.hash2metadata[h]["reference_score"] for h in hashes]

@@ -1076,7 +1076,11 @@ class TrainManager:
                     torch.save(state, "{}/model_{}.ckpt".format(self.model_dir, update_no)) 
                 if (update_no % self.log_best_seq_stats_every) == 0:
                     #print("inside cost manager save best seq stats", flush = True)
-                    #pdb.set_trace()
+                    for h in self.cost_manager.trailing_stats_dict.keys():
+                        priority_queue = self.cost_manager.trailing_stats_dict[h]["best_sequence_priority_queue"]
+                        if len(priority_queue.queue)>0:
+                            name = self.cost_manager.hash2metadata[h]["name"]
+                            self.cost_manager._write_n_best(name=name, priority_queue=priority_queue)
                     self.cost_manager.save_best_seq_stats()
                     #print("saved those stats", flush = True)
 
