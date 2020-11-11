@@ -136,6 +136,9 @@ class TrainManager:
         self.replay_buffer_size = train_config.get("replay_buffer_size", 512)
         self.save_learner_every = train_config.get("save_learner_every", 1)
         self.synchronized_al = train_config.get("synchronized_al", False)
+        self.train_on_best_seqs = train_config.get("train_on_best_seqs", False)
+        if self.train_on_best_seqs:
+            assert self.synchronized_al, "for train_on_best_seqs, support only for synchronized al"
         
         valid_freq = train_config.get("validation_freq", 1000)
         self.log_best_seq_stats_every = train_config.get("log_best_seq_stats_every", valid_freq)
@@ -918,37 +921,37 @@ class TrainManager:
 
         train_iter = make_data_iter(train_data, batch_size=self.batch_size,
                                     batch_type=self.batch_type, train=False, shuffle=False)
-        replay_buffer.hash2best_seq = {}
-        pbar = tqdm(total=len(train_data), smoothing=0, position=0, desc="creating ref baseline dict")
-        for batch in iter(train_iter):
-            batch = Batch(batch)
-            src_list, src_lens = cut_arrays_at_eos(list(batch.src), eos_index = self.eos_index, keep_eos = True)
-            tgt_list, tgt_lens = cut_arrays_at_eos(list(batch.tgt), eos_index=self.eos_index, keep_eos=True)
-            decoded_src = self.model.trg_vocab.arrays_to_sentences(arrays=batch.src, cut_at_eos=True)
-            join_char = " " if self.level in ["word", "bpe"] else ""
-            train_sources = [join_char.join(t) for t in decoded_src]
-            if self.level == "bpe":
-                train_sources = [bpe_postprocess(s) for s in train_sources]
-            hashes = [hash_file(src) for src in train_sources]
-            for h, src, tgt, src_len, tgt_len in zip(hashes, src_list, tgt_list, src_lens, tgt_lens):
-                metadata = self.cost_manager.hash2metadata[h]
-                O0_cost = metadata["O0_cost"]
-                Og_cost = metadata["Og_cost"]
-                best_seq_dict = {}
-                best_seq_dict["src"] = src
-                best_seq_dict["src_len"] = src_len
-                if Og_cost <= O0_cost:
-                    best_seq_dict["cost"] = Og_cost
-                    best_seq_dict["tgt"] = tgt
-                    best_seq_dict["out_len"] = tgt_len
-                else:
-                    best_seq_dict["cost"] = O0_cost
-                    best_seq_dict["tgt"] = src
-                    best_seq_dict["out_len"] = src_len
-                replay_buffer.hash2best_seq[h] = best_seq_dict
-            pbar.update(len(train_sources))
 
-
+        if self.train_on_best_seqs:
+            replay_buffer.hash2best_seq = {}
+            pbar = tqdm(total=len(train_data), smoothing=0, position=0, desc="creating ref baseline dict")
+            for batch in iter(train_iter):
+                batch = Batch(batch)
+                src_list, src_lens = cut_arrays_at_eos(list(batch.src), eos_index = self.eos_index, keep_eos = True)
+                tgt_list, tgt_lens = cut_arrays_at_eos(list(batch.tgt), eos_index=self.eos_index, keep_eos=True)
+                decoded_src = self.model.trg_vocab.arrays_to_sentences(arrays=batch.src, cut_at_eos=True)
+                join_char = " " if self.level in ["word", "bpe"] else ""
+                train_sources = [join_char.join(t) for t in decoded_src]
+                if self.level == "bpe":
+                    train_sources = [bpe_postprocess(s) for s in train_sources]
+                hashes = [hash_file(src) for src in train_sources]
+                for h, src, tgt, src_len, tgt_len in zip(hashes, src_list, tgt_list, src_lens, tgt_lens):
+                    metadata = self.cost_manager.hash2metadata[h]
+                    O0_cost = metadata["O0_cost"]
+                    Og_cost = metadata["Og_cost"]
+                    best_seq_dict = {}
+                    best_seq_dict["src"] = src
+                    best_seq_dict["src_len"] = src_len
+                    if Og_cost <= O0_cost:
+                        best_seq_dict["cost"] = Og_cost
+                        best_seq_dict["tgt"] = tgt
+                        best_seq_dict["out_len"] = tgt_len
+                    else:
+                        best_seq_dict["cost"] = O0_cost
+                        best_seq_dict["tgt"] = src
+                        best_seq_dict["out_len"] = src_len
+                    replay_buffer.hash2best_seq[h] = best_seq_dict
+                pbar.update(len(train_sources))
 
         print(f"Main thread now executing {self.no_running_starts} on {self.n_actors} actors", flush = True)
         if self.no_running_starts > 0:
@@ -995,6 +998,9 @@ class TrainManager:
                 multi_batch_costs.extend(costs)
                 multi_batch_failures.extend(failed)
                 multi_batch_corrects.extend(corrects)
+                if self.train_on_best_seqs:
+                    src_input, traj_outputs, log_probs, advantages, src_lens, tgt_lens = \
+                        replay_buffer.sample_best_seqs(max_size=self.batch_size)
             else:
                 src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
 
