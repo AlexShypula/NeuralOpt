@@ -19,9 +19,10 @@ class LearnerBatch:
             tgt_seqs = [torch.tensor(t) for t in tgt_seqs]
         if type(log_probs[0]) != torch.Tensor:
             log_probs = [torch.tensor(lp) for lp in log_probs]
+        src_seqs = [torch.tensor(src) for src in src_seqs]
+        tgt_seqs = [torch.tensor(tgt) for tgt in tgt_seqs]
         self.src = pad_sequence(src_seqs, batch_first=True, padding_value=pad_index)
         self.src_mask = (self.src != pad_index).unsqueeze(1) # per Batch outlined below
-
         tgt = pad_sequence(tgt_seqs, batch_first=True, padding_value=pad_index)
         bos_vec = tgt.new_full(size=[tgt.size(0), 1], fill_value=bos_index,
                                                dtype=torch.long)
@@ -35,7 +36,7 @@ class LearnerBatch:
         self.offline_log_probs = pad_sequence(log_probs, batch_first=True, padding_value=0.0)
         #self.loss_mask = (self.offline_log_probs !=0.0) # do not unsqueeze as this is used for post-processing 
 
-        self.advantages = torch.tensor(advantages).unsqueeze(1) # turn into a tensor, but 1D -> 1D with extra 1 dimension for broadcasting
+        self.advantages = torch.tensor(advantages).unsqueeze(1).type(torch.float) # turn into a tensor, but 1D -> 1D with extra 1 dimension for broadcasting
 
     def to_device(self, device: str):
         self.src = self.src.to(device)

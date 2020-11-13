@@ -388,14 +388,14 @@ class BucketReplayBuffer:
 
         return samples
 
-    def sample_best_seqs(self, max_size):
-        samples = self._get_sample_of_best_seqs(self, max_size=max_size)
+    def sample_best_seqs(self, max_size: int):
+        samples = self._get_sample_of_best_seqs(max_size=max_size)
 
         src_inputs = [sample["src"] for sample in samples]
         traj_outputs = [sample["tgt"] for sample in samples]
         src_lens = [sample["src_len"] for sample in samples]
         tgt_lens = [sample["out_len"] for sample in samples]
-        log_probs = [torch.zeros(tgt_len)for tgt_len in tgt_lens]
+        log_probs = [torch.zeros(tgt_len).type(torch.float) for tgt_len in tgt_lens]
         advantages = [-1] * len(src_inputs)
 
         return src_inputs, traj_outputs, log_probs, advantages, src_lens, tgt_lens

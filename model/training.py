@@ -34,7 +34,7 @@ from modeling import build_model
 from batch import Batch, LearnerBatch
 from helpers import log_data_info, load_config, log_cfg, \
     store_attention_plots, load_checkpoint, make_model_dir, \
-    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess, BucketReplayBuffer, StopWatch \
+    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess, BucketReplayBuffer, StopWatch, \
     cut_arrays_at_eos, hash_file
 from modeling import Model
 from prediction import validate_on_data
@@ -926,9 +926,9 @@ class TrainManager:
             replay_buffer.hash2best_seq = {}
             pbar = tqdm(total=len(train_data), smoothing=0, position=0, desc="creating ref baseline dict")
             for batch in iter(train_iter):
-                batch = Batch(batch)
+                batch = Batch(batch, pad_index = self.pad_index)
                 src_list, src_lens = cut_arrays_at_eos(list(batch.src), eos_index = self.eos_index, keep_eos = True)
-                tgt_list, tgt_lens = cut_arrays_at_eos(list(batch.tgt), eos_index=self.eos_index, keep_eos=True)
+                tgt_list, tgt_lens = cut_arrays_at_eos(list(batch.trg), eos_index=self.eos_index, keep_eos=True)
                 decoded_src = self.model.trg_vocab.arrays_to_sentences(arrays=batch.src, cut_at_eos=True)
                 join_char = " " if self.level in ["word", "bpe"] else ""
                 train_sources = [join_char.join(t) for t in decoded_src]
@@ -999,7 +999,7 @@ class TrainManager:
                 multi_batch_failures.extend(failed)
                 multi_batch_corrects.extend(corrects)
                 if self.train_on_best_seqs:
-                    src_input, traj_outputs, log_probs, advantages, src_lens, tgt_lens = \
+                    src_inputs, traj_outputs, log_probs, advantages, src_lens, tgt_lens = \
                         replay_buffer.sample_best_seqs(max_size=self.batch_size)
             else:
                 src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
@@ -1016,10 +1016,12 @@ class TrainManager:
                                                            trg_mask=batch.tgt_mask,
                                                            )
             online_log_probs, online_entropy = log_probs_and_entropy(logits = out, labels = batch.tgt, loss_mask = batch.loss_mask)
-            offline_log_probs = batch.offline_log_probs * batch.loss_mask
+            #offline_log_probs = batch.offline_log_probs * batch.loss_mask
             online_traj_probs = torch.sum(online_log_probs.detach(), dim = 1).unsqueeze(1) # should reduce to a 2-d array, but with dim 1 = 1
-            offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
+            #offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
             if self.ppo_flag:
+                offline_log_probs = batch.offline_log_probs * batch.loss_mask
+                offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
                 importance_sampling_ratio = torch.exp(online_traj_probs - offline_traj_probs)
                 clipped_importance_sampling_ratio = torch.clamp(importance_sampling_ratio,
                                                                min=1-self.ppo_epsilon, max = 1+self.ppo_epsilon)
