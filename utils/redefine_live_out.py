@@ -74,7 +74,7 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
     live_dangerously_str = "--live_dangerously" if live_dangerously else ""
     candidate_registers = live_out_register_list
     still_testing = True
-
+    breakpoint()
     while still_testing:
         try:
             diff = subprocess.run(
@@ -89,12 +89,17 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
             )
             new_candidate_registers = []
             new_registers_to_test = []
+            print("live out registers are {}".format(register_list_to_register_string(def_in_register_list)))
+            print("def in registers are {}".format(register_list_to_register_string(candidate_registers)))
+            print("diff returncode is {}".format(diff.returncode))
+            print("diff stdout is {}".format(diff.stdout))
 
             if diff.returncode == 0:
                 for register in live_out_register_list:
                     if not re.search(register, diff.stdout):
                         new_candidate_registers.append(register)
-                    else:
+                    else: 
+                        breakpoint()
                         next_register_to_test = NEXT_REGISTER_TESTING_DICT[register]
                         if next_register_to_test != None:
                             new_candidate_registers.append(next_register_to_test)
@@ -106,8 +111,9 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
                     print("orig live_out_register_list: " + " ".join(def_in_register_list))
                     print("last diff std out " + diff.stdout)
                     print("new_live_out_list: " + " ".join(candidate_registers))
+                    #if new_registers_to_test != []: 
                     print("new registers to test: " + " ".join(new_registers_to_test))
-                    print("still testing: " + " ".join(still_testing))
+                    print("still testing: {}".format(still_testing), flush=True)
             # diff did not return with 0 returncode
             else:
                 still_testing = False
@@ -126,6 +132,7 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
     pbar = tqdm(total = len(df), position = position)
     cts = 0
     for i, row in df.iterrows():
+        pbar.update()
         def_in_register_list = copy(DEF_IN_REGISTER_LIST) # not nested; so we can use copy
         live_out_register_list = copy(LIVE_OUT_REGISTER_LIST) # not nested; so we can use copy
         if row["unopt_unopt_correctness"] == "yes":
@@ -146,7 +153,7 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                                                                                    rewrite_f=path_to_optimized_function,
                                                                                    testcases_f=path_to_testcases,
                                                                                    fun_dir = functions_dir,
-                                                                                   live_dangerously=False,
+                                                                                   live_dangerously=True,
                                                                                    debug=debug)
             #print("diff rc is", diff_rc)
             #if diff_rc != 0:
@@ -250,7 +257,7 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                 row["live_out"] = register_list_to_register_string(live_out_register_list)
                 new_rows.append(row.to_dict())
                 continue
-        pbar.update()
+        #pbar.update()
     df_out = pd.DataFrame(new_rows) 
     #print("number of unprocessed cts is ", cts)
     return df_out
@@ -332,7 +339,7 @@ if __name__ == "__main__":
         df_out = redefine_live_out_df(path_to_disassembly_dir=args.path_to_disassembly_dir,
                                       df = df_in,
                                       optimized_flag=args.optimized_flag,
-                                      debug=args.debug)
+                                      debug=True)
 
     df_out.to_csv(args.path_to_out_stats_df)
 
