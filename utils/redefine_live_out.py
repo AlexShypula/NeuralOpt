@@ -10,7 +10,8 @@ from argparse_dataclass import ArgumentParser
 from os.path import join
 from tqdm import tqdm
 from multiprocessing import Pool
-from registers import NEXT_REGISTER_TESTING_DICT, DEF_IN_REGISTER_LIST, LIVE_OUT_REGISTER_LIST, REGISTER_TO_STDOUT_REGISTER
+from registers import DEF_IN_REGISTER_LIST, LIVE_OUT_REGISTER_LIST, REGISTER_TO_STDOUT_REGISTER, \
+    SIMD_REGISTERS_SET, GP_REGISTERS_SET, LIVE_OUT_FLAGS_SET, gp_reg_64_to_32, gp_reg_64_to_16, gp_reg_64_to_8
 
 
 @dataclass
@@ -21,6 +22,31 @@ class ParseOptions:
     optimized_flag: str = field(metadata=dict(args=["-optimized_flag", "--optimized_flag"]), default = "Og")
     n_workers: int = field(metadata=dict(args=["-n_workers", "--n_workers"]), default = 1)
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default=False)
+
+
+ANSI_REGEX = re.compile(r'\x1b(\[.*?[@-~]|\].*?(\x07|\x1b\\))')
+
+
+def clean_ansi_color_codes(string_to_clean: str):
+    return ANSI_REGEX.sub("", string_to_clean)
+
+
+def test_if_lower_order_register(match_list: List[str], gp_register_name_64: str):
+    assert len(match_list) == 2
+    tgt_byte_list = match_list[0].strip().split()
+    rewrite_byte_list = match_list[1].strip().split()
+    # test if the lower 32 bits match (last 4 bytes)
+    if " ".join(tgt_byte_list[-4:]) == " ".join(rewrite_byte_list[-4:]):
+        return gp_reg_64_to_32[gp_register_name_64]
+    # test if the lower 16 bits match (last 2 bytes)
+    elif " ".join(tgt_byte_list[-2:]) == " ".join(rewrite_byte_list[-4:]):
+        return gp_reg_64_to_16[gp_register_name_64]
+    # test if the lower 8 bits match (last 1 byte)
+    elif tgt_byte_list[-1] == rewrite_byte_list[-1]:
+        return gp_reg_64_to_8[gp_register_name_64]
+    # the entire register is different, so remove from live_out
+    else:
+        return None
 
 
 def register_list_from_regex(stoke_diff_string: str, pattern: re.Pattern):
@@ -72,57 +98,53 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
                             debug: bool = False):
 
     live_dangerously_str = "--live_dangerously" if live_dangerously else ""
-    candidate_registers = live_out_register_list
-    still_testing = True
-    #breakpoint()
-    while still_testing:
-        try:
-            diff = subprocess.run(
-                ["stoke", "debug", "diff", "--target", target_f, "--rewrite", rewrite_f, "--testcases",
-                 testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, 
-                 "--live_out", register_list_to_register_string(candidate_registers),
-                 "--def_in", register_list_to_register_string(def_in_register_list)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=25
-            )
-            new_candidate_registers = []
-            new_registers_to_test = []
-            #print("def in registers are {}".format(register_list_to_register_string(def_in_register_list)))
-            #print("live out registers are {}".format(register_list_to_register_string(candidate_registers)))
-            #print("diff returncode is {}".format(diff.returncode))
-            #print("diff stdout is {}".format(diff.stdout))
 
-            if diff.returncode == 0:
-                for register in candidate_registers:
-                    gp_register = REGISTER_TO_STDOUT_REGISTER[register]
-                    if not re.search(gp_register, diff.stdout):
-                        new_candidate_registers.append(register)
-                    else: 
-                        #breakpoint()
-                        next_register_to_test = NEXT_REGISTER_TESTING_DICT[register]
-                        if next_register_to_test != None:
-                            new_candidate_registers.append(next_register_to_test)
-                            new_registers_to_test.append(next_register_to_test)
-                candidate_registers = new_candidate_registers
-                still_testing = True if new_registers_to_test != [] else False
-                if debug:
-                    print("def_in_register_list: " + " " .join(def_in_register_list))
-                    print("orig live_out_register_list: " + " ".join(def_in_register_list))
-                    #print("last diff std out " + diff.stdout)
-                    print("new_live_out_list: " + " ".join(candidate_registers))
-                    #if new_registers_to_test != []: 
-                    print("new registers to test: " + " ".join(new_registers_to_test))
-                    print("still testing: {}".format(still_testing), flush=True)
-            # diff did not return with 0 returncode
-            else:
-                still_testing = False
+    try:
+        diff = subprocess.run(
+            ["stoke", "debug", "diff", "--target", target_f, "--rewrite", rewrite_f, "--testcases",
+             testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str,
+             "--live_out", register_list_to_register_string(live_out_register_list),
+             "--def_in", register_list_to_register_string(def_in_register_list)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=25
+        )
+        new_live_out_register_list = []
 
-        except subprocess.TimeoutExpired as err:
-            return -1, err, []
+        if diff.returncode == 0:
+            diff_stdout_clean = clean_ansi_color_codes(diff.stdout)
+            for register in live_out_register_list:
+                register_stdout_code = REGISTER_TO_STDOUT_REGISTER[register]
+                findall_string = "(?<=(?:{}))[^\n]+".format(register_stdout_code)
+                findall_result = re.findall(findall_string, diff_stdout_clean)
+                # if there is no regular expressions match (i.e. this register is equal in unopt and opt versions)
+                # findall will return an empty list
+                if findall_result == []:
+                    new_live_out_register_list.append(register)
+                # only if it is a general purpose register will we try to search for a lower register to test out
+                elif register in GP_REGISTERS_SET:
+                    assert len(findall_result) == 2, "findall result is not length 2, result is {} and diff is {}"\
+                        .format(findall_result, diff_stdout_clean)
+                    lower_order_register_result = test_if_lower_order_register(match_list=findall_result,
+                                                                               gp_register_name_64=register)
+                    # the test returns a register name if a lower-order register is found, otherwise None
+                    if lower_order_register_result != None:
+                        new_live_out_register_list.append(lower_order_register_result)
+            if debug:
+                print("def_in_register_list: " + " " .join(def_in_register_list))
+                print("orig live_out_register_list: " + " ".join(def_in_register_list))
+                print("diff std out cleaned" + diff_stdout_clean)
+                print("new_live_out_list: " + " ".join(new_live_out_register_list))
 
-    return diff.returncode, diff.stdout, candidate_registers
+        # diff did not return with 0 returncode
+        else:
+            pass
+
+    except subprocess.TimeoutExpired as err:
+        return -1, err, []
+
+    return diff.returncode, diff.stdout, new_live_out_register_list
 
 def redefine_live_out_df_wrapper(args):
     return redefine_live_out_df(**args)

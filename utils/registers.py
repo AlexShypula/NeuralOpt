@@ -17,6 +17,39 @@ gp_reg_64_to_32 = {"%rax": "%eax",
                    "%r15": "%r15d",
                    }
 
+gp_reg_64_to_16 = {'%rax': '%ax',
+                     '%rcx': '%cx',
+                     '%rdx': '%dx',
+                     '%rbx': '%bx',
+                     '%rsp': '%sp',
+                     '%rbp': '%bp',
+                     '%rsi': '%si',
+                     '%rdi': '%di',
+                     '%r8': '%r8w',
+                     '%r9': '%r9w',
+                     '%r10': '%r10w',
+                     '%r11': '%r11w',
+                     '%r12': '%r12w',
+                     '%r13': '%r13w',
+                     '%r14': '%r14w',
+                     '%r15': '%r15w'}
+
+gp_reg_64_to_8 = {'%rax': '%al',
+                     '%rcx': '%cl',
+                     '%rdx': '%dl',
+                     '%rbx': '%bl',
+                     '%rsp': '%sil',
+                     '%rbp': '%bpl',
+                     '%rsi': '%dil',
+                     '%rdi': '%r8b',
+                     '%r8': '%r9b',
+                     '%r9': '%r10b',
+                     '%r10': '%r11b',
+                     '%r11': '%r12b',
+                     '%r12': '%r13b',
+                     '%r13': '%r14b',
+                     '%r14': '%r15b'}
+
 gp_reg_32_to_16 = {"%eax": "%ax",
                    "%ecx": "%cx",
                    "%edx": "%dx",
@@ -244,9 +277,18 @@ REGISTER_TO_STDOUT_REGISTER = {
                    }
 
 
+SIMD_REGISTERS = list(simd_reg_128_to_None.keys())
+GP_REGISTERS = list(gp_reg_64_to_32.keys())
+LIVE_OUT_FLAGS = ["%zf", "%cf"]
+DEF_IN_FLAGS = ["%zf", "%cf", "%mxcsr::rc[0]"]
 
-LIVE_OUT_REGISTER_LIST = list(gp_reg_64_to_32.keys()) + list(simd_reg_256_to_128.keys()) + ["%zf", "%cf"] # + list(flags_to_none.keys())
-DEF_IN_REGISTER_LIST = list(gp_reg_64_to_32.keys()) + list(simd_reg_256_to_128.keys()) + ["%zf", "%cf", "%mxcsr::rc[0]"] #+ list(flags_to_none.keys())
+SIMD_REGISTERS_SET = set(SIMD_REGISTERS)
+GP_REGISTERS_SET = set(GP_REGISTERS)
+DEF_IN_FLAGS_SET = set(DEF_IN_FLAGS)
+
+LIVE_OUT_REGISTER_LIST = GP_REGISTERS + SIMD_REGISTERS + LIVE_OUT_FLAGS
+DEF_IN_REGISTER_LIST = GP_REGISTERS + SIMD_REGISTERS + DEF_IN_FLAGS
+
 
 NEXT_REGISTER_TESTING_DICT = {**gp_reg_64_to_32, **gp_reg_32_to_16, **gp_reg_16_to_8, **gp_reg_8_to_None,
                               **simd_reg_256_to_128, **simd_reg_128_to_None, **flags_to_none}
