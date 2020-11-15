@@ -229,7 +229,22 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                             new_rows.append(row.to_dict())
                         else:
                             if debug:
-                                pass
+                                diff = subprocess.run(
+                                    ["stoke", "debug", "diff", "--target", path_to_function, "--rewrite",
+                                     path_to_optimized_function, "--testcases",
+                                     path_to_testcases, '--functions', functions_dir, "--prune", "--live_dangerously"
+                                                                                                 "--live_out",
+                                     register_list_to_register_string(live_out_register_list),
+                                     "--def_in", register_list_to_register_string(def_in_register_list)],
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT,
+                                    text=True,
+                                    timeout=25
+                                )
+                                print(f"even after redefine live out, it was incorrect, live out is "
+                                      f"{register_list_to_register_string(live_out_register_list)}")
+                                print(f"diff stdout is {diff.stdout}")
+                                #pass
                             #breakpoint()
                         # row["opt_unopt_cost"] = float(cost)
                         # row["opt_unopt_correctness"] = correct_str
