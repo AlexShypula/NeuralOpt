@@ -74,12 +74,12 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
     live_dangerously_str = "--live_dangerously" if live_dangerously else ""
     candidate_registers = live_out_register_list
     still_testing = True
-    breakpoint()
+    #breakpoint()
     while still_testing:
         try:
             diff = subprocess.run(
                 ["stoke", "debug", "diff", "--target", target_f, "--rewrite", rewrite_f, "--testcases",
-                 testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str,
+                 testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, 
                  "--live_out", register_list_to_register_string(candidate_registers),
                  "--def_in", register_list_to_register_string(def_in_register_list)],
                 stdout=subprocess.PIPE,
@@ -100,7 +100,7 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
                     if not re.search(gp_register, diff.stdout):
                         new_candidate_registers.append(register)
                     else: 
-                        breakpoint()
+                        #breakpoint()
                         next_register_to_test = NEXT_REGISTER_TESTING_DICT[register]
                         if next_register_to_test != None:
                             new_candidate_registers.append(next_register_to_test)
@@ -274,7 +274,7 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
             ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
             testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
             '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', "--heap_out", "--stack_out",
-            '--def_in', register_list_to_register_string(def_in_register_list),
+            '--def_in', register_list_to_register_string(def_in_register_list), "--relax_mem", 
             '--live_out', register_list_to_register_string(live_out_register_list)], 
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
         elif stack_out:
@@ -282,7 +282,7 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
                 ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
                  testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
                  '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', "--stack_out",
-                 '--def_in', register_list_to_register_string(def_in_register_list),
+                 '--def_in', register_list_to_register_string(def_in_register_list), "--relax_mem",
                  '--live_out', register_list_to_register_string(live_out_register_list)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
         elif heap_out:
@@ -290,7 +290,7 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
                 ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
                  testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
                  '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', "--heap_out",
-                 '--def_in', register_list_to_register_string(def_in_register_list),
+                 '--def_in', register_list_to_register_string(def_in_register_list), "--relax_mem",
                  '--live_out', register_list_to_register_string(live_out_register_list)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
         else: 
@@ -304,9 +304,10 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
             cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
             correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
         else:
-            breakpoint()
+            #breakpoint()
             cost = -10701
             correct = "failed"
+        print(cost_test.stdout)
         return cost_test.returncode, cost_test.stdout, cost, correct
 
     except subprocess.TimeoutExpired as err:
