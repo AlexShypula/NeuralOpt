@@ -89,10 +89,10 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
             )
             new_candidate_registers = []
             new_registers_to_test = []
-            print("def in registers are {}".format(register_list_to_register_string(def_in_register_list)))
-            print("live out registers are {}".format(register_list_to_register_string(candidate_registers)))
-            print("diff returncode is {}".format(diff.returncode))
-            print("diff stdout is {}".format(diff.stdout))
+            #print("def in registers are {}".format(register_list_to_register_string(def_in_register_list)))
+            #print("live out registers are {}".format(register_list_to_register_string(candidate_registers)))
+            #print("diff returncode is {}".format(diff.returncode))
+            #print("diff stdout is {}".format(diff.stdout))
 
             if diff.returncode == 0:
                 for register in candidate_registers:
@@ -110,7 +110,7 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
                 if debug:
                     print("def_in_register_list: " + " " .join(def_in_register_list))
                     print("orig live_out_register_list: " + " ".join(def_in_register_list))
-                    print("last diff std out " + diff.stdout)
+                    #print("last diff std out " + diff.stdout)
                     print("new_live_out_list: " + " ".join(candidate_registers))
                     #if new_registers_to_test != []: 
                     print("new registers to test: " + " ".join(new_registers_to_test))
@@ -232,10 +232,10 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                                 diff = subprocess.run(
                                     ["stoke", "debug", "diff", "--target", path_to_function, "--rewrite",
                                      path_to_optimized_function, "--testcases",
-                                     path_to_testcases, '--functions', functions_dir, "--prune", "--live_dangerously"
+                                     path_to_testcases, '--functions', functions_dir, "--prune", "--live_dangerously",
                                                                                                  "--live_out",
                                      register_list_to_register_string(live_out_register_list),
-                                     "--def_in", register_list_to_register_string(def_in_register_list)],
+                                     "--def_in", register_list_to_register_string(live_out_register_list)],
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT,
                                     text=True,

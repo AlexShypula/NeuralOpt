@@ -44,7 +44,7 @@ gp_reg_16_to_8 = {"%ax": "%al",
                    "%si": "%sil",
                    "%di": "%dil",
                    "%r8w": "%r8b",
-                   "%r9dw": "%r9b",
+                   "%r9w": "%r9b",
                    "%r10w": "%r10b",
                    "%r11w": "%r11b",
                    "%r12w": "%r12b",
@@ -184,7 +184,7 @@ REGISTER_TO_STDOUT_REGISTER = {
                    "%sil": "%rsi",
                    "%dil": "%rdi",
                    "%r8b": "%r8",
-                   "%r9db": "%r9",
+                   "%r9b": "%r9",
                    "%r10b": "%r10",
                    "%r11b": "%r11",
                    "%r12b": "%r12",
@@ -245,8 +245,8 @@ REGISTER_TO_STDOUT_REGISTER = {
 
 
 
-LIVE_OUT_REGISTER_LIST = list(gp_reg_64_to_32.keys()) + list(simd_reg_256_to_128.keys()) + list(flags_to_none.keys())
-DEF_IN_REGISTER_LIST = list(gp_reg_64_to_32.keys()) + list(simd_reg_256_to_128.keys()) + list(flags_to_none.keys())
+LIVE_OUT_REGISTER_LIST = list(gp_reg_64_to_32.keys()) + list(simd_reg_256_to_128.keys()) + ["%zf", "%cf"] # + list(flags_to_none.keys())
+DEF_IN_REGISTER_LIST = list(gp_reg_64_to_32.keys()) + list(simd_reg_256_to_128.keys()) + ["%zf", "%cf", "%mxcsr::rc[0]"] #+ list(flags_to_none.keys())
 
 NEXT_REGISTER_TESTING_DICT = {**gp_reg_64_to_32, **gp_reg_32_to_16, **gp_reg_16_to_8, **gp_reg_8_to_None,
                               **simd_reg_256_to_128, **simd_reg_128_to_None, **flags_to_none}
