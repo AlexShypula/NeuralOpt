@@ -223,6 +223,24 @@ REGISTER_TO_STDOUT_REGISTER = {
                     "%xmm13": "%ymm13",
                     "%xmm14": "%ymm14",
                     "%xmm15": "%ymm15",
+
+                 "%cf": "%cf",
+                 "%pf": "%pf",
+                 "%af": "%af",
+                 "%zf": "%zf",
+                 "%sf": "%sf",
+                 "%tf": "%tf",
+                 "%if": "%if",
+                 "%df": "%df",
+                 "%of": "%of",
+                 "%nt": "%nt",
+                 "%rf": "%rf",
+                 "%vm": "%vm",
+                 "%ac": "%ac",
+                 "%vif": "%vif",
+                 "%vip": "%vip",
+                 "%id": "%id"
+
                    }
 
 
