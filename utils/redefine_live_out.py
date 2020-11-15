@@ -10,7 +10,7 @@ from argparse_dataclass import ArgumentParser
 from os.path import join
 from tqdm import tqdm
 from multiprocessing import Pool
-from registers import NEXT_REGISTER_TESTING_DICT, DEF_IN_REGISTER_LIST, LIVE_OUT_REGISTER_LIST
+from registers import NEXT_REGISTER_TESTING_DICT, DEF_IN_REGISTER_LIST, LIVE_OUT_REGISTER_LIST, REGISTER_TO_STDOUT_REGISTER
 
 
 @dataclass
@@ -89,14 +89,15 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
             )
             new_candidate_registers = []
             new_registers_to_test = []
-            print("live out registers are {}".format(register_list_to_register_string(def_in_register_list)))
-            print("def in registers are {}".format(register_list_to_register_string(candidate_registers)))
+            print("def in registers are {}".format(register_list_to_register_string(def_in_register_list)))
+            print("live out registers are {}".format(register_list_to_register_string(candidate_registers)))
             print("diff returncode is {}".format(diff.returncode))
             print("diff stdout is {}".format(diff.stdout))
 
             if diff.returncode == 0:
-                for register in live_out_register_list:
-                    if not re.search(register, diff.stdout):
+                for register in candidate_registers:
+                    gp_register = REGISTER_TO_STDOUT_REGISTER[register]
+                    if not re.search(gp_register, diff.stdout):
                         new_candidate_registers.append(register)
                     else: 
                         breakpoint()
