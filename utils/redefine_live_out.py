@@ -11,7 +11,7 @@ from os.path import join
 from tqdm import tqdm
 from multiprocessing import Pool
 from registers import DEF_IN_REGISTER_LIST, LIVE_OUT_REGISTER_LIST, REGISTER_TO_STDOUT_REGISTER, \
-    SIMD_REGISTERS_SET, GP_REGISTERS_SET, LIVE_OUT_FLAGS_SET, gp_reg_64_to_32, gp_reg_64_to_16, gp_reg_64_to_8
+    GP_REGISTERS_SET, LIVE_OUT_FLAGS_SET, gp_reg_64_to_32, gp_reg_64_to_16, gp_reg_64_to_8
 
 
 @dataclass
@@ -25,7 +25,7 @@ class ParseOptions:
 
 
 ANSI_REGEX = re.compile(r'\x1b(\[.*?[@-~]|\].*?(\x07|\x1b\\))')
-
+LIVE_OUT_REGEX = re.compile("|".join(["({})".format(r) for r in LIVE_OUT_FLAGS_SET]))
 
 def clean_ansi_color_codes(string_to_clean: str):
     return ANSI_REGEX.sub("", string_to_clean)
@@ -111,6 +111,9 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
             timeout=25
         )
         new_live_out_register_list = []
+        
+        if re.search("returned abnormally with signal 11", diff.stdout): 
+            diff.returncode = 11
 
         if diff.returncode == 0:
             diff_stdout_clean = clean_ansi_color_codes(diff.stdout)
@@ -137,6 +140,9 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
                 print("diff std out cleaned" + diff_stdout_clean)
                 print("new_live_out_list: " + " ".join(new_live_out_register_list))
 
+            # if any flags are in the diff, remove all flags (i.e. don't test FLAGS register)
+            if LIVE_OUT_REGEX.search(diff_stdout_clean): 
+                new_live_out_register_list = [r for r in new_live_out_register_list if r not in LIVE_OUT_FLAGS_SET]
         # diff did not return with 0 returncode
         else:
             pass
@@ -183,7 +189,7 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                 #print(diff_stdout)
                 #print("path to rewrite is ", path_to_optimized_function)
 
-            if isinstance(diff_stdout, str) and re.search("Rewrite returned abnormally with signal 11", diff_stdout):
+            if isinstance(diff_stdout, str) and re.search("returned abnormally with signal 11", diff_stdout):
                 diff_rc = 11
             # test for both heap and stack
             if diff_rc == 0:
@@ -207,19 +213,19 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                     #print("correct cost and appended")
                 # test for stack, not heap
                 elif correct_str == "no":
-                    # try to then suppress the heap
+                    # try to then suppress the stack
                     cost_rc, cost_stdout, cost, correct_str = test_costfn(target_f=path_to_function,
                                                                           rewrite_f=path_to_optimized_function,
                                                                           testcases_f=path_to_testcases,
                                                                           fun_dir=functions_dir,
                                                                           def_in_register_list=def_in_register_list,
                                                                           live_out_register_list=live_out_register_list,
-                                                                          heap_out=False,
-                                                                          stack_out=True)
+                                                                          heap_out=True,
+                                                                          stack_out=False)
 
                     if correct_str == "yes":
-                        row["heap_out"] = False
-                        row["stack_out"] = True
+                        row["heap_out"] = True
+                        row["stack_out"] = False
                         row["opt_unopt_cost"] = float(cost)
                         row["opt_unopt_correctness"] = correct_str
                         row["def_in"] = register_list_to_register_string(def_in_register_list)
@@ -230,7 +236,7 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
 
                     # test only the registers
                     elif correct_str == "no":
-                        # try to then suppress the stack in addition to the heap
+                        # try to then suppress the heap in addition to the stack
                         cost_rc, cost_stdout, cost, correct_str = test_costfn(target_f=path_to_function,
                                                                               rewrite_f=path_to_optimized_function,
                                                                               testcases_f=path_to_testcases,
