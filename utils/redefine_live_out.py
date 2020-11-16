@@ -19,6 +19,8 @@ class ParseOptions:
     path_to_disassembly_dir: str = field(metadata=dict(args=["-disas_dir", "--path_to_disassembly_dir"]))
     path_to_stats_df: str = field(metadata=dict(args=["-in_stats_df", "--path_to_in_stats_df"]))
     path_to_out_stats_df: str = field(metadata=dict(args=["-out_stats_df", "--path_to_out_stats_df"]))
+    path_to_spurious_dir: str = field(metadata=dict(args=["-spurious_dir", "--path_to_spurious_dir"]), default=None)
+    spurious_progs: str = field(metadata=dict(args=["-spurious_prog_list", "--spurious_prog_list"]), default=None)
     optimized_flag: str = field(metadata=dict(args=["-optimized_flag", "--optimized_flag"]), default = "Og")
     n_workers: int = field(metadata=dict(args=["-n_workers", "--n_workers"]), default = 1)
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default=False)
@@ -26,6 +28,7 @@ class ParseOptions:
 
 ANSI_REGEX = re.compile(r'\x1b(\[.*?[@-~]|\].*?(\x07|\x1b\\))')
 LIVE_OUT_REGEX = re.compile("|".join(["({})".format(r) for r in LIVE_OUT_FLAGS_SET]))
+
 
 def clean_ansi_color_codes(string_to_clean: str):
     return ANSI_REGEX.sub("", string_to_clean)
@@ -155,8 +158,8 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
 def redefine_live_out_df_wrapper(args):
     return redefine_live_out_df(**args)
 
-def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimized_flag = "Og",
-                         position: int = 0, debug: bool = False):
+def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, path_to_spurious_dir, spurious_program_list,
+                         optimized_flag = "Og", position: int = 0, debug: bool = False):
     new_rows = []
     pbar = tqdm(total = len(df), position = position)
     cts = 0
@@ -191,7 +194,7 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
 
             if isinstance(diff_stdout, str) and re.search("returned abnormally with signal 11", diff_stdout):
                 diff_rc = 11
-            # test for both heap and stack
+            # always do stack out as false
             if diff_rc == 0:
                 cost_rc, cost_stdout, cost, correct_str = test_costfn(target_f=path_to_function,
                                                                      rewrite_f=path_to_optimized_function,
@@ -200,10 +203,20 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                                                                      def_in_register_list=def_in_register_list,
                                                                      live_out_register_list=live_out_register_list,
                                                                      heap_out=True,
-                                                                     stack_out=True)
+                                                                     stack_out=False)
                 if correct_str == "yes":
+                    if path_to_spurious_dir and spurious_program_list:
+                        is_spurious = is_spurious_program(path_to_spurious_dir=path_to_spurious_dir,
+                                                           spurious_program_list=spurious_program_list,
+                                                           path_to_function=path_to_function,
+                                                           path_to_testcases=path_to_testcases,
+                                                           functions_dir=functions_dir,
+                                                           def_in_register_list=def_in_register_list,
+                                                           live_out_register_list=live_out_register_list,
+                                                           heap_out=True, stack_out=False)
+                        correct_str = "spurious" if is_spurious else correct_str
                     row["heap_out"] = True
-                    row["stack_out"] = True
+                    row["stack_out"] = False
                     row["opt_unopt_cost"] = float(cost)
                     row["opt_unopt_correctness"] = correct_str
                     row["def_in"] = register_list_to_register_string(def_in_register_list)
@@ -220,11 +233,21 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                                                                           fun_dir=functions_dir,
                                                                           def_in_register_list=def_in_register_list,
                                                                           live_out_register_list=live_out_register_list,
-                                                                          heap_out=True,
+                                                                          heap_out=False,
                                                                           stack_out=False)
 
                     if correct_str == "yes":
-                        row["heap_out"] = True
+                        if path_to_spurious_dir and spurious_program_list:
+                            is_spurious = is_spurious_program(path_to_spurious_dir=path_to_spurious_dir,
+                                                           spurious_program_list=spurious_program_list,
+                                                           path_to_function=path_to_function,
+                                                           path_to_testcases=path_to_testcases,
+                                                           functions_dir=functions_dir,
+                                                           def_in_register_list=def_in_register_list,
+                                                           live_out_register_list=live_out_register_list,
+                                                           heap_out=False, stack_out=False)
+                            correct_str = "spurious" if is_spurious else correct_str
+                        row["heap_out"] = False
                         row["stack_out"] = False
                         row["opt_unopt_cost"] = float(cost)
                         row["opt_unopt_correctness"] = correct_str
@@ -235,55 +258,34 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
                         #print("cost run second time and correct")
 
                     # test only the registers
-                    elif correct_str == "no":
-                        # try to then suppress the heap in addition to the stack
-                        cost_rc, cost_stdout, cost, correct_str = test_costfn(target_f=path_to_function,
-                                                                              rewrite_f=path_to_optimized_function,
-                                                                              testcases_f=path_to_testcases,
-                                                                              fun_dir=functions_dir,
-                                                                              def_in_register_list=def_in_register_list,
-                                                                              live_out_register_list=live_out_register_list,
-                                                                              heap_out=False,
-                                                                              stack_out=False)
+                    else:
+                        if debug:
+                            diff = subprocess.run(
+                                ["stoke", "debug", "diff", "--target", path_to_function, "--rewrite",
+                                 path_to_optimized_function, "--testcases",
+                                 path_to_testcases, '--functions', functions_dir, "--prune", "--live_dangerously",
+                                                                                             "--live_out",
+                                 register_list_to_register_string(live_out_register_list),
+                                 "--def_in", register_list_to_register_string(live_out_register_list)],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                text=True,
+                                timeout=25
+                            )
+                            print(f"even after redefine live out, it was incorrect, live out is "
+                                  f"{register_list_to_register_string(live_out_register_list)}")
+                            print(f"diff stdout is {diff.stdout}")
+                            #pass
+                        #breakpoint()
+                    # row["opt_unopt_cost"] = float(cost)
+                    # row["opt_unopt_correctness"] = correct_str
+                    # row["def_in"] = register_list_to_register_string(def_in_register_list)
+                    # row["live_out"] = register_list_to_register_string(live_out_register_list)
+                    # row["diff_str"] = diff_stdout
+                    # row["opt_cost_str"] = cost_stdout
+                    # new_rows.append(row.to_dict())
+                    #print("cost run second time and failed")
 
-                        if correct_str == "yes":
-                            row["heap_out"] = False
-                            row["stack_out"] = False
-                            row["opt_unopt_cost"] = float(cost)
-                            row["opt_unopt_correctness"] = correct_str
-                            row["def_in"] = register_list_to_register_string(def_in_register_list)
-                            row["live_out"] = register_list_to_register_string(live_out_register_list)
-                            row["opt_cost_str"] = cost_stdout
-                            new_rows.append(row.to_dict())
-                        else:
-                            if debug:
-                                diff = subprocess.run(
-                                    ["stoke", "debug", "diff", "--target", path_to_function, "--rewrite",
-                                     path_to_optimized_function, "--testcases",
-                                     path_to_testcases, '--functions', functions_dir, "--prune", "--live_dangerously",
-                                                                                                 "--live_out",
-                                     register_list_to_register_string(live_out_register_list),
-                                     "--def_in", register_list_to_register_string(live_out_register_list)],
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT,
-                                    text=True,
-                                    timeout=25
-                                )
-                                print(f"even after redefine live out, it was incorrect, live out is "
-                                      f"{register_list_to_register_string(live_out_register_list)}")
-                                print(f"diff stdout is {diff.stdout}")
-                                #pass
-                            #breakpoint()
-                        # row["opt_unopt_cost"] = float(cost)
-                        # row["opt_unopt_correctness"] = correct_str
-                        # row["def_in"] = register_list_to_register_string(def_in_register_list)
-                        # row["live_out"] = register_list_to_register_string(live_out_register_list)
-                        # row["diff_str"] = diff_stdout
-                        # row["opt_cost_str"] = cost_stdout
-                        # new_rows.append(row.to_dict())
-                        #print("cost run second time and failed")
-
-                        continue
                 # if correct_str from test_costfn is neither "yes" nor "no"
                 else:
                     if debug:
@@ -305,6 +307,28 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, optimiz
     df_out = pd.DataFrame(new_rows) 
     #print("number of unprocessed cts is ", cts)
     return df_out
+
+def is_spurious_program(path_to_spurious_dir, spurious_program_list,
+                         path_to_function, path_to_testcases, functions_dir,
+                         def_in_list, live_out_list, heap_out, stack_out):
+    def_in_str = register_list_to_register_string(def_in_list)
+    live_out_str = register_list_to_register_string(live_out_list)
+    for spurious_program in spurious_program_list:
+        path_to_spurious_prog = join(path_to_spurious_dir, spurious_program)
+        cost_rc, cost_stdout, cost, correct_str = test_costfn(target_f=path_to_function,
+                                                              rewrite_f=path_to_spurious_prog,
+                                                              testcases_f=path_to_testcases,
+                                                              fun_dir=functions_dir,
+                                                              def_in_register_list=def_in_str,
+                                                              live_out_register_list=live_out_str,
+                                                              heap_out=heap_out,
+                                                              stack_out=stack_out)
+        assert cost_rc == 0, "cost rc for spurious testing is false, rc is {}, stdout is {}".format(cost_rc, cost_stdout)
+        if correct_str == "yes":
+            return True
+    return False
+
+
 
 
 def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
@@ -371,6 +395,8 @@ if __name__ == "__main__":
         for i, frame in enumerate(frames):
             jobs.append({"path_to_disassembly_dir": args.path_to_disassembly_dir,
                          "df": deepcopy(frame),
+                         "path_to_spurious_dir": args.path_to_spurious_dir,
+                         "spurious_program_list": args.spurious_progs.split(":"),
                          "optimized_flag": args.optimized_flag,
                          "position": (i%args.n_workers)+1})
         out_dfs = []
@@ -383,6 +409,8 @@ if __name__ == "__main__":
     else:
         df_out = redefine_live_out_df(path_to_disassembly_dir=args.path_to_disassembly_dir,
                                       df = df_in,
+                                      path_to_spurious_dir=args.path_to_spurious_dir,
+                                      spurious_program_list=args.spurious_progs.split(":"),
                                       optimized_flag=args.optimized_flag,
                                       debug=True)
 
