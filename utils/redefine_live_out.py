@@ -224,9 +224,8 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, path_to
                     row["opt_cost_str"] = cost_stdout
                     new_rows.append(row.to_dict())
                     #print("correct cost and appended")
-                # test for stack, not heap
+                # try to then suppress the stack
                 elif correct_str == "no":
-                    # try to then suppress the stack
                     cost_rc, cost_stdout, cost, correct_str = test_costfn(target_f=path_to_function,
                                                                           rewrite_f=path_to_optimized_function,
                                                                           testcases_f=path_to_testcases,
@@ -277,13 +276,14 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, path_to
                             print(f"diff stdout is {diff.stdout}")
                             #pass
                         #breakpoint()
-                    # row["opt_unopt_cost"] = float(cost)
-                    # row["opt_unopt_correctness"] = correct_str
-                    # row["def_in"] = register_list_to_register_string(def_in_register_list)
-                    # row["live_out"] = register_list_to_register_string(live_out_register_list)
-                    # row["diff_str"] = diff_stdout
-                    # row["opt_cost_str"] = cost_stdout
-                    # new_rows.append(row.to_dict())
+                    # regardless of the outcome, add the result for progress bar tracking
+                    row["opt_unopt_cost"] = float(cost)
+                    row["opt_unopt_correctness"] = correct_str
+                    row["def_in"] = register_list_to_register_string(def_in_register_list)
+                    row["live_out"] = register_list_to_register_string(live_out_register_list)
+                    row["diff_str"] = diff_stdout
+                    row["opt_cost_str"] = cost_stdout
+                    new_rows.append(row.to_dict())
                     #print("cost run second time and failed")
 
                 # if correct_str from test_costfn is neither "yes" nor "no"
