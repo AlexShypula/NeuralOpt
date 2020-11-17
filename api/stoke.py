@@ -26,7 +26,7 @@ class StokePipeline:
         if debug:
             return map(self.run_eval_wrapper, jobs)
         else:
-            return self.pool.map_async(self.run_eval_wrapper, jobs, chunksize = self.n_workers)
+            return self.pool.map(self.run_eval_wrapper, jobs, chunksize = self.n_workers)
 
 
     def run_eval_wrapper(self, kwargs):
