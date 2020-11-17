@@ -34,7 +34,8 @@ from modeling import build_model
 from batch import Batch, LearnerBatch
 from helpers import log_data_info, load_config, log_cfg, \
     store_attention_plots, load_checkpoint, make_model_dir, \
-    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess, BucketReplayBuffer, StopWatch
+    make_logger, set_seed, symlink_update, ConfigurationError, bpe_postprocess, BucketReplayBuffer, StopWatch, \
+    cut_arrays_at_eos, hash_file
 from modeling import Model
 from prediction import validate_on_data
 from loss import XentLoss, StokeCostManager, log_probs_and_entropy
@@ -52,7 +53,14 @@ from collections import deque
 from copy import deepcopy
 from fairseq import pdb
 
-os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"
+import resource
+rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+print(f"rlimit is {rlimit}")
+resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
+
+
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
+torch.set_num_threads(8)
 
 def init(l, model_id, ctr):
     global model_lock
@@ -80,6 +88,10 @@ class TrainManager:
         with open(data_config.get("hash2metadata")) as fh:
             self.hash2metadata = json.load(fh)
 
+        # augment hash2metadata to contain the hash within it
+        for h, metadata in self.hash2metadata.items():
+            if "hash" not in metadata.keys():
+                self.hash2metadata[h]["hash"] = h
 
         # files for logging and storing
         self.model_dir = make_model_dir(train_config["model_dir"],
@@ -123,6 +135,10 @@ class TrainManager:
         self.learner_device = train_config.get("learner_device", "cuda:0")
         self.replay_buffer_size = train_config.get("replay_buffer_size", 512)
         self.save_learner_every = train_config.get("save_learner_every", 1)
+        self.synchronized_al = train_config.get("synchronized_al", False)
+        self.train_on_best_seqs = train_config.get("train_on_best_seqs", False)
+        if self.train_on_best_seqs:
+            assert self.synchronized_al, "for train_on_best_seqs, support only for synchronized al"
         
         valid_freq = train_config.get("validation_freq", 1000)
         self.log_best_seq_stats_every = train_config.get("log_best_seq_stats_every", valid_freq)
@@ -133,8 +149,9 @@ class TrainManager:
         #actor-learner required data
         self.shard_data = data_config.get("shard_data", True)
         self.shard_path = data_config.get("shard_path", None)
-        if self.shard_data:
-            assert self.shard_path, "if sharding the data, a shard path must be specified"
+        self.use_shards = data_config.get("use_shards", True)
+        if self.shard_data or self.use_shards:
+            assert self.shard_path, "if sharding the data or using shards, a shard path must be specified"
         self.src_lang = data_config["src"]
         self.tgt_lang = data_config["trg"]
         self.train_path = data_config["train"]
@@ -146,6 +163,7 @@ class TrainManager:
         self.container_port = data_config.get("container_port", 6000)
         self.learner_model_path = "{}/learner.ckpt".format(self.model_dir)
         self.learner_tmp_path = "{}/tmp.ckpt".format(self.model_dir)
+
 
 
 
@@ -835,14 +853,18 @@ class TrainManager:
             for hyp in hypotheses:
                 opened_file.write("{}\n".format(hyp))
 
-    def train_and_validate_actor_learner(self, valid_data: Dataset, src_field: Field, src_vocab, tgt_vocab):
+    def train_and_validate_actor_learner(self, train_data: Dataset, valid_data: Dataset, src_field: Field,
+                                         src_vocab, tgt_vocab):
 
         if self.shard_data:
             print("sharding the data")
             # shard_data(input_path: str, shard_path: str, src_lang: str, tgt_lang: str, n_shards: int)
             shard_data(input_path=self.train_path, shard_path = self.shard_path,
                        src_lang = self.src_lang, tgt_lang = self.tgt_lang, n_shards = self.n_actors)
-        actor_data_prefixes = [self.shard_path + "_{}".format(i) for i in range(self.n_actors)]
+        if self.use_shards:
+            actor_data_prefixes = [self.shard_path + "_{}".format(i) for i in range(self.n_actors)]
+        else:
+            actor_data_prefixes = [self.train_path] * self.n_actors # use original data set
         #m = mp.Manager()
         global latest_model_id
         global model_lock
@@ -897,6 +919,39 @@ class TrainManager:
         replay_buffer = BucketReplayBuffer(max_src_len=self.max_sent_length, max_output_len = self.max_output_length,
                                            n_splits = self.bucket_buffer_splits, max_buffer_size = self.replay_buffer_size)
 
+        train_iter = make_data_iter(train_data, batch_size=self.batch_size,
+                                    batch_type=self.batch_type, train=False, shuffle=False)
+
+        if self.train_on_best_seqs:
+            replay_buffer.hash2best_seq = {}
+            pbar = tqdm(total=len(train_data), smoothing=0, position=0, desc="creating ref baseline dict")
+            for batch in iter(train_iter):
+                batch = Batch(batch, pad_index = self.pad_index)
+                src_list, src_lens = cut_arrays_at_eos(list(batch.src), eos_index = self.eos_index, keep_eos = True)
+                tgt_list, tgt_lens = cut_arrays_at_eos(list(batch.trg), eos_index=self.eos_index, keep_eos=True)
+                decoded_src = self.model.trg_vocab.arrays_to_sentences(arrays=batch.src, cut_at_eos=True)
+                join_char = " " if self.level in ["word", "bpe"] else ""
+                train_sources = [join_char.join(t) for t in decoded_src]
+                if self.level == "bpe":
+                    train_sources = [bpe_postprocess(s) for s in train_sources]
+                hashes = [hash_file(src) for src in train_sources]
+                for h, src, tgt, src_len, tgt_len in zip(hashes, src_list, tgt_list, src_lens, tgt_lens):
+                    metadata = self.cost_manager.hash2metadata[h]
+                    O0_cost = metadata["O0_cost"]
+                    Og_cost = metadata["Og_cost"]
+                    best_seq_dict = {}
+                    best_seq_dict["src"] = src
+                    best_seq_dict["src_len"] = src_len
+                    if Og_cost <= O0_cost:
+                        best_seq_dict["cost"] = Og_cost
+                        best_seq_dict["tgt"] = tgt
+                        best_seq_dict["out_len"] = tgt_len
+                    else:
+                        best_seq_dict["cost"] = O0_cost
+                        best_seq_dict["tgt"] = src
+                        best_seq_dict["out_len"] = src_len
+                    replay_buffer.hash2best_seq[h] = best_seq_dict
+                pbar.update(len(train_sources))
 
         print(f"Main thread now executing {self.no_running_starts} on {self.n_actors} actors", flush = True)
         if self.no_running_starts > 0:
@@ -911,11 +966,17 @@ class TrainManager:
             time.sleep(0.5)
         print("Replay buffer is filled, now training ", flush = True)
 
+        if self.synchronized_al:
+            train_output_fh = open(os.path.join(self.model_dir, "train_outputs.txt"), "w+")
+
         multi_batch_loss = 0
         multi_batch_entropy = 0
         multi_batch_n_seqs = 0
         multi_batch_n_tokens = 0
         multi_batch_advantage = 0
+        multi_batch_costs = []
+        multi_batch_failures = []
+        multi_batch_corrects = []
 
         performance_timer = StopWatch(name = "stopwatch")
         performance_timer.new_event("Model_Forward_Backward")
@@ -928,8 +989,21 @@ class TrainManager:
             #breakpoint()
             performance_timer.Model_Forward_Backward.start()
             self.model.train()
-            src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
-            # TODO: calculate the advantage somehow using cost manager or other method
+            if self.synchronized_al:
+                src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens, \
+                    result_strings = replay_buffer.synchronous_sample(
+                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager, step_no=step//self.batch_multiplier)
+                if ((step//self.batch_multiplier) % 10) == 0:
+                    train_output_fh.write("\n\n".join(result_strings))
+                multi_batch_costs.extend(costs)
+                multi_batch_failures.extend(failed)
+                multi_batch_corrects.extend(corrects)
+                if self.train_on_best_seqs:
+                    src_inputs, traj_outputs, log_probs, advantages, src_lens, tgt_lens = \
+                        replay_buffer.sample_best_seqs(max_size=self.batch_size)
+            else:
+                src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
+
             #print("queue samples, now processing batch", flush = True)
             batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=advantages,
                                  pad_index = self.pad_index, bos_index = self.bos_index)
@@ -942,10 +1016,12 @@ class TrainManager:
                                                            trg_mask=batch.tgt_mask,
                                                            )
             online_log_probs, online_entropy = log_probs_and_entropy(logits = out, labels = batch.tgt, loss_mask = batch.loss_mask)
-            offline_log_probs = batch.offline_log_probs * batch.loss_mask
+            #offline_log_probs = batch.offline_log_probs * batch.loss_mask
             online_traj_probs = torch.sum(online_log_probs.detach(), dim = 1).unsqueeze(1) # should reduce to a 2-d array, but with dim 1 = 1
-            offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
+            #offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
             if self.ppo_flag:
+                offline_log_probs = batch.offline_log_probs * batch.loss_mask
+                offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
                 importance_sampling_ratio = torch.exp(online_traj_probs - offline_traj_probs)
                 clipped_importance_sampling_ratio = torch.clamp(importance_sampling_ratio,
                                                                min=1-self.ppo_epsilon, max = 1+self.ppo_epsilon)
@@ -953,8 +1029,9 @@ class TrainManager:
                                        batch.advantages*clipped_importance_sampling_ratio)
             else:
                 advantages = batch.advantages
-            advantages = advantages - torch.mean(advantages)
-            advantages/=torch.max(torch.std(advantages), torch.ones_like(advantages))   
+            #advantages = advantages - torch.mean(advantages)
+            #advantages/=torch.max(torch.std(advantages), torch.ones_like(advantages))
+            #advantages[advantages>0] = 0
             n_tokens = sum(tgt_lens)
             # maximizing exploration entropy = minimizing negative entropy
             loss = torch.sum(online_log_probs * advantages) - online_entropy * self.beta_entropy
@@ -963,7 +1040,7 @@ class TrainManager:
             #print("loss processed, now backward", flush = True)
             loss.backward()
             multi_batch_loss += loss.detach().cpu().item()
-            multi_batch_entropy += (online_entropy.detach().cpu().item() / n_tokens)
+            multi_batch_entropy += (online_entropy.detach().cpu().item() / n_tokens)/self.batch_multiplier
             multi_batch_n_seqs += len(batch.src)
             multi_batch_n_tokens += n_tokens
             multi_batch_advantage += torch.mean(advantages).item()/self.batch_multiplier
@@ -974,6 +1051,9 @@ class TrainManager:
             if (step % self.batch_multiplier) == 0:
                 update_no = step // self.batch_multiplier
                 #print("optimizer step", flush = True)
+                if self.clip_grad_fun is not None:
+                    # clip gradients (in-place)
+                    self.clip_grad_fun(params=self.model.parameters())
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 performance_timer.Save_Learner.start()
@@ -981,26 +1061,37 @@ class TrainManager:
                 if (update_no % self.save_learner_every) == 0: 
                     self._save_learner()
                 performance_timer.Save_Learner.stop()
-                performance_timer.Clear_Queue.start()
-                #print("saving done, clearing queue", flush = True)
-                avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue, cost_manager = self.cost_manager)
-                performance_timer.Clear_Queue.stop()
-                new_examples = max(new_examples, 1)
+
+                if not self.synchronized_al:
+                    performance_timer.Clear_Queue.start()
+                    #print("saving done, clearing queue", flush = True)
+                    avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue, cost_manager = self.cost_manager)
+                    performance_timer.Clear_Queue.stop()
+                    new_examples = max(new_examples, 1)
+                    self.tb_writer.add_scalar("train/number-trained-per-new-observations",
+                                              multi_batch_n_seqs / new_examples, update_no)
+                    self.tb_writer.add_scalar("train/queue_size",
+                                              new_examples, update_no)
+                else:
+                    avg_queue_cost = np.mean(multi_batch_costs)
+                    avg_queue_failures = np.mean(multi_batch_failures)
+                    not_failed_arr = (~np.array(multi_batch_failures))
+                    costs_arr = np.array(multi_batch_costs)
+                    corrects_arr = np.array(multi_batch_corrects)
+                    avg_not_failed_cost = sum(np.multiply(not_failed_arr, costs_arr))/sum(not_failed_arr)
+                    avg_not_failed_correct = sum(np.multiply(not_failed_arr, corrects_arr))/sum(not_failed_arr)
+                    avg_cost_below_max_cost = sum(np.multiply((costs_arr<self.max_score), costs_arr)) / sum((costs_arr<self.max_score))
+                    self.tb_writer.add_scalar("train/avg_not_failed_cost", avg_not_failed_cost, update_no)
+                    self.tb_writer.add_scalar("train/pct_correct_when_not_failed", avg_not_failed_correct, update_no)
+                    self.tb_writer.add_scalar("train/avg_cost_below_max_cost", avg_cost_below_max_cost, update_no)
                 #print("queue done, tensorboard writing", flush = True)
+
                 if avg_queue_cost > 0: 
                     self.tb_writer.add_scalar("train/avg_cost",
                                               avg_queue_cost, update_no)
                     self.tb_writer.add_scalar("train/avg_failure_rate",
                                               avg_queue_failures, update_no)
 
-                self.tb_writer.add_scalar("train/number-trained-per-new-observations",
-                                          multi_batch_n_seqs/new_examples, update_no)
-                #self.tb_writer.add_scalar("train/avg_cost",
-                #                          avg_queue_cost, update_no)
-                #self.tb_writer.add_scalar("train/avg_failure_rate",
-                #                          avg_queue_failures, update_no)
-                self.tb_writer.add_scalar("train/queue_size",
-                                          new_examples, update_no)
                 self.tb_writer.add_scalar("train/batch_size",
                                           multi_batch_n_seqs, update_no)
                 self.tb_writer.add_scalar("train/no_baselines_beat",
@@ -1019,10 +1110,20 @@ class TrainManager:
                 multi_batch_n_seqs = 0
                 multi_batch_n_tokens = 0
                 multi_batch_advantage = 0
+                multi_batch_costs = []
+                multi_batch_failures = []
+                multi_batch_corrects = []
                 #print("tensorboard writing done, update no {}".format(update_no), flush = True)
+                if (update_no % 5000) == 0: 
+                    state = {"model_state": self.model.state_dict()}
+                    torch.save(state, "{}/model_{}.ckpt".format(self.model_dir, update_no)) 
                 if (update_no % self.log_best_seq_stats_every) == 0:
                     #print("inside cost manager save best seq stats", flush = True)
-                    #pdb.set_trace()
+                    for h in self.cost_manager.trailing_stats_dict.keys():
+                        priority_queue = self.cost_manager.trailing_stats_dict[h]["best_sequence_priority_queue"]
+                        if len(priority_queue.queue)>0:
+                            name = self.cost_manager.hash2metadata[h]["name"]
+                            self.cost_manager._write_n_best(name=name, priority_queue=priority_queue)
                     self.cost_manager.save_best_seq_stats()
                     #print("saved those stats", flush = True)
 
@@ -1074,6 +1175,7 @@ class TrainManager:
         generate_trajectory_flag.clear()
         for p in processes:
             p.join(timeout=10)
+        train_output_fh.close()
         print("making performance plot")
         performance_timer.make_perf_plot(title = "Learner Performance Benchmarking",
                                          path = "{}/learner_perf_plot.png".format(self.model_dir))
@@ -1121,7 +1223,7 @@ def train(cfg_file: str) -> None:
     # train the model
     actor_learner_flag = cfg["training"].get("actor_learner", False)
     if actor_learner_flag:
-        trainer.train_and_validate_actor_learner(valid_data=dev_data, src_field=src_field,
+        trainer.train_and_validate_actor_learner(train_data=train_data, valid_data=dev_data, src_field=src_field,
                                                  src_vocab=src_vocab, tgt_vocab=trg_vocab)
     else:
         trainer.train_and_validate(train_data=train_data, valid_data=dev_data, src_vocab=src_vocab, tgt_vocab=trg_vocab)

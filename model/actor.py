@@ -9,7 +9,7 @@ from data import MonoDataset, make_data_iter
 from batch import Batch
 from helpers import bpe_postprocess, bpe2formatted, cut_arrays_at_eos, slice_arrays_with_lengths, is_unique_batch, \
     StopWatch
-from typing import Dict
+from typing import Dict, List
 from req import StokeRequest
 from prwlock import RWLock
 from fairseq import pdb
@@ -19,30 +19,22 @@ def deduplicate_tensor(data: torch.Tensor):
     arr = np.unique(data.numpy(), axis=0)
     return torch.from_numpy(arr)
 
-def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eos_index: int, device: str):
+def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eos_index: int,
+              src_list: List, src_lengths: List):
+
     # sort batch now by src length and keep track of order
-    #batch_tensor = deduplicate_tensor(batch_tensor)
-    # TODO : find another way to deduplicate
-
     sort_reverse_index = batch.sort_by_src_lengths()
-
     # run as during inference to produce translations & RL score
     with torch.no_grad():
         output, transposed_log_probs, entropy = model.run_rl_batch(
             batch=batch, max_output_length=max_output_length)
-
-    # sort outputs back to original order
+        # sort outputs back to original order
         output = output[sort_reverse_index]
         log_probs = torch.stack(transposed_log_probs).T[sort_reverse_index]  # T x B -> B x T as Tensor
 
-
-
     # decode back to symbols
-    #pdb.set_trace()
-    decoded_src = model.src_vocab.arrays_to_sentences(arrays=batch.src,
-                                                     cut_at_eos=True)
-    decoded_hyp = model.trg_vocab.arrays_to_sentences(arrays=output,
-                                                     cut_at_eos=True)
+    decoded_src = model.src_vocab.arrays_to_sentences(arrays=batch.src, cut_at_eos=True)
+    decoded_hyp = model.trg_vocab.arrays_to_sentences(arrays=output, cut_at_eos=True)
 
     # evaluate with metric on full dataset
     join_char = " " if level in ["word", "bpe"] else ""
@@ -56,37 +48,47 @@ def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eo
                             v in hypothesis_bpe_strings]
 
     # clean up the outputs and log probs by stripping any post-eos as well as padding
-    #pdb.set_trace()
     output_list, output_lengths = cut_arrays_at_eos(list(output), eos_index = eos_index)
     log_probs_list = slice_arrays_with_lengths(list(log_probs.cpu().numpy()), output_lengths)
 
-    return output_list, log_probs_list, entropy.detach().cpu(), output_lengths, src_bpe_strings, hypothesis_bpe_strings
+    trajs_dict = {}
+    for i, (src_bpe_string, hyp_bpe_string, traj_output, log_probs, src_input, src_len, out_len) in \
+        enumerate(zip(src_bpe_strings, hypothesis_bpe_strings, output_list,
+                      log_probs_list, src_list, src_lengths, output_lengths)):
+        h = hash_file(src_bpe_string.strip())
+        trajs_dict[str(i)] = {"hash": h, "hyp_bpe_string": hyp_bpe_string, "src_bpe_string": src_bpe_string,
+    "traj_output": traj_output,"log_probs": log_probs, "src_input": src_input, "src_len": src_len, "out_len": out_len,
+                         }
+    return trajs_dict
 
 
-def eval_trajs(source_bpe_stings: str, hypothesis_bpe_strings: str, hash2metadata: Dict, requester: StokeRequest):
+def eval_trajs(trajs_dict: Dict, hash2metadata: Dict, requester: StokeRequest):
     jobs = {}
-    formatted_hyps = []
-    for source_bpe_str, hypothesis_bpe_str in zip(source_bpe_stings, hypothesis_bpe_strings):
-        h = hash_file(source_bpe_str.strip())
-        if h in jobs:
-            print(f"duplicate for {hash2metadata[h]['name']}")
+
+    for i, traj_dict in trajs_dict.items():
+        h = traj_dict["hash"]
         metadata = hash2metadata[h]
-        formatted_hypothesis, _ = bpe2formatted(assembly_string = hypothesis_bpe_str, function_name = metadata["name"],
-                                                remove_header = True, remove_footer = True)
-        jobs[h] = {"hypothesis_string": formatted_hypothesis, "metadata": metadata}
-        formatted_hyps.append(formatted_hypothesis)
+        assert metadata["hash"] == h
+        hypothesis_bpe_str = traj_dict["hyp_bpe_string"]
+        src_bpe_str = traj_dict["src_bpe_string"]
+        formatted_hypothesis, _ = bpe2formatted(assembly_string=hypothesis_bpe_str, function_name=metadata["name"],
+                                                remove_header=True, remove_footer=True)
+        formatted_src, _ = bpe2formatted(assembly_string=src_bpe_str, function_name=metadata["name"],
+                                                remove_header=True, remove_footer=True)
+        jobs[i] = {"hypothesis_string": formatted_hypothesis, "metadata": metadata}
+        trajs_dict[i]["formatted_hyp"] = formatted_hypothesis
+        trajs_dict[i]["formatted_src"] = formatted_src
+
     results = requester.get(jobs)
-    hashes = []
-    stats_list = []
-    metadatas = []
+    update_hash2metadata = {}
+    for i in trajs_dict.keys():
+        h = trajs_dict[i]["hash"]
+        result_dict = results[i]
+        assert result_dict["metadata"]["hash"] == h
+        trajs_dict[i]["stats"] = result_dict["stats"]
+        update_hash2metadata[h] = result_dict["metadata"]
 
-    for h, result_dict in results.items():
-        hashes.append(h)
-
-        stats_list.append(result_dict["stats"])
-        metadatas.append(result_dict["metadata"])
-
-    return hashes, stats_list, metadatas, formatted_hyps
+    return trajs_dict, update_hash2metadata
 
 
 def prune_hash2metadata(hash2metadata: Dict, model: Model, level: str, data_iter, pad_index):
@@ -114,7 +116,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
           trajs_queue: mp.Queue, max_output_length: int, level: str, batch_size: int, pad_index: int, eos_index: int, 
           no_running_starts: int, actor_id: int, performance_plot_path: str,
           batch_type: str = "token", device: str = "cpu") -> None:
-    batch_size/=4    #2
+    batch_size/=2    #2
     print(f"actor id is {actor_id}", flush = True)
     #if actor_id == 0: 
         #pdb.set_trace()
@@ -166,62 +168,27 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
             src_list = slice_arrays_with_lengths(list(src.cpu().numpy()), list(src_lengths.numpy()))
             batch.to_device(device)
             performance_timer.Process_Batch.stop()
-            #pdb.set_trace()
-            #with model_lock.reader_lock():
-            #tmp_model_id = latest_model_id
-            #if current_model_id != tmp_model_id:
-            #current_model_id = tmp_model_id
             performance_timer.Load_Model.start()
             with model_lock: 
                 model_checkpoint = load_checkpoint(path=path_to_update_model, use_cuda=False)
             model.load_state_dict(model_checkpoint["model_state"])
-                #for model_key, ckpt_key in zip(model.state_dict(), model_checkpoint["model_state"]): 
-                #    model_param = model.state_dict()[model_key]
-                #    ckpt_param = model_checkpoint["model_state"][ckpt_key]
-                #    model_param.data = ckpt_param.data
             model.to(device)
-            #model.eval()
             performance_timer.Load_Model.stop()
-            #pdb.set_trace()
-            #output_list, log_probs_list, list(entropy.cpu()), output_lengths, src_bpe_strings, hypothesis_bpe_strings
             performance_timer.Sample_New_Rewrite.start()
-            output_list, log_prob_list, entropy_value, output_lengths, src_bpe_strings, hypothesis_bpe_strings = \
-                get_trajs(model=model,
-                    batch=batch,
-                    max_output_length=max_output_length,
-                    level=level,
-                    eos_index=eos_index,
-                    device=device)
+            trajs_dict = get_trajs(model=model,batch=batch, max_output_length=max_output_length, level=level,
+                                   eos_index=eos_index, src_list=src_list, src_lengths=src_lengths)
             performance_timer.Sample_New_Rewrite.stop()
-            #TODO update the local metadata dictionary based off the api output
-            #pdb.set_trace()
             performance_timer.Evaluate_With_Stoke.start()
-            hashes, stats_list, metadatas, formatted_hyps = eval_trajs(source_bpe_stings=src_bpe_strings,
-                                                                         hypothesis_bpe_strings=hypothesis_bpe_strings,
-                                                                         hash2metadata=hash2metadata,
-                                                                         requester=requester)
-            #if not running_starts_flag: 
-            for h, metadata_update in zip(hashes, metadatas):
+            #def eval_trajs(trajs_dict: Dict, hash2metadata: Dict, requester: StokeRequest):
+            trajs_dict, update_hash2metadata = eval_trajs(trajs_dict=trajs_dict, hash2metadata=hash2metadata,
+                                                          requester=requester)
+            for h, metadata_update in update_hash2metadata.items():
                 hash2metadata[h] = metadata_update
-            #else: 
-            #    for stats in stats_list: 
-            #        stats["new_record_returncode"] = 0 # suppress informing the learner a new record was beat
             performance_timer.Evaluate_With_Stoke.stop()
             #pdb.set_trace()
             performance_timer.Add_to_Queue.start()
-            for h, src_input, traj_output, log_probs, stats, formatted_hyp, src_len, out_len in \
-               zip(hashes, src_list, output_list, log_prob_list, stats_list, formatted_hyps,
-                   src_lengths, output_lengths):
-                
-                trajs_queue.put({"hash": h,
-                                    "src_input": src_input,
-                                    "traj_output": traj_output,
-                                    "log_probs": log_probs,
-                                    "stats": stats,
-                                    "formatted_hyp": formatted_hyp,
-                                    "src_len": src_len,
-                                    "out_len": out_len
-                                    })
+            for h, traj_dict in trajs_dict.items():
+                trajs_queue.put({ **traj_dict})
             performance_timer.Add_to_Queue.stop()
             #pdb.set_trace()
             if running_starts_flag:

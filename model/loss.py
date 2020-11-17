@@ -63,7 +63,7 @@ class StokeCostManager:
         self.hash2metadata = hash2metadata
         # self.container_name = container_name
         self.container_port = container_port
-        self.requester = StokeRequest(base_url = "http://127.0.0.1", port = self.container_port)
+        self.requester = StokeRequest(base_url = "http://", port = self.container_port)
         self.host_path_to_volume = host_path_to_volume
         self.container_path_to_volume = container_path_to_volume
         self.volume_path_to_data = volume_path_to_data
@@ -118,6 +118,7 @@ class StokeCostManager:
 
         cost_std = 1 if len(self.trailing_stats_dict[h]["costs"]) < 2 else np.std(
             self.trailing_stats_dict[h]["costs"])
+        cost_std = 1 if cost_std < 1e-9 else cost_std
         cost_mean = 0 if len(self.trailing_stats_dict[h]["costs"]) < 2 else np.mean(
             self.trailing_stats_dict[h]["costs"])
 
@@ -126,7 +127,7 @@ class StokeCostManager:
 
     def parallel_get_rl_cost(self, bpe_strings: List[Tuple[str, str]]):
         jobs = {}
-        for (source_bpe_str, hypothesis_bpe_str) in bpe_strings:
+        for i, (source_bpe_str, hypothesis_bpe_str) in enumerate(bpe_strings):
             h = hash_file(source_bpe_str.strip())
             if h in jobs:
                 print(f"duplicate for {self.hash2metadata[h]['name']}")
@@ -135,12 +136,15 @@ class StokeCostManager:
             #                             in order to include multiple samples, this needs to be done in an outerloop
             #                             with gradient accumulation'''
             metadata = self.hash2metadata[h]
+            assert metadata["hash"] == h
             formatted_hypothesis, _ = bpe2formatted(assembly_string = hypothesis_bpe_str, function_name = metadata["name"],
                                                  remove_header = True, remove_footer = True)
-            jobs[h] = {"hypothesis_string": formatted_hypothesis, "metadata": metadata}
+            jobs[i] = {"hypothesis_string": formatted_hypothesis, "metadata": metadata}
         results = self.requester.get(jobs)
         hashes_advantages_stats = []
-        for h, result_dict in results.items():
+        for i, result_dict in results.items():
+            h = result_dict["metadata"][h]
+            assert jobs[i]["metadata"]["hash"] == h
             self.hash2metadata[h] = result_dict["metadata"]
             stats = result_dict["stats"]
             # cost_std = 1 if len(self.trailing_stats_dict[h]["costs"]) == 0 else np.std(
