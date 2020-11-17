@@ -30,6 +30,7 @@ def test_costfn(target_f: str,
                 settings_conf: Dict[str, str],
                 live_dangerously = True):
     live_dangerously_str = "--live_dangerously" if live_dangerously else ""
+    heap_out_str = "--heap_out" if settings_conf.get("heap_out") else ""
     try:
         cost_test = subprocess.run(
             ['/home/stoke/stoke/bin/stoke', 'debug', 'cost',
@@ -37,14 +38,15 @@ def test_costfn(target_f: str,
              '--rewrite', rewrite_f,
              '--testcases', testcases_f,
              '--functions', fun_dir,
-             "--prune", live_dangerously_str,
+             "--prune",
              "--def_in", settings_conf["def_in"],
              "--live_out", settings_conf["live_out"],
              "--distance", settings_conf["distance"],
              "--misalign_penalty", str(settings_conf["misalign_penalty"]),
              "--sig_penalty", settings_conf["sig_penalty"],
              "--cost", settings_conf["costfn"],
-             "--training_set", settings_conf["training_set"]] ,
+             "--training_set", settings_conf["training_set"],
+             live_dangerously_str, heap_out_str],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
