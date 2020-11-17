@@ -11,6 +11,7 @@ from os.path import dirname, join, basename
 from stoke_preprocess import hash_file, mkdir, process_raw_assembly, merge_registers, stitch_together
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
+from typing import Set
 
 
 @dataclass
@@ -20,15 +21,11 @@ class ParseOptions:
     path_to_stats_csv: str = field(metadata=dict(args=["-stats_csv", "--path_to_stats_csv"]))
     path_to_model_data: str = field(metadata=dict(args=["-model_data_path", "--path_to_model_data"]))
     path_to_spm_model: str =  field(metadata=dict(args=["-spm_model", "--path_to_spm_model"]))
+    path_to_train_list: str = field(metadata=dict(args=["-train_paths", "--path_to_train_paths"]))
+    path_to_dev_list: str = field(metadata=dict(args=["-train_paths", "--path_to_dev_paths"]))
+    path_to_test_list: str = field(metadata=dict(args=["-train_paths", "--path_to_test_paths"]))
     n_threads: int = field(metadata=dict(args=["-n_threads"]), default=16)
-    optimized_flag: str = field(metadata=dict(args=["-optim_flag", "--optimize_flag"]), default="Og")
-    percent_train: float = field(metadata=dict(args=["-pct_train", "--percent_train"]), default=0.90)
-    percent_val: float = field(metadata=dict(args=["-pct_val", "--percent_val"]), default=0.05)
-    live_out_str: str = field(metadata=dict(args=["-live_out", "--live_out_str"]),
-                                 default="{ %rax %rdx %rbx %rsp %rbp %r12 %r13 %r14 %r15 %xmm0 %xmm1 }")
-    def_in_str: str = field(metadata=dict(args=["-def_in", "--def_in_str"]),
-                    default="{ %rdx %rbx %rsp %rbp %rdi %r12 %r13 %r14 %r15 %xmm0 %xmm1 %mxcsr::rc[0] }")
-
+    optimized_flag: str = field(metadata=dict(args=["-optim_flag", "--optimize_flag"]), default="Og"),
 
 
 def function_path_to_functions_folder(path: str):
@@ -84,14 +81,16 @@ def replace_first_n_dirs(path: str, path_to_destination_directory: str, n_dirs_t
     return join(path_to_destination_directory, destination_directory_to_target)
 
 
-def individual_make_data(path_to_destination_data: str, path_to_source_data: str,
-                         stats_dataframe: pd.DataFrame, index: int,
+def individual_make_data(path_to_destination_data: str, path_to_source_data: str, dataframe_row: pd.core.series.Series,
                          sent_piece_model: spm.SentencePieceProcessor, optimized_flag: str,
-                         live_out_str: str, def_in_str: str):
+                         ):
 
-    data_path_to_function = stats_dataframe.iloc[index]["path_to_function"]
-    unopt_cost = stats_dataframe.iloc[index]["unopt_unopt_cost"]
-    opt_cost = stats_dataframe.iloc[index]["opt_unopt_cost"]
+    data_path_to_function = dataframe_row["path_to_function"]
+    unopt_cost = dataframe_row["unopt_unopt_cost"]
+    opt_cost = dataframe_row["opt_unopt_cost"]
+    def_in_str = dataframe_row["def_in"]
+    live_out_str = dataframe_row["live_out"]
+    heap_out = dataframe_row["heap_out"]
 
     data_path_to_optimized_function = function_path_to_optimized_function(data_path_to_function,
                                                                           optimized_flag=optimized_flag)
@@ -130,7 +129,9 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
         tokenized_asbly = merge_registers(sent_piece_model.EncodeAsPieces(processed_asbly.strip()))
         optimized_asbly_string = " ".join(tokenized_asbly)
 
-    return unopt_asbly_str, optimized_asbly_string, \
+    path_to_binary_folder = function_path_to_binary_folder(data_path_to_function)
+
+    return unopt_asbly_str, optimized_asbly_string, path_to_binary_folder, \
     assembly_hash, {"base_asbly_path": destination_path_to_function,
                     "testcase_path": destination_path_to_testcases,
                     "O0_cost": unopt_cost,
@@ -138,6 +139,7 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
                     "name": unique_name,
                     "cost_conf": {"def_in": def_in_str,
                                   "live_out": live_out_str,
+                                  "heap_out": heap_out,
                                   "distance": "hamming",
                                   "misalign_penalty": 1,
                                   "sig_penalty": "9999",
@@ -147,17 +149,24 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
 def individual_make_data_wrapper(arg_dict):
     return individual_make_data(**arg_dict)
 
+'''(path_to_destination_data: str, path_to_source_data: str, dataframe_row: pd.core.series.Series,
+                         sent_piece_model: spm.SentencePieceProcessor, optimized_flag: str,
+                         ):'''
+
+'''    args.train_paths = set([p.strip() for p in train_paths])
+    args.dev_paths = set([p.strip() for p in dev_paths])
+    args.test_paths = set([p.strip() for p in test_paths])'''
 
 def make_data(path_to_destination_data: str, path_to_source_data: str,
               stats_dataframe: pd.DataFrame, path_to_model_data: str, sent_piece_model: spm.SentencePieceProcessor,
-              optimized_flag: str, live_out_str: str, def_in_str: str, n_threads: int = 16, percent_train: float = 0.9,
-              percent_val: float = 0.05, **kwargs):
+              train_paths: Set[str], dev_paths: Set[str], test_paths: Set[str], optimized_flag: str,
+              n_threads: int = 16, **kwargs):
     jobs = []
-    for i in range(len(stats_dataframe)):
+    for _, row in stats_dataframe.iterrows():
         arg_dict = {"path_to_destination_data": path_to_destination_data,
                     "path_to_source_data": path_to_source_data,
-                    "stats_dataframe": stats_dataframe, "index": i, "sent_piece_model": sent_piece_model,
-                    "optimized_flag": optimized_flag, "live_out_str": live_out_str, "def_in_str": def_in_str}
+                    "dataframe_row": row, "sent_piece_model": sent_piece_model,
+                    "optimized_flag": optimized_flag}
         jobs.append(arg_dict)
 
     train_src = open(join(path_to_model_data, "train.src"), "w")
@@ -170,17 +179,23 @@ def make_data(path_to_destination_data: str, path_to_source_data: str,
     hash2metadata_dict = {}
     pbar = tqdm(total = len(stats_dataframe), smoothing = 0)
 
-    for unopt_asbly, opt_asbly, asbly_hash, metadata_dict in ThreadPool(n_threads).imap(individual_make_data_wrapper,
-                                                                                        jobs, chunksize=88):
+    for unopt_asbly, opt_asbly, path_to_binary_folder, asbly_hash, metadata_dict in ThreadPool(n_threads).imap(
+                                                            individual_make_data_wrapper, jobs, chunksize=88):
         hash2metadata_dict[asbly_hash] = metadata_dict
         pbar.update()
 
-        r = random.random()
+        in_train = path_to_binary_folder in train_paths
+        in_dev = path_to_binary_folder in dev_paths
+        in_test = path_to_binary_folder in test_paths
+        assert sum([in_train, in_dev, in_train])==1, "uh oh, the binary directory is either in none or more than one\n"\
+                                "of the sets of train, dev, and test paths. \n" \
+                                "the bin path is: {} and in_train is: {}, in_dev is: {}, and in_test is: {}".format(
+                                path_to_binary_folder, in_train, in_dev, in_test)
 
-        if r < percent_train:
+        if in_train:
             train_src.write(unopt_asbly + "\n")
             train_tgt.write(opt_asbly + "\n")
-        elif r < (percent_train + percent_val):
+        elif in_train:
             val_src.write(unopt_asbly + "\n")
             val_tgt.write(opt_asbly + "\n")
         else:
@@ -193,7 +208,7 @@ def make_data(path_to_destination_data: str, path_to_source_data: str,
     val_tgt.close()
     test_src.close()
 
-    with open(join(path_to_model_data, "train_data.json"), "w") as fh:
+    with open(join(path_to_model_data, "hash2metadata.json"), "w") as fh:
         json.dump(hash2metadata_dict, fh, indent=4)
 
 if __name__ == "__main__":
@@ -202,6 +217,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.sent_piece_model = spm.SentencePieceProcessor()
     args.sent_piece_model.Load(args.path_to_spm_model)
+
+    # read in the files
+    with open(args.path_to_train_list, "r") as train_fh, open(args.path_to_dev_list, "r") as dev_fh, \
+            open(args.path_to_test_list, "r") as test_fh:
+        train_paths = train_fh.readlines()
+        dev_paths = dev_fh.readlines()
+        test_paths = test_fh.readlines()
+
+    # then strip \n and convert into hashtable
+    args.train_paths = set([p.strip() for p in train_paths])
+    args.dev_paths = set([p.strip() for p in dev_paths])
+    args.test_paths = set([p.strip() for p in test_paths])
 
     stats_dataframe = pd.read_csv(args.path_to_stats_csv)
     args.stats_dataframe = stats_dataframe[stats_dataframe["opt_unopt_correctness"] == "yes"][stats_dataframe["unopt_unopt_correctness"] == "yes"]
