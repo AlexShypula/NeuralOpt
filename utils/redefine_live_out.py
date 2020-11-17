@@ -115,7 +115,7 @@ def stoke_diff_get_live_out_v2(def_in_register_list: List[str], live_out_registe
         )
         new_live_out_register_list = []
         
-        if re.search("returned abnormally with signal 11", diff.stdout): 
+        if re.search("returned abnormally with signal", diff.stdout): 
             diff.returncode = 11
 
         if diff.returncode == 0:
@@ -192,7 +192,7 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, path_to
                 #print(diff_stdout)
                 #print("path to rewrite is ", path_to_optimized_function)
 
-            if isinstance(diff_stdout, str) and re.search("returned abnormally with signal 11", diff_stdout):
+            if isinstance(diff_stdout, str) and re.search("returned abnormally with signal", diff_stdout):
                 diff_rc = 11
             # always do stack out as false
             if diff_rc == 0:
@@ -310,20 +310,18 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, path_to
 
 def is_spurious_program(path_to_spurious_dir, spurious_program_list,
                          path_to_function, path_to_testcases, functions_dir,
-                         def_in_list, live_out_list, heap_out, stack_out):
-    def_in_str = register_list_to_register_string(def_in_list)
-    live_out_str = register_list_to_register_string(live_out_list)
+                         def_in_register_list, live_out_register_list, heap_out, stack_out):
+
     for spurious_program in spurious_program_list:
         path_to_spurious_prog = join(path_to_spurious_dir, spurious_program)
         cost_rc, cost_stdout, cost, correct_str = test_costfn(target_f=path_to_function,
                                                               rewrite_f=path_to_spurious_prog,
                                                               testcases_f=path_to_testcases,
                                                               fun_dir=functions_dir,
-                                                              def_in_register_list=def_in_str,
-                                                              live_out_register_list=live_out_str,
+                                                              def_in_register_list=def_in_register_list,
+                                                              live_out_register_list=live_out_register_list,
                                                               heap_out=heap_out,
                                                               stack_out=stack_out)
-        assert cost_rc == 0, "cost rc for spurious testing is false, rc is {}, stdout is {}".format(cost_rc, cost_stdout)
         if correct_str == "yes":
             return True
     return False
@@ -374,7 +372,6 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
             #breakpoint()
             cost = -10701
             correct = "failed"
-        print(cost_test.stdout)
         return cost_test.returncode, cost_test.stdout, cost, correct
 
     except subprocess.TimeoutExpired as err:
@@ -396,7 +393,7 @@ if __name__ == "__main__":
             jobs.append({"path_to_disassembly_dir": args.path_to_disassembly_dir,
                          "df": deepcopy(frame),
                          "path_to_spurious_dir": args.path_to_spurious_dir,
-                         "spurious_program_list": args.spurious_progs.split(":"),
+                         "spurious_program_list": args.spurious_progs.split(":") if args.spurious_progs else None,
                          "optimized_flag": args.optimized_flag,
                          "position": (i%args.n_workers)+1})
         out_dfs = []
@@ -410,7 +407,7 @@ if __name__ == "__main__":
         df_out = redefine_live_out_df(path_to_disassembly_dir=args.path_to_disassembly_dir,
                                       df = df_in,
                                       path_to_spurious_dir=args.path_to_spurious_dir,
-                                      spurious_program_list=args.spurious_progs.split(":"),
+                                      spurious_program_list=args.spurious_progs.split(":") if args.spurious_progs else None,
                                       optimized_flag=args.optimized_flag,
                                       debug=True)
 
