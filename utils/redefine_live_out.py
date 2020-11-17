@@ -338,7 +338,7 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
             cost_test = subprocess.run(
             ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
             testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
-            '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', "--heap_out", "--stack_out",
+            '{ 0 1 ... 255 }', '--cost', '100*correctness+measured+latency', "--heap_out", "--stack_out",
             '--def_in', register_list_to_register_string(def_in_register_list), "--relax_mem", 
             '--live_out', register_list_to_register_string(live_out_register_list)], 
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
@@ -346,7 +346,7 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
             cost_test = subprocess.run(
                 ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
                  testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
-                 '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', "--stack_out",
+                 '{ 0 1 ... 255 }', '--cost', '100*correctness+measured+latency', "--stack_out",
                  '--def_in', register_list_to_register_string(def_in_register_list), "--relax_mem",
                  '--live_out', register_list_to_register_string(live_out_register_list)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
@@ -354,14 +354,14 @@ def test_costfn(target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str,
             cost_test = subprocess.run(
                 ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, '--testcases',
                  testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
-                 '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency', "--heap_out",
+                 '{ 0 1 ... 255 }', '--cost', '100*correctness+measured+latency', "--heap_out",
                  '--def_in', register_list_to_register_string(def_in_register_list), "--relax_mem",
                  '--live_out', register_list_to_register_string(live_out_register_list)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
         else: 
             cost_test = subprocess.run( ['stoke', 'debug', 'cost', '--target', target_f, '--rewrite', rewrite_f, 
             '--testcases', testcases_f, '--functions', fun_dir, "--prune", live_dangerously_str, '--training_set',
-            '{ 0 1 ... 31 }', '--cost', '100*correctness+measured+latency',  
+            '{ 0 1 ... 255 }', '--cost', '100*correctness+measured+latency',
             '--def_in', register_list_to_register_string(def_in_register_list), 
             '--live_out', register_list_to_register_string(live_out_register_list), ], 
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
@@ -383,6 +383,7 @@ if __name__ == "__main__":
     print(parser.parse_args())
     args = parser.parse_args()
     df_in = pd.read_csv(args.path_to_stats_df)
+    df_in = df_in[df_in["unopt_unopt_correctness"] == "yes"].reindex()
 
     if not args.debug:
         n_splits = 128
