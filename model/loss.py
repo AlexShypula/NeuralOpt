@@ -58,12 +58,12 @@ class StokeCostManager:
                  volume_path_to_data, volume_path_to_tmp, tb_writer, n_best_seq_dir, trailing_stats_out_path: str,
                  baseline_cost_key: str, asm_names_to_save: List[str] = [], verifiction_strategy: str = "hold_out",
                  new_testcase_beginning_index: int = 2000, max_len = 256, max_score = 9999,
-                 n_workers=8, keep_n_best_seqs=5, n_testcases = 32, container_port = "6000",
-                 trailing_stats_in_path: str = None):
+                 n_workers=8, keep_n_best_seqs=5, n_testcases = 32, api_ip_adddr: str = "127.0.0.1",
+                 container_port: str = "6000", trailing_stats_in_path: str = None):
         self.hash2metadata = hash2metadata
         # self.container_name = container_name
         self.container_port = container_port
-        self.requester = StokeRequest(base_url = "http://", port = self.container_port)
+        self.requester = StokeRequest(base_url = "http://{}".format(api_ip_adddr), port = self.container_port)
         self.host_path_to_volume = host_path_to_volume
         self.container_path_to_volume = container_path_to_volume
         self.volume_path_to_data = volume_path_to_data
@@ -103,7 +103,6 @@ class StokeCostManager:
             self.hash2metadata[h]['high_benchmark'] = max(self.hash2metadata[h]["O0_cost"], self.hash2metadata[h]["Og_cost"])
             self.hash2metadata[h]['best_cost_so_far'] = 1e9
             self.hash2metadata[h]['best_seq_returncode'] = -2
-
 
             if not self.trailing_stats_in_path:
                 self.trailing_stats_dict[h] = {"costs": deque(maxlen = max_len),

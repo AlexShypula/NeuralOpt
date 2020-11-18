@@ -25,7 +25,7 @@ from constants import UNK_TOKEN, PAD_TOKEN, EOS_TOKEN
 from vocabulary import Vocabulary
 from loss import StokeCostManager
 from tqdm import tqdm
-from os.path import join
+from os.path import join, basename, splitext
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
 
@@ -35,12 +35,16 @@ os.environ["CUDA_VISIBLE_DEVICES"]="0"
 @dataclass
 class ParseOptions:
     cfg_file : str = field(metadata=dict(args=["-config", "--path_to_config"]))
-    ckpt: str = field(metadata=dict(args=["-ckpy", "--path_to_checkpoint"]))
+    ckpt: str = field(metadata=dict(args=["-ckpt", "--path_to_checkpoint"]))
     n_best: int = field(metadata=dict(args=["-nbest", "--nbest_beams"]), default=None)
     beam_size: int = field(metadata=dict(args=["-beam_size", "--beam_size"]), default=None)
     beam_alpha: float = field(metadata=dict(args=["-beam_alpha", "--beam_alpha"]), default=None)
     output_path: str = field(metadata=dict(args=["-output_path", "--output_path"]), default=None)
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default = False)
+    exp_name: str = field(metadata=dict(args=["-exp_name", "--experiment_name"]), default="")
+    api_ip_addr: str = field(metadata=dict(args=["-api_ip_addr", "--api_ip_address"]), default = "127.0.0.1")
+    # the following should be colon, ":" separated and in "train, dev, test"
+    datasets_to_test: str = field(metadata=dict(args=["-data_to_test", "--datasets_to_test"]), default = "test")
 
 
 
@@ -280,13 +284,16 @@ def validate_on_data(model: Model, data: Dataset,
 # pylint: disable-msg=logging-too-many-args
 def test(cfg_file,
          ckpt: str,
+         exp_name: str = "",
+         api_ip_addr: str = "127.0.0.1",
          n_best: int = 0,
          beam_size: int = None,
          beam_alpha: float = None,
          output_path: str = None,
          debug: bool = False, 
          save_attention: bool = False,
-         logger: Logger = None) -> None:
+         logger: Logger = None,
+         datasets_to_test: str = "test") -> None:
     """
     Main test function. Handles loading a model from checkpoint, generating
     translations and storing them and attention plots.
@@ -297,6 +304,8 @@ def test(cfg_file,
     :param save_attention: whether to save the computed attention weights
     :param logger: log output to this logger (creates new logger if not set)
     """
+    for data_name in datasets_to_test.split(":"):
+        assert data_name in ("train", "dev", "test")
 
     if logger is None:
         logger = make_logger()
@@ -326,7 +335,6 @@ def test(cfg_file,
         hash2metadata = json.load(fh)
     # cost_manager
 
-
     max_score = data_config.get("max_score", 9999)
     asm_names_to_save = data_config.get("asm_names_to_save")
     asm_names_to_save = asm_names_to_save.split(":") if asm_names_to_save else []
@@ -348,12 +356,10 @@ def test(cfg_file,
                                          max_score = data_config.get("max_score"),
                                          n_workers = data_config.get("n_workers"),
                                          keep_n_best_seqs=data_config.get("keep_n_best_seqs", 10),
+                                         api_ip_adddr=api_ip_addr,
                                          container_port=data_config.get("container_port", 6000),
                                          trailing_stats_in_path=data_config.get("trailing_stats_in_path")
                                          )
-
-
-
 
 
     batch_size = cfg["training"].get(
@@ -384,7 +390,8 @@ def test(cfg_file,
                                         random_state=random.getstate())
         test_data = keep
 
-    data_to_predict = {"test": test_data}  # {"test": test_data} #{"train": train_data, "dev": dev_data, "test": test_data}
+    all_data_dict = {"train": train_data, "dev": dev_data, "test": test_data}
+    data_to_predict = {data: all_data_dict[data] for data in datasets_to_test.split(":")}
 
     # load model state from disk
     model_checkpoint = load_checkpoint(ckpt, use_cuda=use_cuda)
@@ -454,17 +461,16 @@ def test(cfg_file,
                                "when using beam search. "
                                "Set beam_size to 1 for greedy decoding.")
         output_path = output_path if output_path else cfg["training"]["model_dir"]
-        output_path = "{}_{}".format(output_path, data_set_name)
-        mkdir(output_path)
+        ckpt_name = splitext(basename(ckpt))[0]
+        exp_ckpt_name = "{}_{}".format(exp_name, ckpt_name) if exp_name != "" else ckpt_name
+        output_dir = "{}/{}".format(output_path,exp_ckpt_name)
+        mkdir(output_dir)
         if n_best > 0: 
             return_code_stats = results["return_code_stats"]
             individual_records = results["individual_records"]
-            #output_path = output_path if output_path else cfg["training"]["model_dir"]
-            #output_path = "{}_{}".format(output_path, data_set_name)
-            #mkdir(output_path)
-            comparison_str_dir = join(output_path, "comparisons")
+            comparison_str_dir = join(output_dir, "comparisons_{}".format(data_set_name))
             mkdir(comparison_str_dir)
-            with open(join(output_path, "stats.csv"), "w") as csv_fh:
+            with open(join(output_dir, "stats_{}.csv".format(data_set_name)), "w") as csv_fh:
                 csv_writer = csv.DictWriter(f = csv_fh, fieldnames=CSV_KEYS)
                 csv_writer.writeheader()
                 for individual_record in individual_records:
@@ -501,10 +507,10 @@ def test(cfg_file,
                      verticalalignment='top', bbox=props)
 
             plt.bar(percentage_dict.keys(), percentage_dict.values(), color="darkgreen")
-            plt.title("Distribution of Result Types")
+            plt.title("Experiment: {} on {} Distribution of Result Types".format(exp_ckpt_name, data_set_name))
             plt.ylabel("Percentage")
             plt.xticks(rotation=75)
-            plt.savefig(join(output_path, "percentage.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+            plt.savefig(join(output_dir, "percentages_{}.png".format(data_set_name)), dpi=300, pad_inches=2, bbox_inches="tight")
             plt.clf()
 
             # COST DICT
@@ -515,7 +521,7 @@ def test(cfg_file,
             plt.grid(color='gray', linestyle='dashed')
 
             plt.bar(cost_dict.keys(), cost_dict.values(), color="darkgreen")
-            plt.title("Average Stoke Cost by Performance Bucket")
+            plt.title("Experiment: {} on {} Average Stoke Cost by Performance Bucket".format(exp_ckpt_name, data_set_name))
             plt.ylabel("Stoke Cost")
             plt.yscale("log")
             plt.xticks(rotation=75)
@@ -529,7 +535,7 @@ def test(cfg_file,
             plt.text(6, max_val, textstr, fontsize=12,
                      verticalalignment='top', bbox=props)
 
-            plt.savefig(join(output_path, "cost.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+            plt.savefig(join(output_path, "cost_{}.png",format(data_set_name)), dpi=300, pad_inches=2, bbox_inches="tight")
             plt.clf()
 
             # STDV DICT
@@ -541,7 +547,8 @@ def test(cfg_file,
             plt.grid(color='gray', linestyle='dashed')
 
             plt.bar(stdv_dict.keys(), stdv_dict.values(), color="darkgreen")
-            plt.title("Standard Deviation of Stoke Cost by Performance Bucket")
+            plt.title("Experiment: {} on {} Standard Deviation of Stoke Cost by Performance Bucket".\
+                      format(exp_ckpt_name, data_set_name))
             plt.ylabel("Standard Deviation of Stoke Cost")
             plt.yscale("log")
             plt.xticks(rotation=75)
@@ -554,7 +561,7 @@ def test(cfg_file,
             # place a text box in upper left in axes coords
             plt.text(6, max_val, textstr, fontsize=12,
                      verticalalignment='top', bbox=props)
-            plt.savefig(join(output_path, "stdev.png"), dpi=300, pad_inches=2, bbox_inches="tight")
+            plt.savefig(join(output_path, "stdev_{}.png".format(output_dir)), dpi=300, pad_inches=2, bbox_inches="tight")
             plt.clf()
 
 
