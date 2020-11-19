@@ -32,6 +32,7 @@ from argparse_dataclass import ArgumentParser
 
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
+
 @dataclass
 class ParseOptions:
     cfg_file : str = field(metadata=dict(args=["-config", "--path_to_config"]))
@@ -43,9 +44,9 @@ class ParseOptions:
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default = False)
     exp_name: str = field(metadata=dict(args=["-exp_name", "--experiment_name"]), default="")
     api_ip_addr: str = field(metadata=dict(args=["-api_ip_addr", "--api_ip_address"]), default = "127.0.0.1")
+    api_port_no: str = field(metadata=dict(args=["-api_port_no", "--api_port_no"]), default = "6001")
     # the following should be colon, ":" separated and in "train, dev, test"
     datasets_to_test: str = field(metadata=dict(args=["-data_to_test", "--datasets_to_test"]), default = "test")
-
 
 
 CSV_KEYS = ["name", "cost", "O0_cost", "Og_cost", "rc", "failed_cost", "base_asbly_path"]
@@ -286,6 +287,7 @@ def test(cfg_file,
          ckpt: str,
          exp_name: str = "",
          api_ip_addr: str = "127.0.0.1",
+         api_port_no: str = "6001",
          n_best: int = 0,
          beam_size: int = None,
          beam_alpha: float = None,
@@ -357,7 +359,7 @@ def test(cfg_file,
                                          n_workers = data_config.get("n_workers"),
                                          keep_n_best_seqs=data_config.get("keep_n_best_seqs", 10),
                                          api_ip_adddr=api_ip_addr,
-                                         container_port=data_config.get("container_port", 6000),
+                                         container_port=api_port_no,
                                          trailing_stats_in_path=data_config.get("trailing_stats_in_path")
                                          )
 
