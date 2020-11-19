@@ -135,6 +135,7 @@ class TrainManager:
         self.learner_device = train_config.get("learner_device", "cuda:0")
         self.replay_buffer_size = train_config.get("replay_buffer_size", 512)
         self.save_learner_every = train_config.get("save_learner_every", 1)
+        self.checkpoint_learner_every = train_config.get("checkpoint_learner_every", 5000)
         self.synchronized_al = train_config.get("synchronized_al", False)
         self.train_on_best_seqs = train_config.get("train_on_best_seqs", False)
         if self.train_on_best_seqs:
@@ -985,8 +986,7 @@ class TrainManager:
         performance_timer.new_event("Validation_Testing")
         performance_timer.start()
         for step in range(1, self.n_updates * self.batch_multiplier):
-            #print("starting and sampling from queue", flush = True)
-            #breakpoint()
+
             performance_timer.Model_Forward_Backward.start()
             self.model.train()
             if self.synchronized_al:
@@ -1004,11 +1004,10 @@ class TrainManager:
             else:
                 src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens = replay_buffer.sample(max_size = self.batch_size, cost_manager=self.cost_manager)
 
-            #print("queue samples, now processing batch", flush = True)
             batch = LearnerBatch(src_seqs = src_inputs, tgt_seqs = traj_outputs, log_probs=log_probs, advantages=advantages,
                                  pad_index = self.pad_index, bos_index = self.bos_index)
             batch.to_device(self.learner_device)
-            #print("batch processed and on device, doing forward", flush = True)
+
             out, hidden, att_probs, _ = self.model.forward(src=batch.src,
                                                            trg_input=batch.tgt_input,
                                                            src_mask=batch.src_mask,
@@ -1016,9 +1015,7 @@ class TrainManager:
                                                            trg_mask=batch.tgt_mask,
                                                            )
             online_log_probs, online_entropy = log_probs_and_entropy(logits = out, labels = batch.tgt, loss_mask = batch.loss_mask)
-            #offline_log_probs = batch.offline_log_probs * batch.loss_mask
             online_traj_probs = torch.sum(online_log_probs.detach(), dim = 1).unsqueeze(1) # should reduce to a 2-d array, but with dim 1 = 1
-            #offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
             if self.ppo_flag:
                 offline_log_probs = batch.offline_log_probs * batch.loss_mask
                 offline_traj_probs = torch.sum(offline_log_probs, dim = 1).unsqueeze(1) # should reduce to a 2-d array
@@ -1035,9 +1032,8 @@ class TrainManager:
             n_tokens = sum(tgt_lens)
             # maximizing exploration entropy = minimizing negative entropy
             loss = torch.sum(online_log_probs * advantages) - online_entropy * self.beta_entropy
-            loss /= n_tokens# normalize by the number of total output tokens
+            loss /= n_tokens # normalize by the number of total output tokens
             loss /= self.batch_multiplier # normalize by the batch multiplier
-            #print("loss processed, now backward", flush = True)
             loss.backward()
             multi_batch_loss += loss.detach().cpu().item()
             multi_batch_entropy += (online_entropy.detach().cpu().item() / n_tokens)/self.batch_multiplier
@@ -1045,26 +1041,22 @@ class TrainManager:
             multi_batch_n_tokens += n_tokens
             multi_batch_advantage += torch.mean(advantages).item()/self.batch_multiplier
 
-            #print("backward done", flush = True)
             performance_timer.Model_Forward_Backward.stop()
 
             if (step % self.batch_multiplier) == 0:
                 update_no = step // self.batch_multiplier
-                #print("optimizer step", flush = True)
                 if self.clip_grad_fun is not None:
                     # clip gradients (in-place)
                     self.clip_grad_fun(params=self.model.parameters())
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 performance_timer.Save_Learner.start()
-                #print("step done, saving learner", flush = True)
                 if (update_no % self.save_learner_every) == 0: 
                     self._save_learner()
                 performance_timer.Save_Learner.stop()
 
                 if not self.synchronized_al:
                     performance_timer.Clear_Queue.start()
-                    #print("saving done, clearing queue", flush = True)
                     avg_queue_cost, avg_queue_failures, new_examples = replay_buffer.clear_queue(trajectory_queue, cost_manager = self.cost_manager)
                     performance_timer.Clear_Queue.stop()
                     new_examples = max(new_examples, 1)
@@ -1084,7 +1076,6 @@ class TrainManager:
                     self.tb_writer.add_scalar("train/avg_not_failed_cost", avg_not_failed_cost, update_no)
                     self.tb_writer.add_scalar("train/pct_correct_when_not_failed", avg_not_failed_correct, update_no)
                     self.tb_writer.add_scalar("train/avg_cost_below_max_cost", avg_cost_below_max_cost, update_no)
-                #print("queue done, tensorboard writing", flush = True)
 
                 if avg_queue_cost > 0: 
                     self.tb_writer.add_scalar("train/avg_cost",
@@ -1114,7 +1105,7 @@ class TrainManager:
                 multi_batch_failures = []
                 multi_batch_corrects = []
                 #print("tensorboard writing done, update no {}".format(update_no), flush = True)
-                if (update_no % 5000) == 0: 
+                if (update_no % self.checkpoint_learner_every) == 0:
                     state = {"model_state": self.model.state_dict()}
                     torch.save(state, "{}/model_{}.ckpt".format(self.model_dir, update_no)) 
                 if (update_no % self.log_best_seq_stats_every) == 0:
