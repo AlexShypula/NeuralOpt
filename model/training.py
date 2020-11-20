@@ -166,9 +166,6 @@ class TrainManager:
         self.learner_tmp_path = "{}/tmp.ckpt".format(self.model_dir)
 
 
-
-
-
         # model
         self.model = model
         self.model_cfg = config["model"]
@@ -1050,6 +1047,8 @@ class TrainManager:
                     self.clip_grad_fun(params=self.model.parameters())
                 self.optimizer.step()
                 self.optimizer.zero_grad()
+                if self.scheduler is not None and self.scheduler_step_at == "step":
+                    self.scheduler.step()
                 performance_timer.Save_Learner.start()
                 if (update_no % self.save_learner_every) == 0: 
                     self._save_learner()
