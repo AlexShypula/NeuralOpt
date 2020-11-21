@@ -57,10 +57,8 @@ def test_individual_row(row: Dict, path_to_disassembly_dir: str):
     row["unopt_unopt_cost"] = cost
     return row
 
-
-def test_individual_row_wrapper(args):
-    return test_individual_row(**args)
-
+# def test_individual_row_wrapper(args):
+#     return test_individual_row(**args)
 
 if __name__ == "__main__":
     parser = ArgumentParser(ParseOptions)
@@ -71,12 +69,13 @@ if __name__ == "__main__":
     stats_dataframe = stats_dataframe[stats_dataframe["opt_unopt_correctness"] == "yes"]\
         [stats_dataframe["unopt_unopt_correctness"] == "yes"]
     list_of_row_dicts = stats_dataframe.reindex().to_dict('records')
+    jobs = [(row, args.path_to_disassembly_dir) for row in list_of_row_dicts]
     results = []
     if not args.debug:
-        for new_row in ThreadPool(args.n_threads).imap(test_individual_row_wrapper, list_of_row_dicts, chunksize=88):
+        for new_row in ThreadPool(args.n_threads).imap(test_individual_row, jobs, chunksize=88):
             results.append(new_row)
     else:
-        for new_row in map(args.n_threads).imap(test_individual_row_wrapper, list_of_row_dicts, chunksize=88):
+        for new_row in map(args.n_threads).imap(test_individual_row, jobs, chunksize=88):
             results.append(new_row)
     out_df = pd.DataFrame(results)
     out_df["unopt_and_opt_equal"] = out_df["unopt_assembly"] == out_df["opt_assembly"]
