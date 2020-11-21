@@ -22,10 +22,10 @@ class ParseOptions:
     path_to_model_data: str = field(metadata=dict(args=["-model_data_path", "--path_to_model_data"]))
     path_to_spm_model: str =  field(metadata=dict(args=["-spm_model", "--path_to_spm_model"]))
     path_to_train_list: str = field(metadata=dict(args=["-train_paths", "--path_to_train_paths"]))
-    path_to_dev_list: str = field(metadata=dict(args=["-train_paths", "--path_to_dev_paths"]))
-    path_to_test_list: str = field(metadata=dict(args=["-train_paths", "--path_to_test_paths"]))
+    path_to_dev_list: str = field(metadata=dict(args=["-dev_paths", "--path_to_dev_paths"]))
+    path_to_test_list: str = field(metadata=dict(args=["-test_paths", "--path_to_test_paths"]))
     n_threads: int = field(metadata=dict(args=["-n_threads"]), default=16)
-    optimized_flag: str = field(metadata=dict(args=["-optim_flag", "--optimize_flag"]), default="Og"),
+    optimized_flag: str = field(metadata=dict(args=["-optim_flag", "--optimize_flag"]), default="Og")
 
 
 def function_path_to_functions_folder(path: str):
@@ -100,6 +100,7 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
 
     destination_path_to_function = replace_first_n_dirs(data_path_to_function, path_to_destination_data,
                                                         n_dirs_to_remove=1)
+
     destination_path_to_optimized_function = replace_first_n_dirs(data_path_to_optimized_function,
                                                                   path_to_destination_data, n_dirs_to_remove=1)
     destination_path_to_function_folder = replace_first_n_dirs(data_path_to_function_folder,
@@ -123,7 +124,7 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
         unopt_asbly_str = " ".join(tokenized_asbly)
         assembly_hash = hash_file(unopt_asbly_str)
 
-    with open(data_path_to_optimized_function, "r") as f:
+    with open(join(path_to_source_data, data_path_to_optimized_function), "r") as f:
         raw_asbly = f.read()
         processed_asbly, _, _, _ = process_raw_assembly(raw_asbly)
         tokenized_asbly = merge_registers(sent_piece_model.EncodeAsPieces(processed_asbly.strip()))
@@ -183,11 +184,11 @@ def make_data(path_to_destination_data: str, path_to_source_data: str,
                                                             individual_make_data_wrapper, jobs, chunksize=88):
         hash2metadata_dict[asbly_hash] = metadata_dict
         pbar.update()
-
+        path_to_binary_folder = remove_first_n_dirs(path_to_binary_folder, 2)
         in_train = path_to_binary_folder in train_paths
         in_dev = path_to_binary_folder in dev_paths
         in_test = path_to_binary_folder in test_paths
-        assert sum([in_train, in_dev, in_train])==1, "uh oh, the binary directory is either in none or more than one\n"\
+        assert sum([in_train, in_dev, in_test])==1, "uh oh, the binary directory is either in none or more than one\n"\
                                 "of the sets of train, dev, and test paths. \n" \
                                 "the bin path is: {} and in_train is: {}, in_dev is: {}, and in_test is: {}".format(
                                 path_to_binary_folder, in_train, in_dev, in_test)
