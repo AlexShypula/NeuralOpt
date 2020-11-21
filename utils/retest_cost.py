@@ -21,7 +21,7 @@ class ParseOptions:
     path_to_disassembly_dir: str = field(metadata=dict(args=["-disas_dir", "--path_to_disassembly_dir"]))
     path_to_stats_df: str = field(metadata=dict(args=["-in_stats_df", "--path_to_in_stats_df"]))
     path_to_out_stats_df: str = field(metadata=dict(args=["-out_stats_df", "--path_to_out_stats_df"]))
-    n_workers: int = field(metadata=dict(args=["-n_threads"]), default=8
+    n_workers: int = field(metadata=dict(args=["-n_workers"]), default=8)
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default=False)
 
 REGISTER_LIST_REGEX = re.compile("(?<=({))[^}]+")
