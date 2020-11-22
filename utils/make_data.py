@@ -185,7 +185,7 @@ def make_data(path_to_destination_data: str, path_to_source_data: str,
     for unopt_asbly, opt_asbly, path_to_binary_folder, asbly_hash, metadata_dict in ThreadPool(n_threads).imap(
                                                             individual_make_data_wrapper, jobs, chunksize=88):
         hash2metadata_dict[asbly_hash] = metadata_dict
-        highest_cost_seen_so_far = max(highest_cost_seen_so_far,hash2metadata_dict["O0_cost"],hash2metadata_dict["Og_cost"])
+        highest_cost_seen_so_far = max(highest_cost_seen_so_far,metadata_dict["O0_cost"],metadata_dict["Og_cost"])
         pbar.update()
         path_to_binary_folder = remove_first_n_dirs(path_to_binary_folder, 2)
         in_train = path_to_binary_folder in train_paths
