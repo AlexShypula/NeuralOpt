@@ -135,8 +135,8 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
     return unopt_asbly_str, optimized_asbly_string, path_to_binary_folder, \
     assembly_hash, {"base_asbly_path": destination_path_to_function,
                     "testcase_path": destination_path_to_testcases,
-                    "O0_cost": unopt_cost,
-                    "Og_cost": opt_cost,
+                    "O0_cost": float(unopt_cost),
+                    "Og_cost": float(opt_cost),
                     "name": unique_name,
                     "cost_conf": {"def_in": def_in_str,
                                   "live_out": live_out_str,
@@ -180,9 +180,12 @@ def make_data(path_to_destination_data: str, path_to_source_data: str,
     hash2metadata_dict = {}
     pbar = tqdm(total = len(stats_dataframe), smoothing = 0)
 
+    highest_cost_seen_so_far = 0.0
+
     for unopt_asbly, opt_asbly, path_to_binary_folder, asbly_hash, metadata_dict in ThreadPool(n_threads).imap(
                                                             individual_make_data_wrapper, jobs, chunksize=88):
         hash2metadata_dict[asbly_hash] = metadata_dict
+        highest_cost_seen_so_far = max(highest_cost_seen_so_far,hash2metadata_dict["O0_cost"],hash2metadata_dict["Og_cost"])
         pbar.update()
         path_to_binary_folder = remove_first_n_dirs(path_to_binary_folder, 2)
         in_train = path_to_binary_folder in train_paths
@@ -212,6 +215,8 @@ def make_data(path_to_destination_data: str, path_to_source_data: str,
     with open(join(path_to_model_data, "hash2metadata.json"), "w") as fh:
         json.dump(hash2metadata_dict, fh, indent=4)
 
+    print("highest cost seen in the dataset was: {}".format(highest_cost_seen_so_far))
+
 if __name__ == "__main__":
     parser = ArgumentParser(ParseOptions)
     print(parser.parse_args())
@@ -232,7 +237,9 @@ if __name__ == "__main__":
     args.test_paths = set([p.strip() for p in test_paths])
 
     stats_dataframe = pd.read_csv(args.path_to_stats_csv)
-    args.stats_dataframe = stats_dataframe[stats_dataframe["opt_unopt_correctness"] == "yes"][stats_dataframe["unopt_unopt_correctness"] == "yes"]
+    args.stats_dataframe = stats_dataframe[stats_dataframe["opt_unopt_correctness"] == "yes"]\
+        [stats_dataframe["unopt_unopt_correctness"] == "yes"]\
+        [stats_dataframe["live_out"] != "{  }"]
     args.stats_dataframe = args.stats_dataframe.reindex()
 
     make_data(**vars(args))
