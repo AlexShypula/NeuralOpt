@@ -26,6 +26,7 @@ class ParseOptions:
     path_to_test_list: str = field(metadata=dict(args=["-test_paths", "--path_to_test_paths"]))
     n_threads: int = field(metadata=dict(args=["-n_threads"]), default=16)
     optimized_flag: str = field(metadata=dict(args=["-optim_flag", "--optimize_flag"]), default="Og")
+    remove_first_n_dirs_in_path: int = field(metadata=dict(args=["-remove_n_dirs", "--remove_first_n_dirs"]), default=0)
 
 
 def function_path_to_functions_folder(path: str):
@@ -161,7 +162,7 @@ def individual_make_data_wrapper(arg_dict):
 def make_data(path_to_destination_data: str, path_to_source_data: str,
               stats_dataframe: pd.DataFrame, path_to_model_data: str, sent_piece_model: spm.SentencePieceProcessor,
               train_paths: Set[str], dev_paths: Set[str], test_paths: Set[str], optimized_flag: str,
-              n_threads: int = 16, **kwargs):
+              n_threads: int = 16, remove_first_n_dirs_in_path: int = 0, **kwargs):
     jobs = []
     for _, row in stats_dataframe.iterrows():
         arg_dict = {"path_to_destination_data": path_to_destination_data,
@@ -184,6 +185,11 @@ def make_data(path_to_destination_data: str, path_to_source_data: str,
 
     for unopt_asbly, opt_asbly, path_to_binary_folder, asbly_hash, metadata_dict in ThreadPool(n_threads).imap(
                                                             individual_make_data_wrapper, jobs, chunksize=88):
+        if remove_first_n_dirs_in_path > 0:
+            metadata_dict["testcase_path"] = remove_first_n_dirs(metadata_dict["testcase_path"],
+                                                                 remove_first_n_dirs_in_path)
+            metadata_dict["base_asbly_path"] = remove_first_n_dirs(metadata_dict["base_asbly_path"],
+                                                                 remove_first_n_dirs_in_path)
         hash2metadata_dict[asbly_hash] = metadata_dict
         highest_cost_seen_so_far = max(highest_cost_seen_so_far,metadata_dict["O0_cost"],metadata_dict["Og_cost"])
         pbar.update()
