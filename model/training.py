@@ -932,7 +932,7 @@ class TrainManager:
                 train_sources = [join_char.join(t) for t in decoded_src]
                 if self.level == "bpe":
                     train_sources = [bpe_postprocess(s) for s in train_sources]
-                hashes = [hash_file(src) for src in train_sources]
+                hashes = [hash_file(src.strip()) for src in train_sources]
                 for h, src, tgt, src_len, tgt_len in zip(hashes, src_list, tgt_list, src_lens, tgt_lens):
                     metadata = self.cost_manager.hash2metadata[h]
                     O0_cost = metadata["O0_cost"]

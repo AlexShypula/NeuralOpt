@@ -329,7 +329,10 @@ class BucketReplayBuffer:
             stats_list.append(stats)
 
             if hasattr(self, "hash2best_seq") and cost < ref_score:
-                if cost < self.hash2best_seq[h]["cost"]:
+                if h not in self.hash2best_seq.keys():
+                    print("hash was not in the the hash2best_seq dict\n hash is {}".format(h))
+                    print("sampe is {}".format(sample))
+                elif cost < self.hash2best_seq[h]["cost"]:
                     self.hash2best_seq[h]["cost"] = cost
                     self.hash2best_seq[h]["tgt"] = traj_out
                     self.hash2best_seq[h]["tgt_len"] = traj_len
