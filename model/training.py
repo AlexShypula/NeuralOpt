@@ -59,7 +59,7 @@ print(f"rlimit is {rlimit}")
 resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
 
 
-os.environ["CUDA_VISIBLE_DEVICES"]="2"
+os.environ["CUDA_VISIBLE_DEVICES"]="2,3"
 torch.set_num_threads(8)
 
 def init(l, model_id, ctr):
@@ -1081,7 +1081,9 @@ class TrainManager:
                                               avg_queue_cost, update_no)
                     self.tb_writer.add_scalar("train/avg_failure_rate",
                                               avg_queue_failures, update_no)
-
+                
+                self.tb_writer.add_scalar("train/lr", 
+                                          self.optimizer.param_groups[0]['lr'], update_no)
                 self.tb_writer.add_scalar("train/batch_size",
                                           multi_batch_n_seqs, update_no)
                 self.tb_writer.add_scalar("train/no_baselines_beat",
