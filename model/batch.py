@@ -24,9 +24,7 @@ class LearnerBatch:
         self.src = pad_sequence(src_seqs, batch_first=True, padding_value=pad_index)
         self.src_mask = (self.src != pad_index).unsqueeze(1) # per Batch outlined below
         tgt = pad_sequence(tgt_seqs, batch_first=True, padding_value=pad_index)
-        bos_vec = tgt.new_full(size=[tgt.size(0), 1], fill_value=bos_index,
-                                               dtype=torch.long)
-        tgt = torch.cat((tgt, bos_vec), dim =1) # add the bos along T dimension
+
         self.tgt_input = tgt[:, :-1] # like in Batch, the index is BOS -> second to last token to allow last token to be predicted
         self.tgt = tgt[:, 1:] # likewise, the tgt is offset by 1
         self.tgt_mask = (self.tgt_input != pad_index).unsqueeze(1) # for use with transformers, not for RNNs

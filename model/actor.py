@@ -19,7 +19,8 @@ def deduplicate_tensor(data: torch.Tensor):
     arr = np.unique(data.numpy(), axis=0)
     return torch.from_numpy(arr)
 
-def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eos_index: int,
+
+def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, bos_index: int, eos_index: int,
               src_list: List, src_lengths: List):
 
     # sort batch now by src length and keep track of order
@@ -32,9 +33,13 @@ def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, eo
         output = output[sort_reverse_index]
         log_probs = torch.stack(transposed_log_probs).T[sort_reverse_index]  # T x B -> B x T as Tensor
 
-    # decode back to symbols
-    decoded_src = model.src_vocab.arrays_to_sentences(arrays=batch.src, cut_at_eos=True)
-    decoded_hyp = model.trg_vocab.arrays_to_sentences(arrays=output, cut_at_eos=True)
+        # decode back to symbols
+        decoded_src = model.src_vocab.arrays_to_sentences(arrays=batch.src, cut_at_eos=True)
+        decoded_hyp = model.trg_vocab.arrays_to_sentences(arrays=output, cut_at_eos=True)
+
+        # then pre-pend the <BOS> to the outputs such that they can be processed by the learner
+        bos_vec = output.new_full(size=[output.size(0), 1], fill_value=bos_index, dtype = torch.long)
+        output = torch.cat((bos_vec, output), dim = 1) # add the bos along T dimension
 
     # evaluate with metric on full dataset
     join_char = " " if level in ["word", "bpe"] else ""
@@ -106,15 +111,17 @@ def prune_hash2metadata(hash2metadata: Dict, model: Model, level: str, data_iter
             new_hash2metadata[h] = hash2metadata[h]
     return new_hash2metadata
 
+
 def actor_wrapper(args_dict): 
     return actor(**args_dict)
+
 
 def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Vocabulary, tgt_vocab: Vocabulary,
           path_to_data: str, src_suffix: str,
           path_to_update_model: str, stoke_container_port_no: str,
-          generate_trajs_flag: mp.Event, latest_model_id: mp.Value,  model_lock: RWLock, running_starts_counter: mp.Value, 
+          generate_trajs_flag: mp.Event, latest_model_id: mp.Value,  model_lock: RWLock, running_starts_counter: mp.Value,
           trajs_queue: mp.Queue, max_output_length: int, level: str, batch_size: int, pad_index: int, eos_index: int, 
-          no_running_starts: int, actor_id: int, performance_plot_path: str,
+          bos_index: int, no_running_starts: int, actor_id: int, performance_plot_path: str,
           batch_type: str = "token", device: str = "cpu") -> None:
     batch_size/=2    #2
     print(f"actor id is {actor_id}", flush = True)
@@ -176,7 +183,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
             performance_timer.Load_Model.stop()
             performance_timer.Sample_New_Rewrite.start()
             trajs_dict = get_trajs(model=model,batch=batch, max_output_length=max_output_length, level=level,
-                                   eos_index=eos_index, src_list=src_list, src_lengths=src_lengths)
+                                   bos_index=bos_index, eos_index=eos_index, src_list=src_list, src_lengths=src_lengths)
             performance_timer.Sample_New_Rewrite.stop()
             performance_timer.Evaluate_With_Stoke.start()
             #def eval_trajs(trajs_dict: Dict, hash2metadata: Dict, requester: StokeRequest):
@@ -207,10 +214,4 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                 performance_timer.make_perf_plot(title="Actor no {} Performance Benchmarking".format(actor_id),
                                                  path=performance_plot_path)
                 break
-
-
-
-
-
-
 
