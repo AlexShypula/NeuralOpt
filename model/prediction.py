@@ -537,7 +537,7 @@ def test(cfg_file,
             plt.text(6, max_val, textstr, fontsize=12,
                      verticalalignment='top', bbox=props)
 
-            plt.savefig(join(output_path, "cost_{}.png",format(data_set_name)), dpi=300, pad_inches=2, bbox_inches="tight")
+            plt.savefig(join(output_dir, "cost_{}.png".format(data_set_name)), dpi=300, pad_inches=2, bbox_inches="tight")
             plt.clf()
 
             # STDV DICT
@@ -563,7 +563,7 @@ def test(cfg_file,
             # place a text box in upper left in axes coords
             plt.text(6, max_val, textstr, fontsize=12,
                      verticalalignment='top', bbox=props)
-            plt.savefig(join(output_path, "stdev_{}.png".format(output_dir)), dpi=300, pad_inches=2, bbox_inches="tight")
+            plt.savefig(join(output_dir, "stdev_{}.png".format(data_set_name)), dpi=300, pad_inches=2, bbox_inches="tight")
             plt.clf()
 
 
