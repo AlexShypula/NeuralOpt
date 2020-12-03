@@ -28,6 +28,7 @@ mp.set_start_method('spawn', force = True)
 import torch
 from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
+from torchtext.data import Iterator
 
 from torchtext.data import Dataset
 from modeling import build_model
@@ -918,12 +919,12 @@ class TrainManager:
         replay_buffer = BucketReplayBuffer(max_src_len=self.max_sent_length, max_output_len = self.max_output_length,
                                            n_splits = self.bucket_buffer_splits, max_buffer_size = self.replay_buffer_size)
 
-        train_iter = make_data_iter(train_data, batch_size=self.batch_size,
-                                    batch_type=self.batch_type, train=False, shuffle=False)
+        train_iter = Iterator(train_data, batch_size=32, train=False)
 
         if self.train_on_best_seqs:
             replay_buffer.hash2best_seq = {}
             pbar = tqdm(total=len(train_data), smoothing=0, position=0, desc="creating ref baseline dict")
+
             for batch in iter(train_iter):
                 batch = Batch(batch, pad_index = self.pad_index)
                 src_list, src_lens = cut_arrays_at_eos(list(batch.src), eos_index = self.eos_index, keep_eos = True)
