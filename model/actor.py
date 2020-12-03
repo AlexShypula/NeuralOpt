@@ -38,8 +38,10 @@ def get_trajs(model: Model, batch: Batch, max_output_length: int, level: str, bo
         decoded_hyp = model.trg_vocab.arrays_to_sentences(arrays=output, cut_at_eos=True)
 
         # then pre-pend the <BOS> to the outputs such that they can be processed by the learner
+        # TODO: do in numpy to be more simple
+        output = torch.from_numpy(output)
         bos_vec = output.new_full(size=[output.size(0), 1], fill_value=bos_index, dtype = torch.long)
-        output = torch.cat((bos_vec, output), dim = 1) # add the bos along T dimension
+        output = torch.cat((bos_vec, output), dim = 1).numpy() # add the bos along T dimension
 
     # evaluate with metric on full dataset
     join_char = " " if level in ["word", "bpe"] else ""
