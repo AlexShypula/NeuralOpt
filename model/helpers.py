@@ -353,7 +353,7 @@ class BucketReplayBuffer:
                 result_strings.append(prefix_str + hyp)
 
         cost_manager.update_buffers(list(zip(hashes, stats_list)))
-        cost_manager.log_buffer_stats(hashes)
+        #cost_manager.log_buffer_stats(hashes)
         #advantages = [cost - cost_manager.get_mean_stdv_cost(h)[0] for cost, h in zip(costs, hashes)]
         # print(["cost: {}, advantage: {}".format(c, a) for c, a in zip(costs, advantages)])
         return src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens, \
