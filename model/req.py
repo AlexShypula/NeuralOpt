@@ -11,6 +11,7 @@ class StokeRequest:
         self.url = base_url + ":" + port + "/"
         self.stoke_url = self.url + "stoke"
         self.eval_url = self.url + "stoke/eval"
+        print("a new requester was initialized, the dest is {}".format(self.stoke_url))
     # jobs should be a python dict of of format {"{job_id}": (hypothesis_string, metadata_dictionary)}
     # where job-id is a unique identifier for the job, the hypothesis string is the formatted neural net output
     # and the metadata dictionary is the metadata dictaionary that contains all necessary info for stoke processing

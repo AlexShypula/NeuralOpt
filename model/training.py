@@ -60,7 +60,7 @@ print(f"rlimit is {rlimit}")
 resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
 
 
-os.environ["CUDA_VISIBLE_DEVICES"]="2,3"
+os.environ["CUDA_VISIBLE_DEVICES"]="3,2"
 torch.set_num_threads(8)
 
 def init(l, model_id, ctr):
@@ -105,7 +105,7 @@ class TrainManager:
             log_dir=self.model_dir + "/tensorboard/")
 
         # cost_manager
-        self.api_ip_addr = data_config.get("api_ip_adddr", "127.0.0.1")
+        self.api_ip_addr = data_config.get("api_ip_addr", "127.0.0.1")
         self.max_score = data_config.get("max_score", 9999)
         asm_names_to_save = data_config.get("asm_names_to_save")
         asm_names_to_save = asm_names_to_save.split(":") if asm_names_to_save else []
@@ -945,14 +945,14 @@ class TrainManager:
                     best_seq_dict = {}
                     best_seq_dict["src"] = src
                     best_seq_dict["src_len"] = src_len
-                    if Og_cost <= O0_cost:
-                        best_seq_dict["cost"] = Og_cost
-                        best_seq_dict["tgt"] = tgt
-                        best_seq_dict["out_len"] = tgt_len
-                    else:
-                        best_seq_dict["cost"] = O0_cost
-                        best_seq_dict["tgt"] = src
-                        best_seq_dict["out_len"] = src_len
+                    #if Og_cost <= O0_cost:
+                    best_seq_dict["cost"] = Og_cost
+                    best_seq_dict["tgt"] = tgt
+                    best_seq_dict["out_len"] = tgt_len
+                    #else:
+                    #    best_seq_dict["cost"] = O0_cost
+                    #    best_seq_dict["tgt"] = src
+                    #    best_seq_dict["out_len"] = src_len
                     replay_buffer.hash2best_seq[h] = best_seq_dict
                 pbar.update(len(train_sources))
 
