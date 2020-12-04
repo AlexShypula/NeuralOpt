@@ -105,7 +105,7 @@ class TrainManager:
             log_dir=self.model_dir + "/tensorboard/")
 
         # cost_manager
-        self.api_ip_addr = config.get("api_ip_adddr", "127.0.0.1")
+        self.api_ip_addr = data_config.get("api_ip_adddr", "127.0.0.1")
         self.max_score = data_config.get("max_score", 9999)
         asm_names_to_save = data_config.get("asm_names_to_save")
         asm_names_to_save = asm_names_to_save.split(":") if asm_names_to_save else []
