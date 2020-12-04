@@ -124,7 +124,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
           generate_trajs_flag: mp.Event, latest_model_id: mp.Value,  model_lock: RWLock, running_starts_counter: mp.Value,
           trajs_queue: mp.Queue, max_output_length: int, level: str, batch_size: int, pad_index: int, eos_index: int, 
           bos_index: int, no_running_starts: int, actor_id: int, performance_plot_path: str,
-          batch_type: str = "token", device: str = "cpu") -> None:
+          batch_type: str = "token", api_ip_addr: str = "127.0.0.1", device: str = "cpu") -> None:
     batch_size/=2    #2
     print(f"actor id is {actor_id}", flush = True)
     #if actor_id == 0: 
@@ -152,7 +152,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                                 batch_type=batch_type,
                                 train=True, shuffle=True)
     hash2metadata = prune_hash2metadata(hash2metadata=hash2metadata, model=model, level=level, data_iter=data_iter, pad_index = pad_index)
-    requester = StokeRequest(base_url = "http://127.0.0.1", port = stoke_container_port_no)
+    requester = StokeRequest(base_url = "http://{}".format(api_ip_addr), port = stoke_container_port_no)
 
     running_starts_left = no_running_starts
     running_starts_flag = True if running_starts_left > 0 else False

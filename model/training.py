@@ -105,6 +105,7 @@ class TrainManager:
             log_dir=self.model_dir + "/tensorboard/")
 
         # cost_manager
+        self.api_ip_addr = config.get("api_ip_adddr", "127.0.0.1")
         self.max_score = data_config.get("max_score", 9999)
         asm_names_to_save = data_config.get("asm_names_to_save")
         asm_names_to_save = asm_names_to_save.split(":") if asm_names_to_save else []
@@ -126,6 +127,7 @@ class TrainManager:
                                              max_score = data_config.get("max_score"),
                                              n_workers = data_config.get("n_workers"),
                                              keep_n_best_seqs=data_config.get("keep_n_best_seqs", 10),
+                                             api_ip_addr=self.api_ip_addr,
                                              container_port=data_config.get("container_port", 6000),
                                              trailing_stats_in_path=data_config.get("trailing_stats_in_path")
                                              )
@@ -904,6 +906,7 @@ class TrainManager:
                 "eos_index": self.eos_index,
                 "bos_index": self.bos_index,
                 "batch_type": self.batch_type,
+                "api_ip_addr": self.api_ip_addr,
                 "device": device,
                 "no_running_starts": self.no_running_starts,
                 "actor_id": i,
