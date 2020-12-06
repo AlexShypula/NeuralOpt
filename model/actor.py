@@ -13,6 +13,7 @@ from typing import Dict, List
 from req import StokeRequest
 from prwlock import RWLock
 from fairseq import pdb
+from tqdm import tqdm
 
 
 def deduplicate_tensor(data: torch.Tensor):
@@ -164,9 +165,12 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
     performance_timer.new_event("Evaluate_With_Stoke")
     performance_timer.new_event("Add_to_Queue")
     performance_timer.start()
-    while generate_trajs_flag.is_set(): 
+    while generate_trajs_flag.is_set():
+        if running_starts_flag and running_starts_left > 0 :
+            pbar = tqdm(total=len(data),
+                        desc="running starts for actor {} with {} left".format(actor_id, running_starts_left),
+                        position=actor_id, smoothing=0.3)
         for batch in iter(data_iter):
-
             # ensure no batch duplicates
             if not is_unique_batch(batch):
                 continue
@@ -200,15 +204,9 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                 trajs_queue.put({ **traj_dict})
             performance_timer.Add_to_Queue.stop()
             #pdb.set_trace()
-            if running_starts_flag:
-                running_starts_left-=1
-                print(f"actor number {actor_id} has {running_starts_left} running starts left", flush=True)
-                if running_starts_left == 0:
-                    running_starts_flag = False
-                    with running_starts_counter.get_lock():
-                        running_starts_counter.value -= 1
-                    print(f"... and actor number {actor_id} has finished running starts", flush=True)
 
+            if running_starts_flag and running_starts_left > 0:
+                pbar.update(len(n_seqs))
 
             if not generate_trajs_flag.is_set():
                 if performance_timer.timing: 
@@ -216,4 +214,12 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
                 performance_timer.make_perf_plot(title="Actor no {} Performance Benchmarking".format(actor_id),
                                                  path=performance_plot_path)
                 break
+        if running_starts_flag:
+            running_starts_left-=1
+            print(f"actor number {actor_id} has {running_starts_left} running starts left", flush=True)
+            if running_starts_left == 0:
+                running_starts_flag = False
+                with running_starts_counter.get_lock():
+                    running_starts_counter.value -= 1
+                print(f"... and actor number {actor_id} has finished running starts", flush=True)
 
