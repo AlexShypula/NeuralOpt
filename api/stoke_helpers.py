@@ -5,6 +5,7 @@ from typing import Dict
 from typing import Union
 from utils import COST_SEARCH_REGEX, CORRECT_SEARCH_REGEX
 
+TIMEOUT=100
 
 def make_tunit_file(in_f: str, out_f: str, fun_dir: str, live_dangerously: bool = False):
     live_dangerously_str = "--live_dangerously" if live_dangerously else ""
@@ -15,7 +16,7 @@ def make_tunit_file(in_f: str, out_f: str, fun_dir: str, live_dangerously: bool 
                 stdout=f,
                 stderr=subprocess.PIPE,
                 text=True,
-                timeout=25)
+                timeout=TIMEOUT)
 
     except subprocess.TimeoutExpired as err:
         return -11747, err
@@ -50,7 +51,7 @@ def test_costfn(target_f: str,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
-                    timeout=25)
+                    timeout=TIMEOUT)
         else:
             cost_test = subprocess.run(
                 ['/home/stoke/stoke/bin/stoke', 'debug', 'cost',
@@ -70,7 +71,7 @@ def test_costfn(target_f: str,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=25)
+                timeout=TIMEOUT)
         if cost_test.returncode == 0:
             cost = COST_SEARCH_REGEX.search(cost_test.stdout).group()
             correct = CORRECT_SEARCH_REGEX.search(cost_test.stdout).group()
