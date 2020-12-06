@@ -570,6 +570,11 @@ class StokeCostManager:
         with open(self.trailing_stats_out_path, "wb") as f:
             pickle.dump(self.trailing_stats_dict, f)
 
+    def save_training_stats_as(self, path: str):
+        with open(path, "wb") as f:
+            pickle.dump(self.trailing_stats_dict, f)
+
+
     def log_validation_stats(self, hash2val_results):
         for h, val_dict in hash2val_results.items():
             name = self.hash2metadata[h]["name"]

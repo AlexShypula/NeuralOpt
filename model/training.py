@@ -961,6 +961,8 @@ class TrainManager:
             while running_starts_counter.value > 0:
                 replay_buffer.clear_queue(trajectory_queue, cost_manager=self.cost_manager)
                 time.sleep(0.5)
+        # log best seq stats
+        self.cost_manager.save_training_stats_as(os.path.join(self.model_dir, "running_starts_trailing_stats.pkl"))
         print("All running starts have finished", flush = True)
         print("Now checking if the replay buffer is filled.... if not, waiting for it to be filled", flush = True)
 
@@ -1113,7 +1115,9 @@ class TrainManager:
                 #print("tensorboard writing done, update no {}".format(update_no), flush = True)
                 if (update_no % self.checkpoint_learner_every) == 0:
                     state = {"model_state": self.model.state_dict()}
-                    torch.save(state, "{}/model_{}.ckpt".format(self.model_dir, update_no)) 
+                    torch.save(state, "{}/model_{}.ckpt".format(self.model_dir, update_no))
+                    self.cost_manager.save_training_stats_as(
+                        os.path.join(self.model_dir, "trailing_stats_step_{}.pkl".format(update_no)))
                 if (update_no % self.log_best_seq_stats_every) == 0:
                     #print("inside cost manager save best seq stats", flush = True)
                     for h in self.cost_manager.trailing_stats_dict.keys():
