@@ -126,7 +126,7 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
           trajs_queue: mp.Queue, max_output_length: int, level: str, batch_size: int, pad_index: int, eos_index: int, 
           bos_index: int, no_running_starts: int, actor_id: int, performance_plot_path: str,
           batch_type: str = "token", api_ip_addr: str = "127.0.0.1", device: str = "cpu") -> None:
-    batch_size/=2    #2
+    batch_size/=4    #2
     print(f"actor id is {actor_id}", flush = True)
     #if actor_id == 0: 
         #pdb.set_trace()
@@ -167,9 +167,10 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
     performance_timer.start()
     while generate_trajs_flag.is_set():
         if running_starts_flag and running_starts_left > 0 :
-            pbar = tqdm(total=len(data),
-                        desc="running starts for actor {} with {} left".format(actor_id, running_starts_left),
-                        position=actor_id, smoothing=0.3)
+            running_starts_examples_left = len(data)
+        #    pbar = tqdm(total=len(data),
+        #                desc="running starts for actor {} with {} left".format(actor_id, running_starts_left),
+        #                position=actor_id, smoothing=0.3)
         for batch in iter(data_iter):
             # ensure no batch duplicates
             if not is_unique_batch(batch):
@@ -206,7 +207,9 @@ def actor(model_cfg: Dict, src_field: Field, hash2metadata: Dict, src_vocab: Voc
             #pdb.set_trace()
 
             if running_starts_flag and running_starts_left > 0:
-                pbar.update(len(n_seqs))
+                running_starts_examples_left-=n_seqs
+                print("running starts for actor {} with {} examples and {} epochs left".format(actor_id, running_starts_examples_left, running_starts_left), flush=True)
+                #pbar.update(len(n_seqs))
 
             if not generate_trajs_flag.is_set():
                 if performance_timer.timing: 
