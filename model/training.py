@@ -1052,6 +1052,13 @@ class TrainManager:
                 if self.clip_grad_fun is not None:
                     # clip gradients (in-place)
                     self.clip_grad_fun(params=self.model.parameters())
+                sizes = 0; norms = 0;
+                for name, parameter in self.model.named_parameters():
+                    self.tb_writer.add_histogram(name, parameter.grad.data.cpu().numpy(), update_no)
+                    size = np.product([i for i in parameter.grad.data.shape])
+                    norms += parameter.grad.data.norm(2) * size
+                    sizes += size
+                self.tb_writer.add_scalar("train/grad_norm", (norms / sizes).detach().item(), update_no)
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 if self.scheduler is not None and self.scheduler_step_at == "step":
