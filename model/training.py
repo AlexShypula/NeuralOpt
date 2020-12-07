@@ -1076,9 +1076,11 @@ class TrainManager:
                     not_failed_arr = (~np.array(multi_batch_failures))
                     costs_arr = np.array(multi_batch_costs)
                     corrects_arr = np.array(multi_batch_corrects)
-                    avg_not_failed_cost = sum(np.multiply(not_failed_arr, costs_arr))/sum(not_failed_arr)
-                    avg_not_failed_correct = sum(np.multiply(not_failed_arr, corrects_arr))/sum(not_failed_arr)
-                    avg_cost_below_max_cost = sum(np.multiply((costs_arr<self.max_score), costs_arr)) / sum((costs_arr<self.max_score))
+
+                    avg_not_failed_cost = np.sum(np.multiply(not_failed_arr, costs_arr))/(np.sum(not_failed_arr)+1e-9)
+                    avg_not_failed_correct = np.sum(np.multiply(not_failed_arr, corrects_arr))/(np.sum(not_failed_arr)+1e-9)
+                    avg_cost_below_max_cost = np.sum(np.multiply((costs_arr<self.max_score), costs_arr)) / (np.sum((costs_arr<self.max_score)) + 1e-9)
+
                     self.tb_writer.add_scalar("train/avg_not_failed_cost", avg_not_failed_cost, update_no)
                     self.tb_writer.add_scalar("train/pct_correct_when_not_failed", avg_not_failed_correct, update_no)
                     self.tb_writer.add_scalar("train/avg_cost_below_max_cost", avg_cost_below_max_cost, update_no)
