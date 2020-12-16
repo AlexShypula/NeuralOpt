@@ -358,7 +358,7 @@ def test(cfg_file,
                                          max_score = data_config.get("max_score"),
                                          n_workers = data_config.get("n_workers"),
                                          keep_n_best_seqs=data_config.get("keep_n_best_seqs", 10),
-                                         api_ip_adddr=api_ip_addr,
+                                         api_ip_addr=api_ip_addr,
                                          container_port=api_port_no,
                                          trailing_stats_in_path=data_config.get("trailing_stats_in_path")
                                          )
