@@ -290,6 +290,9 @@ LIVE_OUT_FLAGS_SET = set(LIVE_OUT_FLAGS)
 LIVE_OUT_REGISTER_LIST = GP_REGISTERS + SIMD_REGISTERS + LIVE_OUT_FLAGS
 DEF_IN_REGISTER_LIST = GP_REGISTERS + SIMD_REGISTERS + DEF_IN_FLAGS
 
+AMD64_ABI_REGISTERS_W_FP = ["%rax", "%rdx", "%rbx", "%rsp", "%rbp", "%r12", "%r13", "%r14", "%r15", "%xmm0", "%xmm1"]
+AMD64_ABI_REGISTERS = ["%rax", "%rdx", "%rbx", "%rsp", "%rbp", "%r12", "%r13", "%r14", "%r15" ]
+
 
 NEXT_REGISTER_TESTING_DICT = {**gp_reg_64_to_32, **gp_reg_32_to_16, **gp_reg_16_to_8, **gp_reg_8_to_None,
                               **simd_reg_256_to_128, **simd_reg_128_to_None, **flags_to_none}
