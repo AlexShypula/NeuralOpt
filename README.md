@@ -1,6 +1,10 @@
 # NeuralOpt
 
-Directions
+The following github repo contains code for an ongoing research project supervised by Graham Neubig and Claire Le Goues on Neural Code Optimization. 
+
+Portion of the experiments were supported by Amazon Web Services credits. 
+
+## Directions to set up STOKE
 
 To obtain the docker container in order to run [STOKE](https://github.com/StanfordPL/stoke) run the docker_setup.sh script which will pull the right docker container for the project, run it, and mount the local `/docker` folder to the `/home/stoke/docker` folder in the conainer. 
 
