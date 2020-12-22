@@ -2,7 +2,7 @@
 
 The following github repo contains code for an ongoing research project supervised by Graham Neubig and Claire Le Goues on Neural Code Optimization. 
 
-Portion of the experiments were supported by Amazon Web Services credits. 
+Portion of the experiments were supported by Amazon Web Services.  
 
 ## Directions to set up STOKE
 
