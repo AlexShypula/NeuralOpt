@@ -169,6 +169,7 @@ class TrainManager:
         self.learner_tmp_path = "{}/tmp.ckpt".format(self.model_dir)
         self.load_beat_baselines = train_config.get("load_beat_baselines", True)
         self.load_trailing_stats = train_config.get("load_trailing_stats", True)
+        self.save_result_strings_every = train_config.get("save_result_strings_every", 10)
 
 
         # model
@@ -1010,8 +1011,8 @@ class TrainManager:
             if self.synchronized_al:
                 src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens, \
                     result_strings = replay_buffer.synchronous_sample(
-                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager, step_no=step//self.batch_multiplier)
-                if ((mini_batch_no//self.batch_multiplier) % 10) == 0:
+                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager, step_no=mini_batch_no//self.batch_multiplier)
+                if ((mini_batch_no//self.batch_multiplier) % self.save_result_strings_every) == 0:
                     train_output_fh.write("\n\n".join(result_strings))
                 multi_batch_costs.extend(costs)
                 multi_batch_failures.extend(failed)
