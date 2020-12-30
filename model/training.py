@@ -167,6 +167,8 @@ class TrainManager:
         self.container_port = data_config.get("container_port", 6000)
         self.learner_model_path = "{}/learner.ckpt".format(self.model_dir)
         self.learner_tmp_path = "{}/tmp.ckpt".format(self.model_dir)
+        self.load_beat_baselines = train_config.get("load_beat_baselines", True)
+        self.load_trailing_stats = train_config.get("load_trailing_stats", True)
 
 
         # model
@@ -329,6 +331,11 @@ class TrainManager:
             "scheduler_state": self.scheduler.state_dict() if
             self.scheduler is not None else None,
         }
+
+        if hasattr(self, "cost_manager"):
+            state["beat_baselines_hash_set"] = self.cost_manager.beat_baselines_hash_set
+            state["trailing_stats_dict"] = self.cost_manager.trailing_stats_dict
+
         torch.save(state, model_path)
         if self.ckpt_queue.full():
             to_delete = self.ckpt_queue.get()  # delete oldest ckpt
@@ -413,6 +420,13 @@ class TrainManager:
         # move parameters to cuda
         if self.use_cuda:
             self.model.cuda()
+
+        # reset the beat baselines hash-set as well as the trailing stats dict
+        if hasattr(self, "cost_manager") and self.load_beat_baselines:
+            self.cost_manager.beat_baselines_hash_set = model_checkpoint["beat_baselines_hash_set"]
+
+        if hasattr(self, "cost_manager") and self.load_trailing_stats:
+            self.cost_manager.trailing_stats_dict = model_checkpoint["trailing_stats_dict"]
 
     # pylint: disable=unnecessary-comprehension
     # pylint: disable=too-many-branches
@@ -989,7 +1003,7 @@ class TrainManager:
         performance_timer.new_event("Clear_Queue")
         performance_timer.new_event("Validation_Testing")
         performance_timer.start()
-        for step in range(1, self.n_updates * self.batch_multiplier):
+        for mini_batch_no in range(1, self.n_updates * self.batch_multiplier):
 
             performance_timer.Model_Forward_Backward.start()
             self.model.train()
@@ -997,7 +1011,7 @@ class TrainManager:
                 src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens, \
                     result_strings = replay_buffer.synchronous_sample(
                     queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager, step_no=step//self.batch_multiplier)
-                if ((step//self.batch_multiplier) % 10) == 0:
+                if ((mini_batch_no//self.batch_multiplier) % 10) == 0:
                     train_output_fh.write("\n\n".join(result_strings))
                 multi_batch_costs.extend(costs)
                 multi_batch_failures.extend(failed)
@@ -1047,24 +1061,24 @@ class TrainManager:
 
             performance_timer.Model_Forward_Backward.stop()
 
-            if (step % self.batch_multiplier) == 0:
-                update_no = step // self.batch_multiplier
+            if (mini_batch_no % self.batch_multiplier) == 0:
+                self.steps+=1
                 if self.clip_grad_fun is not None:
                     # clip gradients (in-place)
                     self.clip_grad_fun(params=self.model.parameters())
                 sizes = 0; norms = 0;
                 for name, parameter in self.model.named_parameters():
-                    self.tb_writer.add_histogram(name, parameter.grad.data.cpu().numpy(), update_no)
+                    self.tb_writer.add_histogram(name, parameter.grad.data.cpu().numpy(), self.steps)
                     size = np.product([i for i in parameter.grad.data.shape])
                     norms += parameter.grad.data.norm(2) * size
                     sizes += size
-                self.tb_writer.add_scalar("train/grad_norm", (norms / sizes).detach().item(), update_no)
+                self.tb_writer.add_scalar("train/grad_norm_post_clip", (norms / sizes).detach().item(), self.steps)
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 if self.scheduler is not None and self.scheduler_step_at == "step":
                     self.scheduler.step()
                 performance_timer.Save_Learner.start()
-                if (update_no % self.save_learner_every) == 0: 
+                if (self.steps % self.save_learner_every) == 0:
                     self._save_learner()
                 performance_timer.Save_Learner.stop()
 
@@ -1074,9 +1088,9 @@ class TrainManager:
                     performance_timer.Clear_Queue.stop()
                     new_examples = max(new_examples, 1)
                     self.tb_writer.add_scalar("train/number-trained-per-new-observations",
-                                              multi_batch_n_seqs / new_examples, update_no)
+                                              multi_batch_n_seqs / new_examples, self.steps)
                     self.tb_writer.add_scalar("train/queue_size",
-                                              new_examples, update_no)
+                                              new_examples, self.steps)
                 else:
                     avg_queue_cost = np.mean(multi_batch_costs)
                     avg_queue_failures = np.mean(multi_batch_failures)
@@ -1088,30 +1102,30 @@ class TrainManager:
                     avg_not_failed_correct = np.sum(np.multiply(not_failed_arr, corrects_arr))/(np.sum(not_failed_arr)+1e-9)
                     avg_cost_below_max_cost = np.sum(np.multiply((costs_arr<self.max_score), costs_arr)) / (np.sum((costs_arr<self.max_score)) + 1e-9)
 
-                    self.tb_writer.add_scalar("train/avg_not_failed_cost", avg_not_failed_cost, update_no)
-                    self.tb_writer.add_scalar("train/pct_correct_when_not_failed", avg_not_failed_correct, update_no)
-                    self.tb_writer.add_scalar("train/avg_cost_below_max_cost", avg_cost_below_max_cost, update_no)
+                    self.tb_writer.add_scalar("train/avg_not_failed_cost", avg_not_failed_cost, self.steps)
+                    self.tb_writer.add_scalar("train/pct_correct_when_not_failed", avg_not_failed_correct, self.steps)
+                    self.tb_writer.add_scalar("train/avg_cost_below_max_cost", avg_cost_below_max_cost, self.steps)
 
                 if avg_queue_cost > 0: 
                     self.tb_writer.add_scalar("train/avg_cost",
-                                              avg_queue_cost, update_no)
+                                              avg_queue_cost, self.steps)
                     self.tb_writer.add_scalar("train/avg_failure_rate",
-                                              avg_queue_failures, update_no)
+                                              avg_queue_failures, self.steps)
                 
                 self.tb_writer.add_scalar("train/lr", 
-                                          self.optimizer.param_groups[0]['lr'], update_no)
+                                          self.optimizer.param_groups[0]['lr'], self.steps)
                 self.tb_writer.add_scalar("train/batch_size",
-                                          multi_batch_n_seqs, update_no)
+                                          multi_batch_n_seqs, self.steps)
                 self.tb_writer.add_scalar("train/no_baselines_beat",
-                                          self.cost_manager.no_beat_baselines, update_no)
+                                          self.cost_manager.no_beat_baselines, self.steps)
                 self.tb_writer.add_scalar("train/avg_entropy",
-                                          multi_batch_entropy, update_no)
+                                          multi_batch_entropy, self.steps)
                 self.tb_writer.add_scalar("train/batch_size_tokens",
-                                          multi_batch_n_tokens, update_no)
+                                          multi_batch_n_tokens, self.steps)
                 self.tb_writer.add_scalar("train/batch_loss", 
-                                            multi_batch_loss, update_no)
+                                            multi_batch_loss, self.steps)
                 self.tb_writer.add_scalar("train/avg_advantage", 
-                                                multi_batch_advantage, update_no)
+                                                multi_batch_advantage, self.steps)
 
                 multi_batch_loss = 0
                 multi_batch_entropy = 0
@@ -1122,12 +1136,9 @@ class TrainManager:
                 multi_batch_failures = []
                 multi_batch_corrects = []
                 #print("tensorboard writing done, update no {}".format(update_no), flush = True)
-                if (update_no % self.checkpoint_learner_every) == 0:
-                    state = {"model_state": self.model.state_dict()}
-                    torch.save(state, "{}/model_{}.ckpt".format(self.model_dir, update_no))
-                    self.cost_manager.save_training_stats_as(
-                        os.path.join(self.model_dir, "trailing_stats_step_{}.pkl".format(update_no)))
-                if (update_no % self.log_best_seq_stats_every) == 0:
+                if (self.steps % self.checkpoint_learner_every) == 0:
+                    self._save_checkpoint()
+                if (self.steps % self.log_best_seq_stats_every) == 0:
                     #print("inside cost manager save best seq stats", flush = True)
                     for h in self.cost_manager.trailing_stats_dict.keys():
                         priority_queue = self.cost_manager.trailing_stats_dict[h]["best_sequence_priority_queue"]
@@ -1139,7 +1150,7 @@ class TrainManager:
 
                 #print(f"update no is {update_no} and valdation_freq is {self.validation_freq}")
                 #print(f"eval modulo evaluates as {(update_no % self.validation_freq)}")
-                if (update_no % self.validation_freq) == 0:
+                if (self.steps % self.validation_freq) == 0:
                 #if update_no > 300: 
                     print("doing validation loop")
                     performance_timer.Validation_Testing.start()
@@ -1162,7 +1173,7 @@ class TrainManager:
                         )
 
                     self.tb_writer.add_scalar("valid/valid_cost",
-                                              valid_score, update_no)
+                                              valid_score, self.steps)
 
                     ckpt_score = valid_score
 
