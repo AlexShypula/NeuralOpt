@@ -138,10 +138,12 @@ class StokePipeline:
                 metadata["cost_conf"]["training_set"] = STOKE_TRAINING_SET_REGEX.sub(
                     str(next_index) + " ", metadata["cost_conf"]["training_set"])
                 metadata["new_testcase_index"] = next_index + 1
+                is_correct = False
                 beat_baseline_returncode = 2
 
             else:
                 print(f"{metadata['name']} beat the baseline, but did not verify", flush=True)
+                is_correct = False
                 beat_baseline_returncode = 1
 
             if not metadata.get("save_intermediate_flag"):
