@@ -104,10 +104,11 @@ class StokePipeline:
 
         effective_cost = min(cost, self.max_cost)
 
-        new_record_returncode = 0
-        # 0 -> no new record, 1 -> new record, but doesn't verify, no new testcases
-        # 2 -> new record, but doesn't verify, new testcases added, 3 -> verifies correct
-        if effective_cost < metadata.get("rolling_baseline_cost", self.max_cost) and not failed_tunit and not failed_cost:
+        beat_baseline_returncode = 0
+        # 0 -> didn't beat baseline on cost, 1 -> beat baseline on cost, but doesn't verify, no new testcases
+        # 2 -> beat baseline on cost, but doesn't verify, new testcases added,
+        # 3 -> beat baseline on cost and verifies correct
+        if effective_cost < metadata.get("low_benchmark", self.max_cost) and not failed_tunit and not failed_cost:
 
             machine_output_filename = rewrite_id + ".verify"
             container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
@@ -126,10 +127,9 @@ class StokePipeline:
                 live_dangerously = True)
 
             if is_verified_correct:
-                print(f"New record set for {metadata['name']} with cost: {effective_cost}, and verified correct",
+                print(f"Beat baseline for {metadata['name']} with cost: {effective_cost}, and verified correct",
                       flush = True)
-                metadata["rolling_baseline_cost"] = cost
-                new_record_returncode = 3
+                beat_baseline_returncode = 3
 
             elif counter_examples_available:
                 print(f"New testcases added for {metadata['name']} at index {next_index}", flush=True)
@@ -138,11 +138,11 @@ class StokePipeline:
                 metadata["cost_conf"]["training_set"] = STOKE_TRAINING_SET_REGEX.sub(
                     str(next_index) + " ", metadata["cost_conf"]["training_set"])
                 metadata["new_testcase_index"] = next_index + 1
-                new_record_returncode = 2
+                beat_baseline_returncode = 2
 
             else:
                 print(f"{metadata['name']} beat the baseline, but did not verify", flush=True)
-                new_record_returncode = 1
+                beat_baseline_returncode = 1
 
             if not metadata.get("save_intermediate_flag"):
                 os.remove(container_abs_path_machine_output)
@@ -154,9 +154,9 @@ class StokePipeline:
         return {"metadata": metadata, "stats": {"cost": effective_cost,
                                                  "failed_tunit": failed_tunit,
                                                  "failed_cost": failed_cost,
-						 "correct": is_correct, 
+						                         "correct": is_correct,
                                                  "hypothesis_string": hypothesis_string,
-                                                 "new_record_returncode": new_record_returncode}}
+                                                 "beat_baseline_returncode": beat_baseline_returncode}}
 
 
 def get_stoke_cost(hypothesis_string: str,
