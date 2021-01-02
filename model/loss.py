@@ -24,6 +24,7 @@ from copy import copy
 from req import StokeRequest
 import warnings
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 COST_SEARCH_REGEX = re.compile("(?<=Cost: )\d+")
 CORRECT_SEARCH_REGEX = re.compile("(?<=Correct: )\w+")
@@ -86,6 +87,7 @@ class StokeCostManager:
         self.max_score = max_score
         self.beat_baselines_hash_set = set()
         self.no_beat_baselines = 0
+        self.deque_max_len = max_len
 
         if self.trailing_stats_in_path:
             with open(self.trailing_stats_in_path, "rb") as f:
@@ -96,11 +98,11 @@ class StokeCostManager:
                 not self.hash2metadata[h].get("name") else self.hash2metadata[h].get("name")
             self.hash2metadata[h]["name"] = basename(self.hash2metadata[h]["base_asbly_path"])
             self.hash2metadata[h]["cost_conf"]["training_set"] = f"{{ 0 ... {n_testcases-1} }}"
-            self.hash2metadata[h]["rolling_baseline_cost"] = copy(self.hash2metadata[h][self.baseline_cost_key])
             self.hash2metadata[h]['reference_score'] = copy(self.hash2metadata[h][self.baseline_cost_key])
             # TODO undo the hard-coding here
             self.hash2metadata[h]['low_benchmark'] = min(self.hash2metadata[h]["O0_cost"], self.hash2metadata[h]["Og_cost"])
             self.hash2metadata[h]['high_benchmark'] = max(self.hash2metadata[h]["O0_cost"], self.hash2metadata[h]["Og_cost"])
+            self.hash2metadata[h]["rolling_baseline_cost"] = copy(self.hash2metadata[h]['low_benchmark'])
             self.hash2metadata[h]['best_cost_so_far'] = 1e9
             self.hash2metadata[h]['best_seq_returncode'] = -2
 
@@ -472,6 +474,55 @@ class StokeCostManager:
         #breakpoint()
         self._plot_best_seq_stats(percentage_dict=percentage_dict, cost_dict=cost_dict)
 
+    def _print_and_log_rewrite_performance(self, h: str, is_beat_gcc: bool, is_lower_than_benchmark: bool,
+                                           effective_cost: int, hyp_string: str):
+
+        if is_beat_gcc:
+            # The following print statements and string creation are for logging
+            print(f"for {self.hash2metadata[h]['name']} the baseline was beat and verified")
+            print(f"the cost was {effective_cost} whereas the old record was "
+                  f"{self.hash2metadata[h]['rolling_baseline_cost']}")
+            print(f"the rolling baseline is currently {self.hash2metadata[h]['rolling_baseline_cost']}", flush=True)
+            beat_baseline_str = f"Beat Baseline and verified, " \
+                                f"where reference is {self.hash2metadata[h]['rolling_baseline_cost']}\n"
+        elif is_lower_than_benchmark:
+            print(f"for {self.hash2metadata[h]['name']} the baseline was beat, but didn't verify")
+            print(f"the cost was {effective_cost} whereas the old record was  "
+                  f"was {self.hash2metadata[h]['rolling_baseline_cost']}")
+            print(f"the rolling baseline is still {self.hash2metadata[h]['rolling_baseline_cost']}", flush=True)
+            beat_baseline_str = f"Beat Baseline but didn't verify, " \
+                                f"where reference is {self.hash2metadata[h]['reference_score']}\n"
+        else:
+            beat_baseline_str = ""
+
+        self.trailing_stats_dict[h]["best_sequence_priority_queue"].append(effective_cost,
+                                                                           beat_baseline_str + hyp_string)
+
+
+    def is_beat_gcc_and_record(self, h: str, stats_dict: Dict):
+        hyp_string = stats_dict["hypothesis_string"]
+        effective_cost = stats_dict["cost"]
+        beat_baseline_returncode = stats_dict["beat_baseline_returncode"]
+        rolling_baseline_cost = self.hash2metadata[h]["rolling_baseline_cost"]
+        low_benchmark_cost = self.hash2metadata[h]["low_benchmark"]
+        is_lower_than_benchmark = (effective_cost < low_benchmark_cost)
+
+        is_record = False
+        # only if equal to 3 does it mean we beat the baseline and it verified
+        if is_beat_gcc := (beat_baseline_returncode == 3):
+            if is_record := (effective_cost < rolling_baseline_cost):
+                self.hash2metadata[h]["rolling_baseline_cost"] = effective_cost
+                if h not in self.beat_baselines_hash_set:
+                    self.beat_baselines_hash_set.add(h)
+                    self.no_beat_baselines += 1
+
+        self._print_and_log_rewrite_performance(h=h, is_beat_gcc=is_beat_gcc,
+                                                is_lower_than_benchmark=is_lower_than_benchmark,
+                                                effective_cost=effective_cost,
+                                                hyp_string=hyp_string)
+
+        return is_beat_gcc, is_record
+
     def update_buffers(self, hash_stats_list: Tuple[str, Dict]):
 
         batch_cost = 0
@@ -481,11 +532,8 @@ class StokeCostManager:
             effective_cost = stats["cost"]
             failed_tunit = stats["failed_tunit"]
             failed_cost = stats["failed_cost"]
-            hypothesis_string = stats["hypothesis_string"]
-            new_record_returncode = stats["new_record_returncode"]
             correct = stats["correct"]
-            #print("failed cost is {}, correct is {}, and effective cost is {}".format(failed_cost, correct, effective_cost))
-            #breakpoint()
+
             best_seq_returncode, best_cost_so_far = self._get_updated_rewrite_returncode(
                                                                             rewrite_cost = effective_cost,
                                                                             rewrite_failed = failed_cost,
@@ -495,35 +543,11 @@ class StokeCostManager:
             self.hash2metadata[h]["best_seq_returncode"] = best_seq_returncode
             self.hash2metadata[h]["best_cost_so_far"] = best_cost_so_far
 
-
-            if new_record_returncode == 3:
-                print(f"for {self.hash2metadata[h]['name']} the baseline was beat and verified")
-                print(f"the cost was {stats['cost']} whereas the reference was {self.hash2metadata[h]['reference_score']}")
-                print(f"the rolling baseline is now {self.hash2metadata[h]['rolling_baseline_cost']}", flush = True)
-                beat_baseline_str = f"Beat Baseline and verified, " \
-                                    f"where reference is {self.hash2metadata[h]['reference_score']}\n"
-                if h not in self.beat_baselines_hash_set:
-                    self.beat_baselines_hash_set.add(h)
-                    self.no_beat_baselines+=1
-            elif new_record_returncode in (1,2):
-                print(f"for {self.hash2metadata[h]['name']} the baseline was beat, but didn't verify")
-                print(f"the cost was {stats['cost']} whereas the reference was {self.hash2metadata[h]['reference_score']}")
-                print(f"the rolling baseline is still {self.hash2metadata[h]['rolling_baseline_cost']}", flush = True)
-                beat_baseline_str = f"Beat Baseline but didn't verify, " \
-                                    f"where reference is {self.hash2metadata[h]['reference_score']}\n"
-            else:
-                beat_baseline_str = ""
-
-
             # update the buffers
             self.trailing_stats_dict[h]["normalized_advantage"].append(normalized_advantage)
             self.trailing_stats_dict[h]["costs"].append(effective_cost)
             self.trailing_stats_dict[h]["failed_tunit"].append(failed_tunit)
             self.trailing_stats_dict[h]["failed_cost"].append(failed_cost)
-            self.trailing_stats_dict[h]["best_sequence_priority_queue"].append(effective_cost,
-                                                                               beat_baseline_str + hypothesis_string)
-            # update
-
 
             batch_cost += effective_cost
             pct_failures += failed_cost
@@ -620,6 +644,17 @@ class StokeCostManager:
             effective_cost = min(cost, self.max_score)
             # get trailing stats for advantage
             self.hash2metadata[h]["reference_score"] = effective_cost
+
+    def reset_trailing_stats_with_log(self, empty_advantages_stats: bool = True):
+
+        pbar = tqdm(total = len(self.trailing_stats_dict))
+        for h, trailing_stats in self.trailing_stats_dict.items():
+            for i in range(len(trailing_stats["costs"])):
+                trailing_stats["costs"][i] = np.log(trailing_stats["costs"][i])
+            if empty_advantages_stats:
+              trailing_stats["normalized_advantage"] = deque(maxlen=self.deque_max_len)
+            pbar.update()
+
 
 def get_stoke_cost(bpe_string: str,
                    container_name: str,

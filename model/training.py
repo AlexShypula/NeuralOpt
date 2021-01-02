@@ -170,6 +170,11 @@ class TrainManager:
         self.load_beat_baselines = train_config.get("load_beat_baselines", True)
         self.load_trailing_stats = train_config.get("load_trailing_stats", True)
         self.save_result_strings_every = train_config.get("save_result_strings_every", 10)
+        # RL reward engineering
+        self.not_beat_gcc_penalty = train_config.get("not_beat_gcc_penalty", 0) # if you have a re-write that beats GCC
+        self.log_returns = train_config.get("log_returns", False)
+        self.reset_trailing_stats_with_log = train_config.get("reset_trailing_stats_with_log", False)
+        self.normalize_grads_by_adv_stdev = train_config.get("normalize_grads_by_adv_stdev", False)
 
 
         # model
@@ -738,9 +743,7 @@ class TrainManager:
                 self.clip_grad_fun(params=self.model.parameters())
             adv_std = np.std(self.rl_adv_list)
             adv_std = adv_std if adv_std != 0 else self.max_score
-            for param in self.model.parameters():
-                if param.grad != None:
-                    param.grad.data/=adv_std
+            self.model.normalize_grads_by_factor(adv_std)
 
             # make gradient step
             self.optimizer.step()
@@ -881,6 +884,11 @@ class TrainManager:
             actor_data_prefixes = [self.shard_path + "_{}".format(i) for i in range(self.n_actors)]
         else:
             actor_data_prefixes = [self.train_path] * self.n_actors # use original data set
+
+        # if training with log returns but the loaded trailing stats didn't take log returns
+        if self.reset_trailing_stats_with_log:
+            self.cost_manager.reset_trailing_stats_with_log(empty_advantages_stats=True)
+
         #m = mp.Manager()
         global latest_model_id
         global model_lock
@@ -993,7 +1001,7 @@ class TrainManager:
         multi_batch_entropy = 0
         multi_batch_n_seqs = 0
         multi_batch_n_tokens = 0
-        multi_batch_advantage = 0
+        multi_batch_advantages = []
         multi_batch_costs = []
         multi_batch_failures = []
         multi_batch_corrects = []
@@ -1009,14 +1017,19 @@ class TrainManager:
             performance_timer.Model_Forward_Backward.start()
             self.model.train()
             if self.synchronized_al:
+                # save the outputs on every step in the update
+                # these will end up being the "samples that affect the update" as self.steps is updated after updating
+                save_result_strings = ((self.steps+1) % self.save_result_strings_every) == 0
                 src_inputs, traj_outputs, log_probs, advantages, costs, corrects, failed, src_lens, tgt_lens, \
                     result_strings = replay_buffer.synchronous_sample(
-                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager, step_no=mini_batch_no//self.batch_multiplier)
-                if ((mini_batch_no//self.batch_multiplier) % self.save_result_strings_every) == 0:
-                    train_output_fh.write("\n\n".join(result_strings))
+                    queue=trajectory_queue,max_size=self.batch_size, cost_manager=self.cost_manager,
+                    update_no=self.steps, save_result_strings=save_result_strings, train_output_fh=train_output_fh,
+                    not_beat_gcc_penalty=self.not_beat_gcc_penalty, log_returns=self.log_returns)
+                multi_batch_advantages.extend(advantages)
                 multi_batch_costs.extend(costs)
                 multi_batch_failures.extend(failed)
                 multi_batch_corrects.extend(corrects)
+
                 if self.train_on_best_seqs:
                     src_inputs, traj_outputs, log_probs, advantages, src_lens, tgt_lens = \
                         replay_buffer.sample_best_seqs(max_size=self.batch_size)
@@ -1058,15 +1071,23 @@ class TrainManager:
             multi_batch_entropy += (online_entropy.detach().cpu().item() / n_tokens)/self.batch_multiplier
             multi_batch_n_seqs += len(batch.src)
             multi_batch_n_tokens += n_tokens
-            multi_batch_advantage += torch.mean(advantages).item()/self.batch_multiplier
+            #multi_batch_advantage += torch.mean(advantages).item()/self.batch_multiplier
 
             performance_timer.Model_Forward_Backward.stop()
 
             if (mini_batch_no % self.batch_multiplier) == 0:
                 self.steps+=1
+
+                # TODO: Support / Refactor logging / calcuation in the case we sample from the short-term replay buffer
+                avg_advantage = np.mean(multi_batch_advantage)
+                advantage_stdev = np.std(multi_batch_advantage)
+                advantage_stdev = advantage_stdev if advantage_stdev != 0 else self.max_score
+
                 if self.clip_grad_fun is not None:
                     # clip gradients (in-place)
                     self.clip_grad_fun(params=self.model.parameters())
+                if self.normalize_grads_by_adv_stdev:
+                    self.model.normalize_grads_by_factor(advantage_stdev)
                 sizes = 0; norms = 0;
                 for name, parameter in self.model.named_parameters():
                     self.tb_writer.add_histogram(name, parameter.grad.data.cpu().numpy(), self.steps)
@@ -1103,6 +1124,7 @@ class TrainManager:
                     avg_not_failed_correct = np.sum(np.multiply(not_failed_arr, corrects_arr))/(np.sum(not_failed_arr)+1e-9)
                     avg_cost_below_max_cost = np.sum(np.multiply((costs_arr<self.max_score), costs_arr)) / (np.sum((costs_arr<self.max_score)) + 1e-9)
 
+
                     self.tb_writer.add_scalar("train/avg_not_failed_cost", avg_not_failed_cost, self.steps)
                     self.tb_writer.add_scalar("train/pct_correct_when_not_failed", avg_not_failed_correct, self.steps)
                     self.tb_writer.add_scalar("train/avg_cost_below_max_cost", avg_cost_below_max_cost, self.steps)
@@ -1126,7 +1148,7 @@ class TrainManager:
                 self.tb_writer.add_scalar("train/batch_loss", 
                                             multi_batch_loss, self.steps)
                 self.tb_writer.add_scalar("train/avg_advantage", 
-                                                multi_batch_advantage, self.steps)
+                                                avg_advantage, self.steps)
 
                 multi_batch_loss = 0
                 multi_batch_entropy = 0

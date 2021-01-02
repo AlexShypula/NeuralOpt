@@ -320,6 +320,11 @@ class Model(nn.Module):
 
         return stacked_output, stacked_attention_scores
 
+    def normalize_grads_by_factor(self, factor):
+        for param in self.model.parameters():
+            if param.grad != None:
+                param.grad.data /= factor
+
     def __repr__(self) -> str:
         """
         String representation: a description of encoder, decoder and embeddings

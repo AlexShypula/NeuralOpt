@@ -40,6 +40,7 @@ import matplotlib.pyplot as plt
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
 from typing import Union
+from _io import TextIOWrapper
 #from subproc import run
 # monkey patch
 
@@ -300,29 +301,39 @@ class BucketReplayBuffer:
             current_size=largest_seen_size*n_sampled
         return samples
 
-    def synchronous_sample(self, queue, max_size, cost_manager, step_no):
+    def synchronous_sample(self, queue, max_size, cost_manager, update_no: int, save_result_strings: bool,
+                           train_output_fh: TextIOWrapper, not_beat_gcc_penalty: int, log_returns: bool):
         samples = self._synchronous_get_sample_list(queue=queue, max_size=max_size)
+        stats_list = [sample["stats"] for sample in samples]
         # print("got the sample", flush = True)
         hashes = [sample["hash"] for sample in samples]
+        # first return value for the following is if it beat gcc, the other 2 are if it was a record and a descriptive string
+        is_beat_gcc_list = [cost_manager.is_beat_gcc_and_record(h, stats_dict)[0]
+                            for h, stats_dict in zip(hashes, stats_list)]
+
         src_inputs = [sample["src_input"] for sample in samples]
         traj_outputs = [sample["traj_output"] for sample in samples]
         log_probs = [sample["log_probs"] for sample in samples]
-        costs = [sample["stats"]["cost"] for sample in samples]
-        corrects = [sample["stats"]["correct"] for sample in samples]
-        failed = [sample["stats"]["failed_cost"] for sample in samples]
+        # if we do not beat GCC, then add a penalty for not beating (equivalent to incrementing everything
+        # by a constant and then creating bonus for beating GCC )
+        costs = [(stats_dict["cost"] + (not beat_gcc_bool)*not_beat_gcc_penalty) for stats_dict, beat_gcc_bool in
+                 zip(stats_list, is_beat_gcc_list)]
+        costs = [math.log(cost) for cost in costs] if log_returns else costs
+        corrects = [stats_dict["correct"] for stats_dict in stats_list]
+        failed = [stats_dict["failed_cost"] for stats_dict in stats_list]
         src_lens = [sample["src_len"] for sample in samples]
         tgt_lens = [sample["out_len"] for sample in samples]
         means, stdevs = zip(*(cost_manager.get_mean_stdv_cost(h) for h in hashes))
-        #means = [np.mean(means)] * len(means)
-        #stdevs = [np.mean(stdevs)] * len(stdevs)
+
         advantages = [(cost - mean)/stdev for cost, mean, stdev in zip(costs, means, stdevs)]
         names = [cost_manager.hash2metadata[h]["name"] for h in hashes]
-        ref_scores = [cost_manager.hash2metadata[h]["reference_score"] for h in hashes]
+        ref_scores = [cost_manager.hash2metadata[h]["low_benchmark"] for h in hashes]
 
         stats_list = []
         result_strings = []
-        for h, sample, name, cost, mean, stdev, advantage, ref_score, traj_out, traj_len in \
-                zip(hashes, samples, names, costs, means, stdevs, advantages, ref_scores, traj_outputs, tgt_lens):
+        for h, sample, name, cost, mean, stdev, advantage, ref_score, traj_out, traj_len, is_beat_gcc in \
+            zip(hashes, samples, names, costs, means, stdevs,
+                advantages, ref_scores, traj_outputs, tgt_lens, is_beat_gcc_list):
 
             stats = sample["stats"]
             stats["normalized_advantage"] = advantage
@@ -332,25 +343,25 @@ class BucketReplayBuffer:
                 if h not in self.hash2best_seq.keys():
                     print("hash was not in the the hash2best_seq dict\n hash is {}".format(h))
                     print("sampe is {}".format(sample))
-                elif cost < self.hash2best_seq[h]["cost"]:
+                elif is_beat_gcc and cost < self.hash2best_seq[h]["cost"]:
                     self.hash2best_seq[h]["cost"] = cost
                     self.hash2best_seq[h]["tgt"] = traj_out
                     self.hash2best_seq[h]["tgt_len"] = traj_len
             
-            if (step_no % 10) == 0: 
+            if save_result_strings:
                 src = sample["formatted_src"]
                 hyp = sample["formatted_hyp"]
                 stats_hyp = sample["stats"]["hypothesis_string"]
                 assert hyp == stats_hyp, "hyp in dict is {} and in stats is {}".format(hyp, stats_hyp)
                 fail = sample["stats"]["failed_cost"]
                 correct = sample["stats"]["correct"]
-                beat_baseline_str = "" if ref_score <= cost else "... Beat Baseline !!"
-                prefix_str = f"\n\n{'*'* 40}\n{'*'* 40}\n\nProgram: {name}, at step {str(step_no)}, cost is {str(cost)} " \
-                         f"and reference cost is {ref_score} {beat_baseline_str}\n\n" \
+                beat_baseline_str = "... Beat Baseline !!" if is_beat_gcc else ""
+                prefix_str = f"\n\n{'*'* 40}\n{'*'* 40}\n\nProgram: {name}, at update {str(update_no)}, " \
+                         f"cost is {str(cost)} and reference cost is {ref_score} {beat_baseline_str}\n\n" \
                          f"Program failed: {str(fail)}, program is correct: {str(correct)}, mean is {mean}, " \
                          f"stdev is {stdev}, and (cost - mean) / stdev is {advantage}\n\n"
                 #paste_str = paste(src, hyp)
-                result_strings.append(prefix_str + hyp)
+                train_output_fh.write(prefix_str + hyp + "\n\n")
 
         cost_manager.update_buffers(list(zip(hashes, stats_list)))
         #cost_manager.log_buffer_stats(hashes)
