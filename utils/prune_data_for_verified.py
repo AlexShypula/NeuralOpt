@@ -12,7 +12,7 @@ from argparse_dataclass import ArgumentParser
 
 @dataclass
 class ParseOptions:
-    path_to_data_files_dir: str = field(metadata=dict(args=["-path_to_data_dir", "-path_to_data_dir"]))
+    path_to_data_files_dir: str = field(metadata=dict(args=["-path_to_data_dir", "--path_to_data_dir"]))
     path_to_hash2metadata: str = field(metadata=dict(args=["-path_to_hash2metadata", "--path_to_hash2metadata"]))
     asm_path_prefix: str = field(metadata=dict(args=["-asm_path_prefix", "--asm_path_prefix"]))
     path_to_error_log: str = field(metadata=dict(args=["-path_to_error_log", "--path_to_error_log"]))
@@ -30,7 +30,7 @@ def main(path_to_data_files_dir: str, path_to_hash2metadata: str, in_file_prefix
     total_cts = len(open(join(path_to_data_files_dir, in_file_prefix + "." + src_file_suffix)).readlines())
     pbar = tqdm(total=total_cts)
     with open(join(path_to_data_files_dir, in_file_prefix + "." + src_file_suffix)) as src_in_fh, \
-            open(join(in_file_prefix, tgt_file_suffix)) as tgt_in_fh,  \
+            open(join(path_to_data_files_dir, in_file_prefix + "." + tgt_file_suffix)) as tgt_in_fh,  \
             open(path_to_error_log, "w+") as err_log_fh,  \
             open(join(path_to_data_files_dir, out_file_prefix + "." + src_file_suffix), "w+") as out_src_fh, \
             open(join(path_to_data_files_dir, out_file_prefix + "." + tgt_file_suffix), "w+") as out_tgt_fh:
@@ -41,10 +41,10 @@ def main(path_to_data_files_dir: str, path_to_hash2metadata: str, in_file_prefix
             target_f = join(asm_path_prefix, metadata["base_asbly_path"])
             rewrite_f = function_path_to_optimized_function(target_f, optimized_flag="Og")
             fun_dir = function_path_to_functions_folder(target_f)
-            def_in = metadata["def_in"]
-            live_out = metadata["live_out"]
-            heap_out = metadata["heap_out"]
-            costfn = metadata["costfn"]
+            def_in = metadata["cost_conf"]["def_in"]
+            live_out = metadata["cost_conf"]["live_out"]
+            heap_out = metadata["cost_conf"]["heap_out"]
+            costfn = metadata["cost_conf"]["costfn"]
             verifed_correct, verified_stdout = verify_and_parse(target_f=target_f,
                                                                 rewrite_f=rewrite_f,
                                                                 fun_dir=fun_dir,
@@ -87,17 +87,17 @@ def verify_rewrite(target_f: str,
                  '--machine_output', machine_output_f,
                  '--strategy', strategy,
                  '--functions', fun_dir,
-                 "--prune", "--live_dangerously"
-                 "--def_in", def_in
-                 "--live_out", live_out
+                 "--prune", "--live_dangerously",
+                 "--def_in", def_in,
+                 "--live_out", live_out,
                  "--distance", "hamming",
-                 "--misalign_penalty", 1
-                 "--sig_penalty", 9999,
+                 "--misalign_penalty", "1", 
+                 "--sig_penalty", "9999",
                  "--cost", costfn,
-                 "--bound", bound
+                 "--bound", str(bound), 
                  "--heap_out"],
                 stdout = subprocess.PIPE,stderr = subprocess.STDOUT,
-                text = True, timeout = 300)
+                text = True, timeout = 30)
         else:
             verify_test = subprocess.run(
                 ['/home/stoke/stoke/bin/stoke', 'debug', 'verify',
@@ -106,16 +106,16 @@ def verify_rewrite(target_f: str,
                  '--machine_output', machine_output_f,
                  '--strategy', strategy,
                  '--functions', fun_dir,
-                 "--prune", "--live_dangerously"
-                 "--def_in", def_in
-                 "--live_out", live_out
+                 "--prune", "--live_dangerously",
+                 "--def_in", def_in,
+                 "--live_out", live_out,
                  "--distance", "hamming",
-                 "--misalign_penalty", 1
-                 "--sig_penalty", 9999,
+                 "--misalign_penalty", "1",
+                 "--sig_penalty", "9999",
                  "--cost", costfn,
-                 "--bound", bound],
+                 "--bound", str(bound)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, timeout=300)
+                text=True, timeout=30)
         return verify_test.returncode, verify_test.stdout
     except subprocess.TimeoutExpired as err:
         return -1, f"verify timed out with error {err}"
@@ -135,6 +135,7 @@ def verify_and_parse(target_f: str,
                         live_out: str,
                         heap_out: bool,
                         costfn: str,
+                        bound: int = 64, 
                         machine_output_f: str = "tmp.txt",
                         strategy: str = "bounded"):
 
@@ -145,6 +146,7 @@ def verify_and_parse(target_f: str,
                                         live_out=live_out,
                                         heap_out=heap_out,
                                         costfn=costfn,
+                                        bound=bound,
                                         machine_output_f=machine_output_f,
                                         strategy=strategy)
     if verify_returncode == 0:
@@ -159,4 +161,4 @@ if __name__ == "__main__":
     parser = ArgumentParser(ParseOptions)
     print(parser.parse_args())
     args = parser.parse_args()
-    main(**args)
+    main(**vars(args))
