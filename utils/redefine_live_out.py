@@ -375,13 +375,13 @@ def _tc_gen_symbolic_and_test_cost(row, path_to_disassembly_dir, new_tc_dir, bou
         os.mkdir(tc_dir)
     #tc_destination_path = join(tc_dir, f"{function_name}.tc")
 
-    tc_gen_proc = _stoke_tcgen_symbolic_exec(path_to_function, tc_destination_path, fun_dir, def_in,
-                                            live_out, max_tcs, bound, timeout)
+    tc_gen_proc_returncode, tc_gen_proc_stdout = _stoke_tcgen_symbolic_exec(path_to_function, tc_destination_path,
+                                                                fun_dir, def_in, live_out, max_tcs, bound, timeout)
 
-    row[f"{new_tc_dir}_stdout"] = tc_gen_proc.stdout
-    row[f"{new_tc_dir}_success"] = True if tc_gen_proc.returncode == 0 else False
+    row[f"{new_tc_dir}_stdout"] = tc_gen_proc_stdout
+    row[f"{new_tc_dir}_success"] = True if tc_gen_proc_returncode == 0 else False
 
-    if tc_gen_proc.returncode == 0:
+    if tc_gen_proc_returncode == 0:
         row[new_tc_dir] = tc_destination_path
 
         def_in_register_list = register_list_from_string(row["def_in"], REGISTER_LIST_REGEX)
@@ -413,21 +413,25 @@ def _tc_gen_symbolic_and_test_cost(row, path_to_disassembly_dir, new_tc_dir, bou
         row["unopt_correctness"] = "testcases unavailable"
         
 
-    return row, tc_gen_proc.returncode
+    return row, tc_gen_proc_returncode
 
 
 def _stoke_tcgen_symbolic_exec(path_to_function: str, tc_destination_path: str, fun_dir: str, def_in: str, live_out: str,
                                max_tcs: int, bound: int, timeout: int):
 
-    completed_process = subprocess.run(['stoke_tcgen', '--target', path_to_function, "--output", tc_destination_path,
-                            '--functions', fun_dir, '--prune', '--max_tcs', str(max_tcs), '--bound', str(bound),
-                            '--def_in', def_in, '--live_out', live_out, '--live_dangerously'],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT,
-                            text=True,
-                            timeout=timeout)
+    try:
 
-    return completed_process
+        completed_process = subprocess.run(['stoke_tcgen', '--target', path_to_function, "--output", tc_destination_path,
+                                '--functions', fun_dir, '--prune', '--max_tcs', str(max_tcs), '--bound', str(bound),
+                                '--def_in', def_in, '--live_out', live_out, '--live_dangerously'],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                text=True,
+                                timeout=timeout)
+        return completed_process.returncode, completed_process.stdout
+
+    except subprocess.TimeoutExpired as err:
+        return -42, err
 
 
 def is_spurious_program(path_to_spurious_dir, spurious_program_list,
