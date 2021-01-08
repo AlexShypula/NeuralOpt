@@ -299,6 +299,7 @@ def _redefine_live_out_indiv(row: pd.Series, live_out_register_list: List[str], 
         row["opt_unopt_correctness"] = "error occurred"
         row["def_in"] = register_list_to_register_string(def_in_register_list)
         row["live_out"] = register_list_to_register_string(live_out_register_list)
+        row["diff_str"] = diff_stdout
         return row
 
 
