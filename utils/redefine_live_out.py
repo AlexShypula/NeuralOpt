@@ -1,13 +1,15 @@
 import subprocess
 import re
 import pandas as pd
+import numpy as np
 from copy import copy, deepcopy
-from make_data import function_path_to_optimized_function, function_path_to_testcases, function_path_to_functions_folder
+from make_data import function_path_to_optimized_function, function_path_to_testcases, function_path_to_functions_folder,\
+    remove_first_n_dirs
 from typing import List
 from stoke_test_costfn import COST_SEARCH_REGEX, CORRECT_SEARCH_REGEX
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
-from os.path import join
+from os.path import join, splitext, basename
 from tqdm import tqdm
 from multiprocessing import Pool
 from registers import DEF_IN_REGISTER_LIST, LIVE_OUT_REGISTER_LIST, REGISTER_TO_STDOUT_REGISTER, \
@@ -27,6 +29,10 @@ class ParseOptions:
     n_workers: int = field(metadata=dict(args=["-n_workers", "--n_workers"]), default = 1)
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default=False)
     timeout: int = field(metadata=dict(args=["-timeout", "--timeout"]), default=600)
+    make_new_testcases: bool = field(metadata=dict(args=["-make_new_testcases", "--make_new_testcases"]), default=False)
+    new_tc_dir: str = field(metadata=dict(args=["-new_tc_dir", "--new_tc_dir"]), default=None)
+    bound: int = field(metadata=dict(args=["-tc_bound", "--tc_bound"]), default=8)
+    max_tcs: int = field(metadata=dict(args=["-max_tcs", "--max_tcs"]), default=256)
 
 
 ANSI_REGEX = re.compile(r'\x1b(\[.*?[@-~]|\].*?(\x07|\x1b\\))')
@@ -163,15 +169,17 @@ def redefine_live_out_df_wrapper(args):
 
 def _redefine_live_out_indiv(row: pd.Series, live_out_register_list: List[str], def_in_register_list: List[str],
                         path_to_spurious_dir: str, spurious_program_list: List[str],
-                        path_to_disassembly_dir: str, optimized_flag: str, debug: bool, timeout: int):
+                        path_to_disassembly_dir: str, optimized_flag: str, debug: bool, timeout: int,
+                        tc_directory: str = "testcases"):
 
-    path_to_function = join(path_to_disassembly_dir, row["path_to_function"])
+    path_to_function = remove_first_n_dirs(row["path_to_function"], 1)
+    path_to_function = join(path_to_disassembly_dir, path_to_function)
 
     functions_dir = function_path_to_functions_folder(path=path_to_function)
     path_to_optimized_function = function_path_to_optimized_function(path=path_to_function,
                                                                      optimized_flag=optimized_flag)
 
-    path_to_testcases = function_path_to_testcases(path=path_to_function, tc_folder="testcases")
+    path_to_testcases = function_path_to_testcases(path=path_to_function, tc_folder=tc_directory)
     # iteratively re-define live-out
     diff_rc, diff_stdout, live_out_register_list = stoke_diff_get_live_out_v2(def_in_register_list=def_in_register_list,
                                                                               live_out_register_list=live_out_register_list,
@@ -294,32 +302,117 @@ def _redefine_live_out_indiv(row: pd.Series, live_out_register_list: List[str], 
         return row
 
 
-
 def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, path_to_spurious_dir, spurious_program_list,
-                         optimized_flag = "Og", position: int = 0, debug: bool = False, timeout: int = 600):
+                         optimized_flag = "Og", position: int = 0, debug: bool = False, timeout: int = 600,
+                         make_new_testcases: bool = False, new_tc_dir: str = None, bound: int = None,
+                         max_tcs: int = None):
     new_rows = []
     pbar = tqdm(total = len(df), position = position)
     for i, row in df.iterrows():
         if row["unopt_unopt_correctness"] == "yes":
-            row = _redefine_live_out_indiv(row=row, live_out_register_list=copy(LIVE_OUT_REGISTER_LIST),
-                        def_in_register_list=copy(DEF_IN_REGISTER_LIST), path_to_spurious_dir=path_to_spurious_dir,
-                        spurious_program_list=spurious_program_list, path_to_disassembly_dir=path_to_disassembly_dir,
-                        optimized_flag=optimized_flag, debug=debug, timeout=timeout)
-            if row["opt_unopt_correctness"] == "no":
-                row = _redefine_live_out_indiv(row=row, live_out_register_list=copy(AMD64_ABI_REGISTERS_W_FP),
-                        def_in_register_list=copy(DEF_IN_REGISTER_LIST), path_to_spurious_dir=path_to_spurious_dir,
-                        spurious_program_list=spurious_program_list, path_to_disassembly_dir=path_to_disassembly_dir,
-                        optimized_flag=optimized_flag, debug=debug, timeout=timeout)
-                if row["opt_unopt_correctness"] == "no":
-                    row = _redefine_live_out_indiv(row=row, live_out_register_list=copy(AMD64_ABI_REGISTERS),
+            if make_new_testcases:
+                assert new_tc_dir, "need to specify testcase dir"
+                assert new_tc_dir != "testcases" , "need to specify new testcase dir name that is not 'testcases'"
+                row, tc_gen_proc_rc = _tc_gen_symbolic_and_test_cost(row, path_to_disassembly_dir, new_tc_dir,
+                                                                     bound, max_tcs, timeout)
+                live_out_register_list = register_list_from_string(row["live_out"])
+                tc_dir = new_tc_dir
+            else:
+                live_out_register_list = copy(LIVE_OUT_REGISTER_LIST)
+                tc_dir = "testcases"
+            if not make_new_testcases or tc_gen_proc_rc == 0 :
+                row = _redefine_live_out_indiv(row=row, live_out_register_list=live_out_register_list,
                             def_in_register_list=copy(DEF_IN_REGISTER_LIST), path_to_spurious_dir=path_to_spurious_dir,
                             spurious_program_list=spurious_program_list, path_to_disassembly_dir=path_to_disassembly_dir,
-                            optimized_flag=optimized_flag, debug=debug, timeout=timeout)
+                            optimized_flag=optimized_flag, debug=debug, timeout=timeout, tc_directory=tc_dir)
+                if row["opt_unopt_correctness"] == "no":
+                    row = _redefine_live_out_indiv(row=row, live_out_register_list=copy(AMD64_ABI_REGISTERS_W_FP),
+                            def_in_register_list=copy(DEF_IN_REGISTER_LIST), path_to_spurious_dir=path_to_spurious_dir,
+                            spurious_program_list=spurious_program_list, path_to_disassembly_dir=path_to_disassembly_dir,
+                            optimized_flag=optimized_flag, debug=debug, timeout=timeout, tc_directory=tc_dir)
+                    if row["opt_unopt_correctness"] == "no":
+                        row = _redefine_live_out_indiv(row=row, live_out_register_list=copy(AMD64_ABI_REGISTERS),
+                                def_in_register_list=copy(DEF_IN_REGISTER_LIST), path_to_spurious_dir=path_to_spurious_dir,
+                                spurious_program_list=spurious_program_list, path_to_disassembly_dir=path_to_disassembly_dir,
+                                optimized_flag=optimized_flag, debug=debug, timeout=timeout, tc_directory=tc_dir)
         new_rows.append(row.to_dict())
         pbar.update()
 
     df_out = pd.DataFrame(new_rows)
     return df_out
+
+
+REGISTER_LIST_REGEX = re.compile("(?<=({))[^}]+")
+
+
+def register_list_from_string(register_list_string: str, pattern):
+    match = pattern.search(register_list_string)
+    registers = match.strip().split()
+    return registers
+
+
+def _tc_gen_symbolic_and_test_cost(row, path_to_disassembly_dir, new_tc_dir, bound, max_tcs, timeout):
+
+    def_in = row["def_in"]
+    live_out = row["live_out"]
+
+    path_to_function = join(path_to_disassembly_dir, row["path_to_function"])
+    fun_dir = function_path_to_functions_folder(path=new_tc_dir)
+
+    function_basename = basename(path_to_function)
+    function_name, _ = splitext(function_basename)
+
+    tc_destination_path = join(path_to_function, f"{function_name}.tc")
+
+    tc_gen_proc = _stoke_tcgen_symbolic_exec(path_to_function, tc_destination_path, fun_dir, def_in,
+                                            live_out, max_tcs, bound, timeout)
+
+    row[f"{row[new_tc_dir]}_stdout"] = tc_gen_proc.stdout
+    row[f"{row[new_tc_dir]}_success"] = True if tc_gen_proc.returncode == 0 else False
+
+    if tc_gen_proc.returncode == 0:
+        row[new_tc_dir] = tc_destination_path
+
+        def_in_register_list = register_list_from_string(row["def_in"], REGISTER_LIST_REGEX)
+        live_out_register_list = register_list_from_string(row["live_out"], REGISTER_LIST_REGEX)
+
+        stack_out = row["stack_out"]
+        heap_out = row["heap_out"]
+
+        # temporairly assert no stack out
+        assert not stack_out
+
+        cost_test_rc, cost_test_stdout, cost, correct = test_costfn(target_f=path_to_function,
+                                                                    rewrite_f=path_to_function,
+                                                                    testcases_f=tc_destination_path,
+                                                                    fun_dir=fun_dir,
+                                                                    def_in_refister_list=def_in_register_list,
+                                                                    live_out_register_list=live_out_register_list,
+                                                                    stack_out=stack_out,
+                                                                    heap_out=heap_out,
+                                                                    live_dangerously=True)
+        assert correct == "yes"
+
+    else:
+        row[f"{row[new_tc_dir]}_success"] = True
+        row["unopt_unopt_cost"] = np.nan
+
+    return row, tc_gen_proc.returncode
+
+
+def _stoke_tcgen_symbolic_exec(path_to_function: str, tc_destination_path: str, fun_dir: str, def_in: str, live_out: str,
+                               max_tcs: int, bound: int, timeout: int):
+
+    completed_process = subprocess.run(['stoke_tcgen', '--target', path_to_function, "--output", tc_destination_path,
+                            '--functions', fun_dir, '--prune', '--max_tcs', str(max_tcs), '--bound', str(bound),
+                            '--def_in', def_in, '--live_out', live_out, '--live_dangerously'],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            timeout=timeout)
+
+    return completed_process
+
 
 def is_spurious_program(path_to_spurious_dir, spurious_program_list,
                          path_to_function, path_to_testcases, functions_dir,
@@ -396,6 +489,9 @@ if __name__ == "__main__":
     parser = ArgumentParser(ParseOptions)
     print(parser.parse_args())
     args = parser.parse_args()
+    if args.make_new_testcases:
+        assert args.new_tc_dir, "if you're creating new testcases, you need to specify the directory to save them"
+
     df_in = pd.read_csv(args.path_to_stats_df)
     df_in = df_in[df_in["unopt_unopt_correctness"] == "yes"].reindex()
 
@@ -410,7 +506,11 @@ if __name__ == "__main__":
                          "path_to_spurious_dir": args.path_to_spurious_dir,
                          "spurious_program_list": args.spurious_progs.split(":") if args.spurious_progs else None,
                          "optimized_flag": args.optimized_flag,
-                         "position": (i%args.n_workers)+1})
+                         "position": (i%args.n_workers)+1,
+                         "make_new_testcases": args.make_new_testcases,
+                         "new_tc_dir": args.new_tc_dir,
+                         "bound": args.bound,
+                         "max_tcs": args.max_tcs})
         out_dfs = []
         pbar = tqdm(total=len(df_in), position=0, desc="all workers progress bar")
         for df in Pool(args.n_workers).imap(redefine_live_out_df_wrapper, jobs):
