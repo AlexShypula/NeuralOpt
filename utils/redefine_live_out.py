@@ -30,7 +30,7 @@ class ParseOptions:
     n_workers: int = field(metadata=dict(args=["-n_workers", "--n_workers"]), default = 1)
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default=False)
     timeout: int = field(metadata=dict(args=["-timeout", "--timeout"]), default=600)
-    make_new_testcases: bool = field(metadata=dict(args=["-make_new_testcases", "--make_new_testcases"]), default=Falqse)
+    make_new_testcases: bool = field(metadata=dict(args=["-make_new_testcases", "--make_new_testcases"]), default=False)
     new_tc_dir: str = field(metadata=dict(args=["-new_tc_dir", "--new_tc_dir"]), default=None)
     bound: int = field(metadata=dict(args=["-tc_bound", "--tc_bound"]), default=8)
     max_tcs: int = field(metadata=dict(args=["-max_tcs", "--max_tcs"]), default=256)
@@ -317,7 +317,7 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, path_to
                 assert new_tc_dir != "testcases" , "need to specify new testcase dir name that is not 'testcases'"
                 row, tc_gen_proc_rc = _tc_gen_symbolic_and_test_cost(row, path_to_disassembly_dir, new_tc_dir,
                                                                      bound, max_tcs, timeout)
-                live_out_register_list = register_list_from_string(row["live_out"])
+                live_out_register_list = register_list_from_string(row["live_out"], REGISTER_LIST_REGEX)
                 tc_dir = new_tc_dir
             else:
                 live_out_register_list = copy(LIVE_OUT_REGISTER_LIST)
@@ -349,7 +349,7 @@ REGISTER_LIST_REGEX = re.compile("(?<=({))[^}]+")
 
 def register_list_from_string(register_list_string: str, pattern):
     match = pattern.search(register_list_string)
-    registers = match.strip().split()
+    registers = match.group().strip().split()
     return registers
 
 
@@ -358,22 +358,28 @@ def _tc_gen_symbolic_and_test_cost(row, path_to_disassembly_dir, new_tc_dir, bou
     def_in = row["def_in"]
     live_out = row["live_out"]
 
-    path_to_function = join(path_to_disassembly_dir, row["path_to_function"])
+    path_to_function = remove_first_n_dirs(row["path_to_function"], 1)
+    path_to_function = join(path_to_disassembly_dir, path_to_function)
     fun_dir = function_path_to_functions_folder(path=path_to_function)
+    if not os.path.exists(path_to_function): 
+        row[f"{new_tc_dir}_stdout"] = "failed, because the path_to_function didn't exist"
+        row[f"{new_tc_dir}_success"] = False
+        return row, -42
 
     function_basename = basename(path_to_function)
     function_name, _ = splitext(function_basename)
 
-    tc_dir = join(path_to_function, new_tc_dir)
+    tc_destination_path = function_path_to_testcases(path=path_to_function,  tc_folder=new_tc_dir)
+    tc_dir = os.path.dirname(tc_destination_path)
     if not os.path.exists(tc_dir):
         os.mkdir(tc_dir)
-    tc_destination_path = join(tc_dir, f"{function_name}.tc")
+    #tc_destination_path = join(tc_dir, f"{function_name}.tc")
 
     tc_gen_proc = _stoke_tcgen_symbolic_exec(path_to_function, tc_destination_path, fun_dir, def_in,
                                             live_out, max_tcs, bound, timeout)
 
-    row[f"{row[new_tc_dir]}_stdout"] = tc_gen_proc.stdout
-    row[f"{row[new_tc_dir]}_success"] = True if tc_gen_proc.returncode == 0 else False
+    row[f"{new_tc_dir}_stdout"] = tc_gen_proc.stdout
+    row[f"{new_tc_dir}_success"] = True if tc_gen_proc.returncode == 0 else False
 
     if tc_gen_proc.returncode == 0:
         row[new_tc_dir] = tc_destination_path
@@ -391,16 +397,21 @@ def _tc_gen_symbolic_and_test_cost(row, path_to_disassembly_dir, new_tc_dir, bou
                                                                     rewrite_f=path_to_function,
                                                                     testcases_f=tc_destination_path,
                                                                     fun_dir=fun_dir,
-                                                                    def_in_refister_list=def_in_register_list,
+                                                                    def_in_register_list=def_in_register_list,
                                                                     live_out_register_list=live_out_register_list,
                                                                     stack_out=stack_out,
                                                                     heap_out=heap_out,
                                                                     live_dangerously=True)
-        assert correct == "yes"
+        #assert correct == "yes"
+        row["unopt_unopt_cost"] = float(cost)
+        row["unopt_correctness"] = correct
+        row["unopt_second_cost_str"] = cost_test_stdout
 
     else:
         row[f"{row[new_tc_dir]}_success"] = True
         row["unopt_unopt_cost"] = np.nan
+        row["unopt_correctness"] = "testcases unavailable"
+        
 
     return row, tc_gen_proc.returncode
 
@@ -499,6 +510,7 @@ if __name__ == "__main__":
 
     df_in = pd.read_csv(args.path_to_stats_df)
     df_in = df_in[df_in["unopt_unopt_correctness"] == "yes"].reindex()
+    df_in = df_in[:5000]
 
     if not args.debug:
         n_splits = 128
