@@ -30,7 +30,7 @@ class ParseOptions:
     n_workers: int = field(metadata=dict(args=["-n_workers", "--n_workers"]), default = 1)
     debug: bool = field(metadata=dict(args=["-d", "--debug"]), default=False)
     timeout: int = field(metadata=dict(args=["-timeout", "--timeout"]), default=600)
-    make_new_testcases: bool = field(metadata=dict(args=["-make_new_testcases", "--make_new_testcases"]), default=False)
+    make_new_testcases: bool = field(metadata=dict(args=["-make_new_testcases", "--make_new_testcases"]), default=Falqse)
     new_tc_dir: str = field(metadata=dict(args=["-new_tc_dir", "--new_tc_dir"]), default=None)
     bound: int = field(metadata=dict(args=["-tc_bound", "--tc_bound"]), default=8)
     max_tcs: int = field(metadata=dict(args=["-max_tcs", "--max_tcs"]), default=256)
@@ -530,7 +530,11 @@ if __name__ == "__main__":
                                       spurious_program_list=args.spurious_progs.split(":") if args.spurious_progs else None,
                                       optimized_flag=args.optimized_flag,
                                       debug=True,
-                                      timeout=args.timeout)
+                                      timeout=args.timeout,
+                                      make_new_testcases=args.make_new_testcases,
+                                      new_tc_dir=args.new_tc_dir,
+                                      bound=args.bound,
+                                      max_tcs=args.max_tcs)
 
     df_out.to_csv(args.path_to_out_stats_df)
 
