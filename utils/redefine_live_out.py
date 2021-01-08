@@ -1,6 +1,7 @@
 import subprocess
 import re
 import pandas as pd
+import os
 import numpy as np
 from copy import copy, deepcopy
 from make_data import function_path_to_optimized_function, function_path_to_testcases, function_path_to_functions_folder,\
@@ -358,12 +359,15 @@ def _tc_gen_symbolic_and_test_cost(row, path_to_disassembly_dir, new_tc_dir, bou
     live_out = row["live_out"]
 
     path_to_function = join(path_to_disassembly_dir, row["path_to_function"])
-    fun_dir = function_path_to_functions_folder(path=new_tc_dir)
+    fun_dir = function_path_to_functions_folder(path=path_to_function)
 
     function_basename = basename(path_to_function)
     function_name, _ = splitext(function_basename)
 
-    tc_destination_path = join(path_to_function, f"{function_name}.tc")
+    tc_dir = join(path_to_function, new_tc_dir)
+    if not os.path.exists(tc_dir):
+        os.mkdir(tc_dir)
+    tc_destination_path = join(tc_dir, f"{function_name}.tc")
 
     tc_gen_proc = _stoke_tcgen_symbolic_exec(path_to_function, tc_destination_path, fun_dir, def_in,
                                             live_out, max_tcs, bound, timeout)
