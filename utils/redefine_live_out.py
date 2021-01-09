@@ -391,7 +391,7 @@ def _tc_gen_symbolic_and_test_cost(row, path_to_disassembly_dir, new_tc_dir, bou
         heap_out = row["heap_out"]
 
         # temporairly assert no stack out
-        assert not stack_out
+        stack_out = False
 
         cost_test_rc, cost_test_stdout, cost, correct = test_costfn(target_f=path_to_function,
                                                                     rewrite_f=path_to_function,
@@ -408,7 +408,7 @@ def _tc_gen_symbolic_and_test_cost(row, path_to_disassembly_dir, new_tc_dir, bou
         row["unopt_second_cost_str"] = cost_test_stdout
 
     else:
-        row[f"{row[new_tc_dir]}_success"] = True
+        #row[f"{new_tc_dir}_success"] = False
         row["unopt_unopt_cost"] = np.nan
         row["unopt_correctness"] = "testcases unavailable"
         
@@ -427,7 +427,8 @@ def _stoke_tcgen_symbolic_exec(path_to_function: str, tc_destination_path: str, 
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT,
                                 text=True,
-                                timeout=timeout)
+                                timeout=timeout, 
+                                errors='ignore',)
         return completed_process.returncode, completed_process.stdout
 
     except subprocess.TimeoutExpired as err:
@@ -514,7 +515,6 @@ if __name__ == "__main__":
 
     df_in = pd.read_csv(args.path_to_stats_df)
     df_in = df_in[df_in["unopt_unopt_correctness"] == "yes"].reindex()
-    df_in = df_in[:5000]
 
     if not args.debug:
         n_splits = 128
