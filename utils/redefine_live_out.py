@@ -312,6 +312,8 @@ def redefine_live_out_df(path_to_disassembly_dir: str, df: pd.DataFrame, path_to
     pbar = tqdm(total = len(df), position = position)
     for i, row in df.iterrows():
         if row["unopt_unopt_correctness"] == "yes":
+            row["old_unopt_cost"] = row["unopt_unopt_cost"]
+            row["old_opt_cost"] = row["opt_unopt_cost"]
             if make_new_testcases:
                 assert new_tc_dir, "need to specify testcase dir"
                 assert new_tc_dir != "testcases" , "need to specify new testcase dir name that is not 'testcases'"
@@ -518,8 +520,10 @@ if __name__ == "__main__":
 
     if not args.debug:
         n_splits = 128
-        df_length = int(len(df_in) / n_splits)
-        frames = [df_in.iloc[i * df_length :(i + 1) * df_length].copy() for i in range(n_splits + 1)]
+        df_length = int(len(df_in) / 128) + 1
+        n_splits = len(df_in) // df_length
+        frames = [df_in.iloc[i * df_length :(i + 1) * df_length].copy() for i in range(n_splits)]
+        frames.append(df_in[n_splits*df_length:])
         jobs = []
         for i, frame in enumerate(frames):
             jobs.append({"path_to_disassembly_dir": args.path_to_disassembly_dir,
