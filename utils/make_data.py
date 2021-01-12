@@ -205,7 +205,7 @@ def make_data(path_to_destination_data: str, path_to_source_data: str,
         if in_train:
             train_src.write(unopt_asbly + "\n")
             train_tgt.write(opt_asbly + "\n")
-        elif in_train:
+        elif in_dev:
             val_src.write(unopt_asbly + "\n")
             val_tgt.write(opt_asbly + "\n")
         else:
