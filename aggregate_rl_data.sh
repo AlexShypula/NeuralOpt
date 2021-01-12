@@ -8,21 +8,25 @@ PATH_TO_SPM_MODEL=""
 PATH_TO_TRAIN_PATHS=""
 PATH_TO_DEV_PATHS=""
 PATH_TO_TEST_PATHS=""
+TC_DIR_NAME="testcases"
+REMOVE_FIRST_N_DIRS_IN_PATH=0
 
-if [ ! -d PATH_TO_DEST ]
-then
-  mkdir PATH_TO_DEST
-fi
 
-if [ ! -d "${PATH_TO_DEST}/disassembly" ]
-then
-  mkdir "${PATH_TO_DEST}/disassembly"
-fi
+#if [ ! -d PATH_TO_DEST ]
+#then
+#  mkdir PATH_TO_DEST
+#fi
+#
+#if [ ! -d "${PATH_TO_DEST}/disassembly" ]
+#then
+#  mkdir "${PATH_TO_DEST}/disassembly"
+#fi
+#
+#if [ ! -d "${PATH_TO_DEST}/model_data" ]
+#then
+#  mkdir "${PATH_TO_DEST}/disassembly"
+#fi
 
-if [ ! -d "${PATH_TO_DEST}/model_data" ]
-then
-  mkdir "${PATH_TO_DEST}/disassembly"
-fi
 
 python3 utils/make_data.py --path_to_destination_data "${PATH_TO_DEST}/disassembly"\
   --path_to_source_data $PATH_TO_DISASSEMBLY_DIR \
@@ -31,9 +35,13 @@ python3 utils/make_data.py --path_to_destination_data "${PATH_TO_DEST}/disassemb
   --path_to_spm_model $PATH_TO_SPM_MODEL \
   --path_to_train_paths $PATH_TO_TRAIN_PATHS \
   --path_to_dev_paths $PATH_TO_DEV_PATHS \
-  --oath_to_test_paths $PATH_TO_TEST_PATHS \
+  --path_to_test_paths $PATH_TO_TEST_PATHS \
+  --tc_dir_name $TC_DIR_NAME \
   -n_threads 16 \
-  --optimize_flag "Og"
+  --optimize_flag "Og" \
+  --remove_first_n_dirs $REMOVE_FIRST_N_DIRS_IN_PATH
+
+# --copy_data_to_dest
 
 
 ### Explanation of parameters
