@@ -25,6 +25,7 @@ class ParseOptions:
     path_to_test_list: str = field(metadata=dict(args=["-test_paths", "--path_to_test_paths"]))
     copy_data_to_dest: bool = field(metadata=dict(args=["-copy_data_to_dest", "--copy_data_to_dest"]), default=False)
     path_to_destination_data: str = field(metadata=dict(args=["-dest", "--path_to_destination_data"]), default=None)
+    tc_dir_name: bool = field(metadata=dict(args=["-tc_dir_name", "--tc_dir_name"]), default="testcases")
     n_threads: int = field(metadata=dict(args=["-n_threads"]), default=16)
     optimized_flag: str = field(metadata=dict(args=["-optim_flag", "--optimize_flag"]), default="Og")
     remove_first_n_dirs_in_path: int = field(metadata=dict(args=["-remove_n_dirs", "--remove_first_n_dirs"]), default=0)
@@ -84,7 +85,8 @@ def replace_first_n_dirs(path: str, path_to_destination_directory: str, n_dirs_t
 
 
 def individual_make_data(path_to_destination_data: str, path_to_source_data: str, dataframe_row: pd.core.series.Series,
-                        copy_data_to_dest: bool, sent_piece_model: spm.SentencePieceProcessor, optimized_flag: str,
+                        copy_data_to_dest: bool, sent_piece_model: spm.SentencePieceProcessor,
+                         optimized_flag: str, tc_dir_name: str = "testcases",
                          ):
 
     data_path_to_function = dataframe_row["path_to_function"]
@@ -97,7 +99,7 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
     data_path_to_optimized_function = function_path_to_optimized_function(data_path_to_function,
                                                                           optimized_flag=optimized_flag)
     data_path_to_function_folder = function_path_to_functions_folder(data_path_to_function)
-    data_path_to_testcases = function_path_to_testcases(data_path_to_function)
+    data_path_to_testcases = function_path_to_testcases(data_path_to_function, tc_folder=tc_dir_name)
     unique_name = function_path_to_unique_name(data_path_to_function)
 
     if copy_data_to_dest:
@@ -117,6 +119,12 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
         mkdir(dirname(destination_path_to_testcases))
         shutil.copy2(join(path_to_source_data, data_path_to_optimized_function), destination_path_to_optimized_function)
         shutil.copy2(join(path_to_source_data, data_path_to_testcases), destination_path_to_testcases)
+
+    # this is a hackey way to evolve the code; in the last lines we make the metadata dict based on destination path to
+    # function and testcases, so we need to define those variables here
+    else:
+        destination_path_to_function = data_path_to_function
+        destination_path_to_testcases = data_path_to_testcases
 
     with open(join(path_to_source_data, data_path_to_function), "r") as f:
         raw_asbly = f.read()
@@ -162,12 +170,13 @@ def individual_make_data_wrapper(arg_dict):
 def make_data(path_to_destination_data: str, path_to_source_data: str,
               stats_dataframe: pd.DataFrame, path_to_model_data: str, sent_piece_model: spm.SentencePieceProcessor,
               train_paths: Set[str], dev_paths: Set[str], test_paths: Set[str], optimized_flag: str,
-              copy_data_to_dest: bool = False, n_threads: int = 16, remove_first_n_dirs_in_path: int = 0, **kwargs):
+              tc_dir_name: str = "testcases", copy_data_to_dest: bool = False, n_threads: int = 16,
+              remove_first_n_dirs_in_path: int = 0, **kwargs):
     jobs = []
     for _, row in stats_dataframe.iterrows():
         arg_dict = {"path_to_destination_data": path_to_destination_data,
                     "path_to_source_data": path_to_source_data, "copy_data_to_dest": copy_data_to_dest,
-                    "dataframe_row": row, "sent_piece_model": sent_piece_model,
+                    "tc_dir_name": tc_dir_name, "dataframe_row": row, "sent_piece_model": sent_piece_model,
                     "optimized_flag": optimized_flag}
         jobs.append(arg_dict)
 
