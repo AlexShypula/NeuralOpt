@@ -16,7 +16,6 @@ from typing import Set
 
 @dataclass
 class ParseOptions:
-    path_to_destination_data: str = field(metadata=dict(args=["-dest", "--path_to_destination_data"]))
     path_to_source_data: str = field(metadata=dict(args=["-src", "--path_to_source_data"]))
     path_to_stats_csv: str = field(metadata=dict(args=["-stats_csv", "--path_to_stats_csv"]))
     path_to_model_data: str = field(metadata=dict(args=["-model_data_path", "--path_to_model_data"]))
@@ -24,6 +23,8 @@ class ParseOptions:
     path_to_train_list: str = field(metadata=dict(args=["-train_paths", "--path_to_train_paths"]))
     path_to_dev_list: str = field(metadata=dict(args=["-dev_paths", "--path_to_dev_paths"]))
     path_to_test_list: str = field(metadata=dict(args=["-test_paths", "--path_to_test_paths"]))
+    copy_data_to_dest: bool = field(metadata=dict(args=["-copy_data_to_dest", "--copy_data_to_dest"]), default=False)
+    path_to_destination_data: str = field(metadata=dict(args=["-dest", "--path_to_destination_data"]), default=None)
     n_threads: int = field(metadata=dict(args=["-n_threads"]), default=16)
     optimized_flag: str = field(metadata=dict(args=["-optim_flag", "--optimize_flag"]), default="Og")
     remove_first_n_dirs_in_path: int = field(metadata=dict(args=["-remove_n_dirs", "--remove_first_n_dirs"]), default=0)
@@ -83,7 +84,7 @@ def replace_first_n_dirs(path: str, path_to_destination_directory: str, n_dirs_t
 
 
 def individual_make_data(path_to_destination_data: str, path_to_source_data: str, dataframe_row: pd.core.series.Series,
-                         sent_piece_model: spm.SentencePieceProcessor, optimized_flag: str,
+                        copy_data_to_dest: bool, sent_piece_model: spm.SentencePieceProcessor, optimized_flag: str,
                          ):
 
     data_path_to_function = dataframe_row["path_to_function"]
@@ -99,24 +100,23 @@ def individual_make_data(path_to_destination_data: str, path_to_source_data: str
     data_path_to_testcases = function_path_to_testcases(data_path_to_function)
     unique_name = function_path_to_unique_name(data_path_to_function)
 
-    destination_path_to_function = replace_first_n_dirs(data_path_to_function, path_to_destination_data,
+    if copy_data_to_dest:
+        destination_path_to_function = replace_first_n_dirs(data_path_to_function, path_to_destination_data,
                                                         n_dirs_to_remove=1)
-
-    destination_path_to_optimized_function = replace_first_n_dirs(data_path_to_optimized_function,
-                                                                  path_to_destination_data, n_dirs_to_remove=1)
-    destination_path_to_function_folder = replace_first_n_dirs(data_path_to_function_folder,
-                                                               path_to_destination_data, n_dirs_to_remove=1)
-    destination_path_to_testcases = replace_first_n_dirs(data_path_to_testcases, path_to_destination_data,
-                                                         n_dirs_to_remove=1)
-
-    if not os.path.exists(destination_path_to_function):
-        shutil.copytree(join(path_to_source_data, data_path_to_function_folder), destination_path_to_function_folder)
-    else:
-        assert os.path.exists(destination_path_to_function)
-    mkdir(dirname(destination_path_to_optimized_function))
-    mkdir(dirname(destination_path_to_testcases))
-    shutil.copy2(join(path_to_source_data, data_path_to_optimized_function), destination_path_to_optimized_function)
-    shutil.copy2(join(path_to_source_data, data_path_to_testcases), destination_path_to_testcases)
+        destination_path_to_optimized_function = replace_first_n_dirs(data_path_to_optimized_function,
+                                                                      path_to_destination_data, n_dirs_to_remove=1)
+        destination_path_to_function_folder = replace_first_n_dirs(data_path_to_function_folder,
+                                                                   path_to_destination_data, n_dirs_to_remove=1)
+        destination_path_to_testcases = replace_first_n_dirs(data_path_to_testcases, path_to_destination_data,
+                                                             n_dirs_to_remove=1)
+        if not os.path.exists(destination_path_to_function):
+            shutil.copytree(join(path_to_source_data, data_path_to_function_folder), destination_path_to_function_folder)
+        else:
+            assert os.path.exists(destination_path_to_function)
+        mkdir(dirname(destination_path_to_optimized_function))
+        mkdir(dirname(destination_path_to_testcases))
+        shutil.copy2(join(path_to_source_data, data_path_to_optimized_function), destination_path_to_optimized_function)
+        shutil.copy2(join(path_to_source_data, data_path_to_testcases), destination_path_to_testcases)
 
     with open(join(path_to_source_data, data_path_to_function), "r") as f:
         raw_asbly = f.read()
@@ -162,11 +162,11 @@ def individual_make_data_wrapper(arg_dict):
 def make_data(path_to_destination_data: str, path_to_source_data: str,
               stats_dataframe: pd.DataFrame, path_to_model_data: str, sent_piece_model: spm.SentencePieceProcessor,
               train_paths: Set[str], dev_paths: Set[str], test_paths: Set[str], optimized_flag: str,
-              n_threads: int = 16, remove_first_n_dirs_in_path: int = 0, **kwargs):
+              copy_data_to_dest: bool = False, n_threads: int = 16, remove_first_n_dirs_in_path: int = 0, **kwargs):
     jobs = []
     for _, row in stats_dataframe.iterrows():
         arg_dict = {"path_to_destination_data": path_to_destination_data,
-                    "path_to_source_data": path_to_source_data,
+                    "path_to_source_data": path_to_source_data, "copy_data_to_dest": copy_data_to_dest,
                     "dataframe_row": row, "sent_piece_model": sent_piece_model,
                     "optimized_flag": optimized_flag}
         jobs.append(arg_dict)
