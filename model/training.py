@@ -1079,8 +1079,8 @@ class TrainManager:
                 self.steps+=1
 
                 # TODO: Support / Refactor logging / calcuation in the case we sample from the short-term replay buffer
-                avg_advantage = np.mean(multi_batch_advantage)
-                advantage_stdev = np.std(multi_batch_advantage)
+                avg_advantage = np.mean(multi_batch_advantages)
+                advantage_stdev = np.std(multi_batch_advantages)
                 advantage_stdev = advantage_stdev if advantage_stdev != 0 else self.max_score
 
                 if self.clip_grad_fun is not None:
