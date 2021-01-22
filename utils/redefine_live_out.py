@@ -517,6 +517,7 @@ if __name__ == "__main__":
 
     df_in = pd.read_csv(args.path_to_stats_df)
     df_in = df_in[df_in["unopt_unopt_correctness"] == "yes"].reindex()
+    df_in = df_in
 
     if not args.debug:
         n_splits = 128
@@ -555,6 +556,5 @@ if __name__ == "__main__":
                                       new_tc_dir=args.new_tc_dir,
                                       bound=args.bound,
                                       max_tcs=args.max_tcs)
-
     df_out.to_csv(args.path_to_out_stats_df)
 
