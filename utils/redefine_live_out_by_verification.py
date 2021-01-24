@@ -22,7 +22,7 @@ from stoke_test_costfn import StopWatch
 
 DIFF_REGEX = re.compile("(?<=(Difference of running target and rewrite on the counterexample:))[\s\S]*")
 LIVE_OUT_FLAGS_REGEX = re.compile("|".join(["({})".format(r) for r in LIVE_OUT_FLAGS_SET]))
-
+NO_CTR_EXAMPLE_AVAIL = re.compile("No counterexample available")
 
 @dataclass
 class ParseOptions:
@@ -208,6 +208,16 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
                                                                            )
 
     if verified_correct or verify_returncode != 0:
+        if debug: 
+            print("target file is {} and current depth is".format(target_f, depth_of_testing))
+            print("verified is: {}".format(verified_correct)) 
+            print("def_in_register_list: " + " ".join(def_in_register_list)) 
+            print("live out register list: " + " ".join(live_out_register_list))
+            print("orig live_out_register_list: " + " ".join(def_in_register_list))
+            print("diff std out cleaned" + diff_str if diff_str else "no diff avail" )
+            print("verified std out is:\n" + verify_stdout, flush=True) 
+       
+ 
         return verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, depth_of_testing
 
     else:
@@ -215,6 +225,8 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
         new_live_out_register_list = []
         for register in live_out_register_list:
             register_stdout_code = REGISTER_TO_STDOUT_REGISTER[register]
+            if type(diff_str) != str: 
+                breakpoint()
             findall_string = "(?<=(?:{}))[^\n]+".format(register_stdout_code)
             findall_result = re.findall(findall_string, diff_str)
             has_diff_registers |= (findall_result != [])
