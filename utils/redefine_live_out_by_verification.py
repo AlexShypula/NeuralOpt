@@ -283,16 +283,16 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
     else:
         # we only test on this branch if it previously verified correct while we had heap_out set to false
         # this will let us know if we can be more conservative and enable memory or not
-        heap_out = True
+        new_heap_out = True
         def_in_str = register_list_to_register_string(def_in_register_list)
         live_out_str = register_list_to_register_string(live_out_register_list)
-        verify_returncode, verified_correct, verify_stdout, diff_str = \
+        new_verify_returncode, new_verified_correct, new_verify_stdout, new_diff_str = \
             verify_and_parse_with_diff(target_f=target_f,
                                        rewrite_f=rewrite_f,
                                        fun_dir=fun_dir,
                                        def_in=def_in_str,
                                        live_out=live_out_str,
-                                       heap_out=heap_out,
+                                       heap_out=new_heap_out,
                                        costfn=cost_fn,
                                        bound=bound,
                                        machine_output_f=machine_output_f,
@@ -300,6 +300,13 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
                                        strategy=strategy,
                                        timeout=timeout, 
                                        )
+        if new_verified_correct:
+            heap_out = new_heap_out
+            verify_returncode = new_verify_returncode
+            verified_correct = new_verified_correct
+            verify_stdout = new_verify_stdout
+            diff_str = new_diff_str
+
         os.remove(machine_output_f)
         return verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, heap_out, depth_of_testing
 
