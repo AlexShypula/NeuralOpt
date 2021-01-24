@@ -26,27 +26,30 @@ LIVE_OUT_FLAGS_REGEX = re.compile("|".join(["({})".format(r) for r in LIVE_OUT_F
 
 @dataclass
 class ParseOptions:
+    path_to_disassembly_dir: str = field(metadata=dict(args=["--path_to_disassembly_dir"]))
     path_to_input_dataframe: str = field(metadata=dict(args=["--path_to_input_dataframe"]))
     path_to_output_dataframe: str = field(metadata=dict(args=["--path_to_output_dataframe"]))
     aliasing_strategy: str = field(metadata=dict(args=["--aliasing_strategy"]), default="basic")
-    bound: int = field(metadata=dict(args=["--bound"), default=2)
-    verification_timeout: int = field(metadata=dict(args=["--verification_timeout"), default=60)
-    cost_timeout: int = field(metadata=dict(args=["--cost_timeout"), default=300)
+    bound: int = field(metadata=dict(args=["--bound"]), default=2)
+    verification_timeout: int = field(metadata=dict(args=["--verification_timeout"]), default=60)
+    cost_timeout: int = field(metadata=dict(args=["--cost_timeout"]), default=300)
     n_threads: int = field(metadata=dict(args=["--n_threads"]), default = 8)
     debug: bool = field(metadata=dict(args=["--debug"]), default = False)
     testcases_dir: str = field(metadata=dict(args=["--testcases_dir"]), default="testcases")
+    depth_of_testing: int = field(metadata=dict(args=["--depth_of_testing"]), default = 8)
+   
 
 
 def main(path_to_input_dataframe: str, path_to_output_dataframe: str, n_threads: int, path_to_disassembly_dir: str,
          bound: int, aliasing_strategy: str, verification_timeout: int, cost_timeout: int,  debug: bool = False,
-         **kwargs):
+         depth_of_testing: int = 5, **kwargs):
 
     in_df = pd.read_csv(path_to_input_dataframe)
     jobs = []
-    for i, row in in_df.iterrows()
+    for i, row in in_df.iterrows():
         jobs.append({"row": row, "path_to_disassembly_dir": path_to_disassembly_dir, "job_id": i, "bound": bound,
                      "debug": debug, "aliasing_strategy": aliasing_strategy, "verification_timeout": verification_timeout,
-                     "cost_timeout": cost_timeout})
+                     "cost_timeout": cost_timeout, "depth_of_testing": depth_of_testing})
 
     pbar = tqdm(total=len(jobs))
 
@@ -80,6 +83,7 @@ def verify_rewrite(target_f: str,
                 aliasing_strategy: str = "basic",
                 strategy: str = "bounded",
                 timeout: int = 60) -> (int, str):
+    breakpoint()
     try:
         if heap_out:
             verify_test = subprocess.run(
@@ -190,9 +194,9 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
                                                                            rewrite_f=rewrite_f,
                                                                            fun_dir=fun_dir,
                                                                            def_in=def_in_str,
-                                                                           live_out_str=live_out_str,
+                                                                           live_out=live_out_str,
                                                                            heap_out=heap_out,
-                                                                           cost_fn=cost_fn,
+                                                                           costfn=cost_fn,
                                                                            bound=bound,
                                                                            machine_output_f=machine_output_f,
                                                                            aliasing_strategy=aliasing_strategy,
@@ -262,7 +266,7 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
                                            machine_output_f: str, live_out_str: str, cost_fn: str,
                                            bound: int, depth_of_testing: int, aliasing_strategy: str = "basic",
                                            strategy="bounded", live_dangerously: bool = True, debug: bool = False,
-                                           verification_timeout: int = 60):
+                                           timeout: int = 60):
 
     def_in_register_list = register_list_from_regex(def_in_str, REGISTER_LIST_REGEX)
     live_out_register_list = register_list_from_regex(live_out_str, REGISTER_LIST_REGEX)
@@ -271,7 +275,7 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
     verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, depth_of_testing =  \
         _stoke_redefine_regs_verification(def_in_register_list, live_out_register_list, target_f, rewrite_f, fun_dir,
                                           heap_out, cost_fn, machine_output_f, depth_of_testing, aliasing_strategy,
-                                          strategy, bound, live_dangerously, debug, verification_timeout)
+                                          strategy, bound, live_dangerously, debug, timeout)
 
     if verify_returncode != 0 or not verified_correct:
         return verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, heap_out, depth_of_testing
@@ -287,14 +291,14 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
                                        rewrite_f=rewrite_f,
                                        fun_dir=fun_dir,
                                        def_in=def_in_str,
-                                       live_out_str=live_out_str,
+                                       live_out=live_out_str,
                                        heap_out=heap_out,
-                                       cost_fn=cost_fn,
+                                       costfn=cost_fn,
                                        bound=bound,
                                        machine_output_f=machine_output_f,
                                        aliasing_strategy=aliasing_strategy,
                                        strategy=strategy,
-                                       timeout=verification_timeout
+                                       timeout=timeout, 
                                        )
         os.remove(machine_output_f)
         return verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, heap_out, depth_of_testing
@@ -302,7 +306,7 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
 
 def _process_training_example_with_redefine_verify(row: pd.Series, path_to_disassembly_dir: str, job_id: int, bound: int,
                                                    aliasing_strategy: str, debug: bool, testcases_dir: str = "testcases",
-                                                   verification_timeout: int = 60, cost_timeout: int = 300):
+                                                   verification_timeout: int = 60, cost_timeout: int = 300, depth_of_testing: int = 5):
 
     performance_timer = StopWatch()
     performance_timer.start()
@@ -317,13 +321,13 @@ def _process_training_example_with_redefine_verify(row: pd.Series, path_to_disas
 
     def_in = row["def_in"]
     live_out = row["live_out"]
-    costfn = row["costfn"]
+    costfn = "100*corectness+measured+latency" # row["costfn"]
     performance_timer.validation_time.start()
     verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, heap_out, depth_of_testing = \
         _stoke_redefine_live_out_verification(target_f=target_f,
                                                rewrite_f=rewrite_f,
                                                fun_dir=fun_dir,
-                                               def_in=def_in,
+                                               def_in_str=def_in,
                                                live_out_str=live_out,
                                                cost_fn=costfn,
                                                bound=bound,
@@ -332,6 +336,7 @@ def _process_training_example_with_redefine_verify(row: pd.Series, path_to_disas
                                                strategy="bounded",
                                                debug=debug,
                                                timeout=verification_timeout,
+                                               depth_of_testing = depth_of_testing
                                                )
     performance_timer.validation_time.stop()
     row["live_out"] = register_list_to_register_string(live_out_register_list)
@@ -369,4 +374,4 @@ if __name__ == "__main__":
     parser = ArgumentParser(ParseOptions)
     print(parser.parse_args())
     args = parser.parse_args()
-    main(**args)
+    main(**vars(args))
