@@ -22,7 +22,6 @@ from stoke_test_costfn import StopWatch
 
 DIFF_REGEX = re.compile("(?<=(Difference of running target and rewrite on the counterexample:))[\s\S]*")
 LIVE_OUT_FLAGS_REGEX = re.compile("|".join(["({})".format(r) for r in LIVE_OUT_FLAGS_SET]))
-NO_CTR_EXAMPLE_AVAIL = re.compile("No counterexample available")
 
 @dataclass
 class ParseOptions:
@@ -135,7 +134,8 @@ def parse_verify_machine_output(machine_output_f: str) -> bool:
     with open(machine_output_f) as fh:
         machine_output_dict = json.load(fh)
     verified_correct = machine_output_dict["verified"]
-    return verified_correct
+    counter_example_avail = machine_output_dict["counter_examples_available"]
+    return verified_correct, counter_example_avail
 
 
 def verify_and_parse(target_f: str,
@@ -164,24 +164,24 @@ def verify_and_parse(target_f: str,
                                         strategy=strategy,
                                         timeout=timeout)
     if verify_returncode == 0:
-        verified_correct = parse_verify_machine_output(machine_output_f)
+        verified_correct, counter_examples_avail = parse_verify_machine_output(machine_output_f)
     else:
         verified_correct = False
+        counter_examples_avail = False
 
-    return verify_returncode, verified_correct, clean_ansi_color_codes(verify_stdout)
+    return verify_returncode, verified_correct, counter_examples_avail, clean_ansi_color_codes(verify_stdout)
 
 
 def verify_and_parse_with_diff(**kwargs):
 
-    verify_returncode, verified_correct, verify_stdout = verify_and_parse(**kwargs)
+    verify_returncode, verified_correct, counter_examples_avail, verify_stdout = verify_and_parse(**kwargs)
 
     diff_str = None
-    if not verified_correct:
+    if not verified_correct and counter_examples_avail:
         if m := DIFF_REGEX.search(verify_stdout):
             diff_str = m.group()
 
-    return verify_returncode, verified_correct, verify_stdout, diff_str
-
+    return verify_returncode, verified_correct, counter_examples_avail, verify_stdout, diff_str
 
 def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_register_list: List[str],
                                target_f: str, rewrite_f: str, fun_dir: str, heap_out: bool,
@@ -193,7 +193,7 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
     def_in_str = register_list_to_register_string(def_in_register_list)
     live_out_str = register_list_to_register_string(live_out_register_list)
 
-    verify_returncode, verified_correct, verify_stdout, diff_str = verify_and_parse_with_diff(target_f=target_f,
+    verify_returncode, verified_correct, counter_examples_avail, verify_stdout, diff_str = verify_and_parse_with_diff(target_f=target_f,
                                                                            rewrite_f=rewrite_f,
                                                                            fun_dir=fun_dir,
                                                                            def_in=def_in_str,
@@ -207,10 +207,12 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
                                                                            timeout=timeout
                                                                            )
 
-    if verified_correct or verify_returncode != 0:
+    if verified_correct or verify_returncode != 0 or not counter_examples_avail:
         if debug: 
             print("target file is {} and current depth is".format(target_f, depth_of_testing))
-            print("verified is: {}".format(verified_correct)) 
+            print("verified is: {}".format(verified_correct))
+            print("verified rc: {}".format(verify_returncode))
+            print("counter example avail: {}".format(counter_examples_avail))
             print("def_in_register_list: " + " ".join(def_in_register_list)) 
             print("live out register list: " + " ".join(live_out_register_list))
             print("orig live_out_register_list: " + " ".join(def_in_register_list))
