@@ -182,7 +182,7 @@ def verify_and_parse_with_diff(**kwargs):
 
 
 def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_register_list: List[str],
-                               target_f: str, rewrite_f: str, testcases_f: str, fun_dir: str, heap_out: bool,
+                               target_f: str, rewrite_f: str, fun_dir: str, heap_out: bool,
                                cost_fn: str, machine_output_f: str, depth_of_testing: int, aliasing_strategy: str = "basic",
                                strategy: str = "bounded", bound: int = 64, live_dangerously: bool = False,
                                debug: bool = False, timeout: int = 60):
@@ -244,7 +244,7 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
         # recursivley call to try again with a new set of live_out
         if has_diff_registers and ((depth_of_testing := depth_of_testing-1) != 0):
             return _stoke_redefine_regs_verification(def_in_register_list, new_live_out_register_list,
-                           target_f, rewrite_f, testcases_f, fun_dir, heap_out,
+                           target_f, rewrite_f, fun_dir, heap_out,
                            cost_fn, machine_output_f, depth_of_testing, aliasing_strategy, strategy,
                            bound, live_dangerously, debug, timeout)
 
