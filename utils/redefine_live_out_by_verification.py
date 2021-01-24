@@ -54,17 +54,19 @@ def main(path_to_input_dataframe: str, path_to_output_dataframe: str, n_threads:
     pbar = tqdm(total=len(jobs))
 
     out_df_list = []
-    n_verified = []
+    n_verified = 0
     if not debug:
         for row in ThreadPool(n_threads).imap_unordered(_process_training_example_with_redefine_verify_wrapper, jobs):
-            n_verified+=(row["unopt_opt_correctness"] == "yes")
+            n_verified+=row["verified_correct"]
             out_df_list.append(row)
             pbar.set_description("verifying all assembly progress, {} have verified".format(n_verified))
+            pbar.update()
     else:
         for row in map(_process_training_example_with_redefine_verify_wrapper, jobs):
-            n_verified+=(row["unopt_opt_correctness"] == "yes")
+            n_verified+=row["verified_correct"]
             out_df_list.append(row)
             pbar.set_description("verifying all assembly progress, {} have verified".format(n_verified))
+            pbar.update()
     print("a total of {} of {} verified for {:2f}% percent".format(n_verified, len(in_df), n_verified/len(in_df)))
 
     out_df = pd.concat(out_df_list, axis=0)
@@ -83,7 +85,7 @@ def verify_rewrite(target_f: str,
                 aliasing_strategy: str = "basic",
                 strategy: str = "bounded",
                 timeout: int = 60) -> (int, str):
-    breakpoint()
+
     try:
         if heap_out:
             verify_test = subprocess.run(
@@ -92,7 +94,7 @@ def verify_rewrite(target_f: str,
                  '--rewrite', rewrite_f,
                  '--machine_output', machine_output_f,
                  '--strategy', strategy,
-                 '--aliasing_strategy', aliasing_strategy,
+                 '--alias_strategy', aliasing_strategy,
                  '--functions', fun_dir,
                  "--prune", "--live_dangerously",
                  "--def_in", def_in,
@@ -112,7 +114,7 @@ def verify_rewrite(target_f: str,
                  '--rewrite', rewrite_f,
                  '--machine_output', machine_output_f,
                  '--strategy', strategy,
-                 '--aliasing_strategy', aliasing_strategy,
+                 '--alias_strategy', aliasing_strategy,
                  '--functions', fun_dir,
                  "--prune", "--live_dangerously",
                  "--def_in", def_in,
@@ -175,7 +177,7 @@ def verify_and_parse_with_diff(**kwargs):
 
     diff_str = None
     if not verified_correct:
-        if m := DIFF_REGEX.search():
+        if m := DIFF_REGEX.search(verify_stdout):
             diff_str = m.group()
 
     return verify_returncode, verified_correct, verify_stdout, diff_str
@@ -186,6 +188,7 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
                                cost_fn: str, machine_output_f: str, depth_of_testing: int, aliasing_strategy: str = "basic",
                                strategy: str = "bounded", bound: int = 64, live_dangerously: bool = False,
                                debug: bool = False, timeout: int = 60):
+    #breakpoint()
 
     def_in_str = register_list_to_register_string(def_in_register_list)
     live_out_str = register_list_to_register_string(live_out_register_list)
@@ -234,7 +237,7 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
             print("orig live_out_register_list: " + " ".join(def_in_register_list))
             print("diff std out cleaned" + diff_str)
             print("verified is: {}".format(verified_correct))
-            print("new_live_out_list: " + " ".join(new_live_out_register_list))
+            print("new_live_out_list: " + " ".join(new_live_out_register_list), flush=True)
 
         # if any flags are in the diff, remove all flags (i.e. don't test FLAGS register)
         if LIVE_OUT_FLAGS_REGEX.search(diff_str):
