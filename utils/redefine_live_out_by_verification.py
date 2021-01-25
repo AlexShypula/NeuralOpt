@@ -303,7 +303,7 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
         new_heap_out = True
         def_in_str = register_list_to_register_string(def_in_register_list)
         live_out_str = register_list_to_register_string(live_out_register_list)
-        new_verify_returncode, new_verified_correct, new_verify_stdout, new_diff_str = \
+        new_verify_returncode, new_verified_correct, counter_examples_avail, new_verify_stdout, new_diff_str = \
             verify_and_parse_with_diff(target_f=target_f,
                                        rewrite_f=rewrite_f,
                                        fun_dir=fun_dir,
