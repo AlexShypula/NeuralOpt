@@ -6,19 +6,34 @@ from utils import STOKE_TRAINING_SET_REGEX
 #from multiprocessing.pool import ThreadPool
 from concurrent.futures import ThreadPoolExecutor
 from os.path import join, dirname
+import warnings
+
 
 NEW_TESTCASE_BEGINNING_INDEX = 2000
 
 class StokePipeline:
     def __init__(self,  n_workers: int, max_cost: int, verification_strategy: str, path_to_volume: str,
-                    volume_path_to_data: str, volume_path_to_tmp: str):
+                    volume_path_to_data: str, volume_path_to_tmp: str, alias_strategy: str = None,
+                    bound: int = None, cost_timeout: int = 100, verfication_timeout: int = 300):
 
         self.n_workers = n_workers
         self.max_cost = max_cost
+        assert verification_strategy in ("hold_out", "boudned", "ddec"), "unsupported verification_strategy"
+        if verification_strategy == "ddec":
+            warnings.warn("Warning: data driven equivalence checking in STOKE is experimental and reported to be buggy")
         self.verification_strategy = verification_strategy
         self.path_to_volume = path_to_volume
         self.volume_path_to_data = volume_path_to_data
         self.volume_path_to_tmp = volume_path_to_tmp
+        self.cost_timeout = cost_timeout
+        self.verification_timeout = verification_timeout
+
+        if self.verification_strategy == "bounded":
+            assert type(bound) == int and bound > 0, "if using a formal validator, you'll need to specify the bound"
+            assert alias_strategy in ("basic","string", "string_antialias","flat"), "if using a formal validator you"\
+                                                        "must specify the aliasing strategy. Basic is recommended"
+        self.bound = bound
+        self.alias_strategy = alias_strategy
 
         self.pool = ThreadPoolExecutor(self.n_workers)
 
@@ -99,7 +114,8 @@ class StokePipeline:
                                                             container_abs_path_to_testcases=container_abs_path_to_testcases,
                                                             assembly_name=metadata["name"],
                                                             cost_conf=metadata["cost_conf"],
-                                                            max_cost=self.max_cost)
+                                                            max_cost=self.max_cost,
+                                                            timeout=self.cost_timeout)
 
 
         effective_cost = min(cost, self.max_cost)
@@ -113,8 +129,6 @@ class StokePipeline:
             machine_output_filename = rewrite_id + ".verify"
             container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
 
-            next_index = metadata.get("new_testcase_index", NEW_TESTCASE_BEGINNING_INDEX) #TODO: INITIALIZE IN NeuralOpt/model/loss.py
-
             is_verified_correct, counter_examples_available = verify_and_rewrite_testcase(
                 container_path_to_target = container_abs_path_to_target,
                 container_path_to_rewrite = container_abs_path_asbly_rewrite,
@@ -122,9 +136,11 @@ class StokePipeline:
                 container_path_to_functions = container_abs_path_to_functions,
                 container_path_to_machine_output = container_abs_path_machine_output,
                 settings_conf = metadata["cost_conf"],
-                new_testcase_idx = next_index,
                 strategy = self.verification_strategy,
-                live_dangerously = True)
+                alias_strategy = self.alias_strategy,
+                bound = self.bound,
+                timeout = self.verification_timeout
+                )
 
             if is_verified_correct:
                 print(f"Beat baseline for {metadata['name']} with cost: {effective_cost}, and verified correct",
@@ -132,12 +148,12 @@ class StokePipeline:
                 beat_baseline_returncode = 3
 
             elif counter_examples_available:
-                print(f"New testcases added for {metadata['name']} at index {next_index}", flush=True)
+                print(f"New testcases added for {metadata['name']} ", flush=True)
                 # inserts in, because the regular expression is simply a lookahead
                 # whitespace is necessary following the number here for the STOKE argument parser
-                metadata["cost_conf"]["training_set"] = STOKE_TRAINING_SET_REGEX.sub(
-                    str(next_index) + " ", metadata["cost_conf"]["training_set"])
-                metadata["new_testcase_index"] = next_index + 1
+#                 metadata["cost_conf"]["training_set"] = STOKE_TRAINING_SET_REGEX.sub(
+#                     str(next_index) + " ", metadata["cost_conf"]["training_set"])
+#                 metadata["new_testcase_index"] = next_index + 1
                 is_correct = False
                 beat_baseline_returncode = 2
 
@@ -169,14 +185,15 @@ def get_stoke_cost(hypothesis_string: str,
                    container_abs_path_to_testcases: str,
                    assembly_name: str,
                    cost_conf: Dict,
-                   max_cost = 9999) -> (float, bool, bool):
+                   max_cost: int = 9999,
+                   timout: int = 100) -> (float, bool, bool):
 
     with open(os.open(container_abs_path_raw_rewrite, os.O_CREAT | os.O_WRONLY, 0o777), "w+") as fh: # allows full permissions
         fh.write(hypothesis_string)
     tunit_rc, tunit_stdout = make_tunit_file(in_f=container_abs_path_raw_rewrite,
                                              out_f=container_abs_path_asbly_rewrite,
                                              fun_dir=container_abs_path_to_functions,
-                                             live_dangerously=True)
+                                             timeout=timeout)
 
     if tunit_rc == 0:
 
@@ -186,7 +203,7 @@ def get_stoke_cost(hypothesis_string: str,
             testcases_f=container_abs_path_to_testcases,
             fun_dir=container_abs_path_to_functions,
             settings_conf=cost_conf,
-            live_dangerously=True)
+            timeout=timeout)
 
     tunit_failed = False if tunit_rc == 0 else True
     cost_failed = False if tunit_rc == 0 and cost_rc == 0 else True
