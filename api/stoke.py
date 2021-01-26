@@ -18,7 +18,7 @@ class StokePipeline:
 
         self.n_workers = n_workers
         self.max_cost = max_cost
-        assert verification_strategy in ("hold_out", "boudned", "ddec"), "unsupported verification_strategy"
+        assert verification_strategy in ("hold_out", "bounded", "ddec"), "unsupported verification_strategy"
         if verification_strategy == "ddec":
             warnings.warn("Warning: data driven equivalence checking in STOKE is experimental and reported to be buggy")
         self.verification_strategy = verification_strategy
@@ -129,6 +129,7 @@ class StokePipeline:
             machine_output_filename = rewrite_id + ".verify"
             container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
 
+
             is_verified_correct, counter_examples_available = verify_and_rewrite_testcase(
                 container_path_to_target = container_abs_path_to_target,
                 container_path_to_rewrite = container_abs_path_asbly_rewrite,
@@ -186,7 +187,7 @@ def get_stoke_cost(hypothesis_string: str,
                    assembly_name: str,
                    cost_conf: Dict,
                    max_cost: int = 9999,
-                   timout: int = 100) -> (float, bool, bool):
+                   timeout: int = 100) -> (float, bool, bool):
 
     with open(os.open(container_abs_path_raw_rewrite, os.O_CREAT | os.O_WRONLY, 0o777), "w+") as fh: # allows full permissions
         fh.write(hypothesis_string)
