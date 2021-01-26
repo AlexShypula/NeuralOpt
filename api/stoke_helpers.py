@@ -231,7 +231,7 @@ def verify_and_rewrite_testcase(container_path_to_target: str,
             add_counterexample_to_testcases(counterexample_str=counterexample_str,
                                             path_to_testcases=container_path_to_testcases)
     else:
-        is_verified_correct = False
+        verified_correct = False
         counter_examples_available = False
 
-    return is_verified_correct, counter_examples_available
+    return verified_correct, counter_examples_available
