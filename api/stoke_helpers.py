@@ -107,7 +107,7 @@ def verify_rewrite(target_f: str,
                      "--def_in", settings_conf["def_in"],
                      "--live_out", settings_conf["live_out"],
                      "--distance", settings_conf["distance"],
-                     "--misalign_penalty", str(settings_conf["misalign_penalty"])
+                     "--misalign_penalty", str(settings_conf["misalign_penalty"]), 
                      "--sig_penalty", settings_conf["sig_penalty"],
                      "--cost", settings_conf["costfn"],
                      "--bound", str(bound),
@@ -133,6 +133,8 @@ def verify_rewrite(target_f: str,
                      "--sig_penalty", settings_conf["sig_penalty"],
                      "--cost", settings_conf["costfn"],
                      "--heap_out"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, timeout=timeout)
         # if not using the heap / testing the heap
         else:
             if strategy in ("bounded", "ddec"):
@@ -148,7 +150,7 @@ def verify_rewrite(target_f: str,
                      "--def_in", settings_conf["def_in"],
                      "--live_out", settings_conf["live_out"],
                      "--distance", settings_conf["distance"],
-                     "--misalign_penalty", str(settings_conf["misalign_penalty"])
+                     "--misalign_penalty", str(settings_conf["misalign_penalty"]), 
                      "--sig_penalty", settings_conf["sig_penalty"],
                      "--cost", settings_conf["costfn"],
                      "--bound", str(bound)],
@@ -172,6 +174,8 @@ def verify_rewrite(target_f: str,
                      "--misalign_penalty", str(settings_conf["misalign_penalty"]),
                      "--sig_penalty", settings_conf["sig_penalty"],
                      "--cost", settings_conf["costfn"]],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, timeout=timeout)
         return verify_test.returncode, verify_test.stdout
     except subprocess.TimeoutExpired as err:
         return -1, f"verify timed out with error {err}"

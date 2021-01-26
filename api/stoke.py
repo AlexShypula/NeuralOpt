@@ -14,7 +14,7 @@ NEW_TESTCASE_BEGINNING_INDEX = 2000
 class StokePipeline:
     def __init__(self,  n_workers: int, max_cost: int, verification_strategy: str, path_to_volume: str,
                     volume_path_to_data: str, volume_path_to_tmp: str, alias_strategy: str = None,
-                    bound: int = None, cost_timeout: int = 100, verfication_timeout: int = 300):
+                    bound: int = None, cost_timeout: int = 100, verification_timeout: int = 300):
 
         self.n_workers = n_workers
         self.max_cost = max_cost
