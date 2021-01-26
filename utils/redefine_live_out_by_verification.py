@@ -57,18 +57,17 @@ def main(path_to_input_dataframe: str, path_to_output_dataframe: str, n_threads:
     if not debug:
         for row in ThreadPool(n_threads).imap_unordered(_process_training_example_with_redefine_verify_wrapper, jobs):
             n_verified+=row["verified_correct"]
-            out_df_list.append(row)
+            out_df_list.append(row.to_dict())
             pbar.set_description("verifying all assembly progress, {} have verified".format(n_verified))
             pbar.update()
     else:
         for row in map(_process_training_example_with_redefine_verify_wrapper, jobs):
             n_verified+=row["verified_correct"]
-            out_df_list.append(row)
+            out_df_list.append(row.to_dict())
             pbar.set_description("verifying all assembly progress, {} have verified".format(n_verified))
             pbar.update()
     print("a total of {} of {} verified for {:2f}% percent".format(n_verified, len(in_df), n_verified/len(in_df)))
-
-    out_df = pd.concat(out_df_list, axis=0)
+    out_df = pd.DataFrame(out_df_list)
     out_df.to_csv(path_to_output_dataframe)
 
 
