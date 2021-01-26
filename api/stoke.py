@@ -2,7 +2,7 @@ import os
 from time import time
 from typing import Dict, Union, List, Tuple
 from stoke_helpers import make_tunit_file, test_costfn, verify_and_rewrite_testcase
-from utils import STOKE_TRAINING_SET_REGEX
+from utils import STOKE_TRAINING_SET_REGEX, mkdir
 #from multiprocessing.pool import ThreadPool
 from concurrent.futures import ThreadPoolExecutor
 from os.path import join, dirname
@@ -36,6 +36,8 @@ class StokePipeline:
         self.alias_strategy = alias_strategy
 
         self.pool = ThreadPoolExecutor(self.n_workers)
+
+        mkdir(join(self.path_to_volume, self.volume_path_to_tmp, "veified"))
 
     def run_parallel_eval(self, jobs: Union[List, Tuple], debug=False):
         if debug:
@@ -130,7 +132,7 @@ class StokePipeline:
             container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
 
 
-            is_verified_correct, counter_examples_available = verify_and_rewrite_testcase(
+            is_verified_correct, counter_examples_available, verify_stdout = verify_and_rewrite_testcase(
                 container_path_to_target = container_abs_path_to_target,
                 container_path_to_rewrite = container_abs_path_asbly_rewrite,
                 container_path_to_testcases = container_abs_path_to_testcases,
@@ -147,6 +149,10 @@ class StokePipeline:
                 print(f"Beat baseline for {metadata['name']} with cost: {effective_cost}, and verified correct",
                       flush = True)
                 beat_baseline_returncode = 3
+                with open(join(self.path_to_volume, self.volume_path_to_tmp, "veified", metadata["name"]+".verified") as fh:
+                    fh.write("Program : {}\n".format(metadata["name"]))
+                    fh.write("Live out : {}\n".format(metadata["cost_conf"]["live_out"]))
+                    fh.write("verify output is :\n\n{}".format(verify_stdout))
 
             elif counter_examples_available:
                 print(f"New testcases added for {metadata['name']} ", flush=True)

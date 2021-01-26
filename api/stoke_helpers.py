@@ -234,4 +234,4 @@ def verify_and_rewrite_testcase(container_path_to_target: str,
         verified_correct = False
         counter_examples_available = False
 
-    return verified_correct, counter_examples_available
+    return verified_correct, counter_examples_available, verify_stdout
