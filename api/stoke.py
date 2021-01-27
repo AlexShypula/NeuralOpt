@@ -126,6 +126,8 @@ class StokePipeline:
         container_abs_path_to_functions = dirname(join(self.path_to_volume, self.volume_path_to_data, data_path_to_target))
         container_abs_path_to_target = join(self.path_to_volume, self.volume_path_to_data, data_path_to_target)
         container_abs_path_to_testcases = join(self.path_to_volume, self.volume_path_to_data, data_path_to_testcases)
+        # patch here to use all testcases
+        metadata["cost_conf"]["training_set"] = "{ 0 ... 9999 }"
 
         cost, failed_tunit, failed_cost, is_correct = get_stoke_cost(hypothesis_string=hypothesis_string,
                                                             container_abs_path_raw_rewrite=container_abs_path_raw_rewrite, 
