@@ -37,7 +37,7 @@ class StokePipeline:
 
         self.pool = ThreadPoolExecutor(self.n_workers)
 
-        mkdir(join(self.path_to_volume, self.volume_path_to_tmp, "verified"))
+        mkdir(join(self.path_to_volume, self.volume_path_to_tmp, "verified_bound4"))
 
     def run_parallel_eval(self, jobs: Union[List, Tuple], debug=False):
         if debug:
@@ -168,7 +168,7 @@ class StokePipeline:
                 print(f"Beat baseline for {metadata['name']} with cost: {effective_cost}, and verified correct",
                       flush = True)
                 beat_baseline_returncode = 3
-                with open(join(self.path_to_volume, self.volume_path_to_tmp, "verified", \
+                with open(join(self.path_to_volume, self.volume_path_to_tmp, "verified_bound4", \
                            os.path.splitext(metadata["name"])[0]+".verified"), "w+") as fh:
                     fh.write("Program: {}\n".format(metadata["name"]))
                     fh.write("Live out: {}\n".format(metadata["cost_conf"]["live_out"]))
