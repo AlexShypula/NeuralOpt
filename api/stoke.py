@@ -76,6 +76,26 @@ class StokePipeline:
                                                             assembly_name=metadata["name"],
                                                             cost_conf=metadata["cost_conf"],
                                                             max_cost=1e9)
+
+        if is_correct and self.strategy == "bounded":
+            verify_returncode, verify_stdout = verify_rewrite(target_f=container_abs_path_to_target,
+                                                      rewrite_f=container_abs_path_asbly_rewrite,
+                                                      fun_dir=container_abs_path_to_functions,
+                                                      machine_output_f=container_abs_path_machine_output,
+                                                      testcases_f=container_abs_path_to_testcases,
+                                                      strategy=strategy,
+                                                      settings_conf=metadata["cost_conf"],,
+                                                      bound=self.bound,
+                                                      aliasing_strategy=self.alias_strategy,
+                                                      timeout=self.verification_timeout)
+
+            if verify_returncode == 0:
+                is_correct, counter_examples_available, counterexample_str = \
+                                    parse_verify_machine_output(container_path_to_machine_output)
+            else:
+                is_correct = False
+            os.remove(container_abs_path_machine_output)
+
         print("cost is {}".format(cost))
         print("failed tunit is {}".format(failed_tunit), flush = True)
 
@@ -84,7 +104,6 @@ class StokePipeline:
                                          "failed_tunit": failed_tunit,
                                          "failed_cost": failed_cost,
                                          "hypothesis_string": hypothesis_string}}
-
 
 
     def run_parallel_pipeline(self, jobs: Union[List, Tuple], debug = False):
