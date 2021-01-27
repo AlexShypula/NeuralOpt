@@ -84,7 +84,7 @@ class StokePipeline:
                                                       machine_output_f=container_abs_path_machine_output,
                                                       testcases_f=container_abs_path_to_testcases,
                                                       strategy=strategy,
-                                                      settings_conf=metadata["cost_conf"],,
+                                                      settings_conf=metadata["cost_conf"],
                                                       bound=self.bound,
                                                       aliasing_strategy=self.alias_strategy,
                                                       timeout=self.verification_timeout)
