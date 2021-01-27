@@ -193,7 +193,7 @@ def parse_verify_machine_output(machine_output_f: str) -> (bool, bool, Union[Non
 
 
 def add_counterexample_to_testcases(counterexample_str: str, path_to_testcases: str):
-    with open(path_to_testcases, "a") as fh:
+    with open(path_to_testcases, "r") as fh:
         tc_str = fh.read()
     max_tc_idx = get_max_testcase_index(tc_str)
     with open(path_to_testcases, "a") as fh:
