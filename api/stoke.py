@@ -110,15 +110,16 @@ class StokePipeline:
                                                           aliasing_strategy=self.alias_strategy,
                                                           timeout=self.verification_timeout)
 
-                if verify_returncode == 0:
-                    is_correct, counter_examples_available, counterexample_str = \
-                                        parse_verify_machine_output(container_abs_path_machine_output)
+                    if verify_returncode == 0:
+                        is_correct, counter_examples_available, counterexample_str = \
+                                            parse_verify_machine_output(container_abs_path_machine_output)
             else:
                 is_correct = False
             os.remove(container_abs_path_machine_output)
 
         print("cost is {}".format(cost))
         print("failed tunit is {}".format(failed_tunit), flush = True)
+        print("verified: {}".format(is_correct), flush=True)
 
         return {"metadata": metadata, "stats": {"cost": cost,
                                          "correct": is_correct,
