@@ -100,21 +100,21 @@ class StokePipeline:
 
                 # if correct with -O0, ensure the it is also equivalent with the -Og program
                 if is_correct:
-                container_abs_path_to_optimized = function_path_to_optimized_function(container_abs_path_to_target, "Og")
-                verify_returncode, verify_stdout = verify_rewrite(target_f=container_abs_path_to_optimized,
-                                                      rewrite_f=container_abs_path_asbly_rewrite,
-                                                      fun_dir=container_abs_path_to_functions,
-                                                      machine_output_f=container_abs_path_machine_output,
-                                                      testcases_f=container_abs_path_to_testcases,
-                                                      strategy=self.verification_strategy,
-                                                      settings_conf=metadata["cost_conf"],
-                                                      bound=self.bound,
-                                                      aliasing_strategy=self.alias_strategy,
-                                                      timeout=self.verification_timeout)
+                    container_abs_path_to_optimized = function_path_to_optimized_function(container_abs_path_to_target, "Og")
+                    verify_returncode, verify_stdout = verify_rewrite(target_f=container_abs_path_to_optimized,
+                                                          rewrite_f=container_abs_path_asbly_rewrite,
+                                                          fun_dir=container_abs_path_to_functions,
+                                                          machine_output_f=container_abs_path_machine_output,
+                                                          testcases_f=container_abs_path_to_testcases,
+                                                          strategy=self.verification_strategy,
+                                                          settings_conf=metadata["cost_conf"],
+                                                          bound=self.bound,
+                                                          aliasing_strategy=self.alias_strategy,
+                                                          timeout=self.verification_timeout)
 
                 if verify_returncode == 0:
-                is_correct, counter_examples_available, counterexample_str = \
-                                    parse_verify_machine_output(container_abs_path_machine_output)
+                    is_correct, counter_examples_available, counterexample_str = \
+                                        parse_verify_machine_output(container_abs_path_machine_output)
 
             else:
                 is_correct = False
