@@ -1,7 +1,8 @@
 import os
 from time import time
 from typing import Dict, Union, List, Tuple
-from stoke_helpers import make_tunit_file, test_costfn, verify_and_rewrite_testcase
+from stoke_helpers import make_tunit_file, test_costfn, verify_and_rewrite_testcase, verify_rewrite, \
+			parse_verify_machine_output
 from utils import STOKE_TRAINING_SET_REGEX, mkdir
 #from multiprocessing.pool import ThreadPool
 from concurrent.futures import ThreadPoolExecutor
@@ -77,13 +78,15 @@ class StokePipeline:
                                                             cost_conf=metadata["cost_conf"],
                                                             max_cost=1e9)
 
-        if is_correct and self.strategy == "bounded":
+        if is_correct and self.verification_strategy == "bounded":
+            machine_output_filename = rewrite_id + ".verify"
+            container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
             verify_returncode, verify_stdout = verify_rewrite(target_f=container_abs_path_to_target,
                                                       rewrite_f=container_abs_path_asbly_rewrite,
                                                       fun_dir=container_abs_path_to_functions,
                                                       machine_output_f=container_abs_path_machine_output,
                                                       testcases_f=container_abs_path_to_testcases,
-                                                      strategy=strategy,
+                                                      strategy=self.verification_strategy,
                                                       settings_conf=metadata["cost_conf"],
                                                       bound=self.bound,
                                                       aliasing_strategy=self.alias_strategy,
@@ -91,7 +94,7 @@ class StokePipeline:
 
             if verify_returncode == 0:
                 is_correct, counter_examples_available, counterexample_str = \
-                                    parse_verify_machine_output(container_path_to_machine_output)
+                                    parse_verify_machine_output(container_abs_path_machine_output)
             else:
                 is_correct = False
             os.remove(container_abs_path_machine_output)
