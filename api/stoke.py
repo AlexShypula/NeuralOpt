@@ -64,6 +64,7 @@ class StokePipeline:
         container_abs_path_to_testcases = join(self.path_to_volume, self.volume_path_to_data, data_path_to_testcases)
 
         metadata["cost_conf"]["training_set"] = "{ 0 ... 9999 }"
+        metadata["cost_conf"]["heap_out"] = True
         assert os.path.exists(container_abs_path_to_functions), "paths to functions doesn't exist"
         assert os.path.exists(container_abs_path_to_target), "paths to target"
         assert os.path.exists(container_abs_path_to_testcases), "paths to testcases"
