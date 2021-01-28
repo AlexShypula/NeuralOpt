@@ -3,7 +3,7 @@ from time import time
 from typing import Dict, Union, List, Tuple
 from stoke_helpers import make_tunit_file, test_costfn, verify_and_rewrite_testcase, verify_rewrite, \
 			parse_verify_machine_output
-from utils import STOKE_TRAINING_SET_REGEX, mkdir, function_path_to_optimized_function`
+from utils import STOKE_TRAINING_SET_REGEX, mkdir, function_path_to_optimized_function
 #from multiprocessing.pool import ThreadPool
 from concurrent.futures import ThreadPoolExecutor
 from os.path import join, dirname
