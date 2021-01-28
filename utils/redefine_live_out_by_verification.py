@@ -2,6 +2,7 @@ import json
 import subprocess
 import os
 import pandas as pd
+import warnings
 from os.path import join
 from stoke_preprocess import hash_file
 from make_data import function_path_to_optimized_function, function_path_to_testcases, function_path_to_functions_folder,\
@@ -20,6 +21,7 @@ from multiprocessing.pool import ThreadPool
 from redefine_live_out import test_costfn
 from stoke_test_costfn import StopWatch
 from copy import copy
+
 
 
 DIFF_REGEX = re.compile("(?<=(Difference of running target and rewrite on the counterexample:))[\s\S]*")
@@ -242,8 +244,13 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
                 new_live_out_register_list.append(register)
             # only if it is a general purpose register will we try to search for a lower register to test out
             elif register in GP_REGISTERS_SET:
-                assert len(findall_result) == 2, "findall result is not length 2, result is {} and diff is {}" \
-                    .format(findall_result, diff_str)
+                if len(findall_result) != 2:
+                    warnings.warn("findall result is not length 2, result is {} and diff is {}" \
+                    .format(findall_result, diff_str))
+                    verify_returncode = -1
+                    return verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, \
+                           depth_of_testing
+
                 lower_order_register_result = test_if_lower_order_register(match_list=findall_result,
                                                                            gp_register_name_64=register)
                 # the test returns a register name if a lower-order register is found, otherwise None
