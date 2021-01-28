@@ -24,6 +24,7 @@ from copy import copy
 
 DIFF_REGEX = re.compile("(?<=(Difference of running target and rewrite on the counterexample:))[\s\S]*")
 LIVE_OUT_FLAGS_REGEX = re.compile("|".join(["({})".format(r) for r in LIVE_OUT_FLAGS_SET]))
+SIGNAL_REGEX = re.compile("Target returned abnormally")
 
 @dataclass
 class ParseOptions:
@@ -207,6 +208,9 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
                                                                            strategy=strategy,
                                                                            timeout=timeout
                                                                            )
+    # check for SIGSEGV or other abnormal behavior
+    if SIGNAL_REGEX.search(verify_stdout):
+        verify_returncode = -1
 
     if verified_correct or verify_returncode != 0 or not counter_examples_avail:
         if debug: 
@@ -218,8 +222,7 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
             print("live out register list: " + " ".join(live_out_register_list))
             print("orig live_out_register_list: " + " ".join(def_in_register_list))
             print("diff std out cleaned" + diff_str if diff_str else "no diff avail" )
-            print("verified std out is:\n" + verify_stdout, flush=True) 
-       
+            print("verified std out is:\n" + verify_stdout, flush=True)
  
         return verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, depth_of_testing
 
