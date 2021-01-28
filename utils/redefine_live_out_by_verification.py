@@ -10,6 +10,7 @@ from typing import List, Dict, Union
 from tqdm import tqdm
 from dataclasses import dataclass, field
 from argparse_dataclass import ArgumentParser
+from registers import LIVE_OUT_REGISTER_LIST
 import re
 from redefine_live_out import clean_ansi_color_codes, register_list_to_register_string, test_if_lower_order_register
 from registers import DEF_IN_REGISTER_LIST, LIVE_OUT_REGISTER_LIST, REGISTER_TO_STDOUT_REGISTER, \
@@ -18,6 +19,7 @@ from registers import DEF_IN_REGISTER_LIST, LIVE_OUT_REGISTER_LIST, REGISTER_TO_
 from multiprocessing.pool import ThreadPool
 from redefine_live_out import test_costfn
 from stoke_test_costfn import StopWatch
+from copy import copy
 
 
 DIFF_REGEX = re.compile("(?<=(Difference of running target and rewrite on the counterexample:))[\s\S]*")
@@ -343,7 +345,8 @@ def _process_training_example_with_redefine_verify(row: pd.Series, path_to_disas
     rewrite_f = function_path_to_optimized_function(target_f, optimized_flag="Og")
 
     def_in = row["def_in"]
-    live_out = row["live_out"]
+    live_out = register_list_to_register_string(copy(LIVE_OUT_REGISTER_LIST))
+    # live_out = row["live_out"]
     costfn = "100*corectness+measured+latency" # row["costfn"]
     performance_timer.validation_time.start()
     verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, heap_out, depth_of_testing = \
