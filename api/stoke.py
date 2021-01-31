@@ -121,6 +121,12 @@ class StokePipeline:
 #                     if verify_returncode == 0:
 #                         is_correct, counter_examples_available, counterexample_str = \
 #                                             parse_verify_machine_output(container_abs_path_machine_output)
+                if not is_correct:
+                    mkdir("did_not_verify_flat_heap_out_hack")
+                    with open(join("did_not_verify_flat_heap_out_hack", target_f), "w") as fh:
+                        fh.write(f"{rewrite_id} as incorrect on verification but passed tcs, cost was {cost}",
+                                    f"the verify stdout is\n\n{verify_stdout}", sep="\n")
+
             else:
                 is_correct = False
             if os.path.exists(container_abs_path_machine_output):
