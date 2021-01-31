@@ -16,7 +16,7 @@ class StokePipeline:
     def __init__(self,  n_workers: int, max_cost: int, verification_strategy: str, path_to_volume: str,
                     volume_path_to_data: str, volume_path_to_tmp: str, alias_strategy: str = None,
                     bound: int = None, cost_timeout: int = 100, verification_timeout: int = 300,
-                    hack_testcases: bool = False, override_heap_out: bool = False):
+                    hack_validator: bool = False, override_heap_out: bool = False):
 
         self.n_workers = n_workers
         self.max_cost = max_cost
@@ -29,7 +29,7 @@ class StokePipeline:
         self.volume_path_to_tmp = volume_path_to_tmp
         self.cost_timeout = cost_timeout
         self.verification_timeout = verification_timeout
-        self.hack_testcases = hack_testcases
+        self.hack_validator = hack_validator
         self.override_heap_out = override_heap_out
 
         if self.verification_strategy == "bounded":
@@ -98,7 +98,7 @@ class StokePipeline:
                                                       bound=self.bound,
                                                       aliasing_strategy=self.alias_strategy,
                                                       timeout=self.verification_timeout,
-                                                      hack_testcases=self.hack_testcases)
+                                                      hack_validator=self.hack_validator)
 
             if verify_returncode == 0:
                 is_correct, counter_examples_available, counterexample_str = \
@@ -194,7 +194,7 @@ class StokePipeline:
                 alias_strategy = self.alias_strategy,
                 bound = self.bound,
                 timeout = self.verification_timeout,
-                hack_testcases = self.hack_testcases
+                hack_validator = self.hack_validator
                 )
 
             if is_verified_correct:

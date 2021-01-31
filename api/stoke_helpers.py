@@ -234,7 +234,7 @@ def verify_and_rewrite_testcase(container_path_to_target: str,
                                 alias_strategy: str = "basic",
                                 bound: int = 2,
                                 timeout: int = 300,
-                                hack_testcases: bool = False):
+                                hack_validator: bool = False):
 
     verify_returncode, verify_stdout = verify_rewrite(target_f=container_path_to_target,
                                                       rewrite_f=container_path_to_rewrite,
@@ -246,7 +246,7 @@ def verify_and_rewrite_testcase(container_path_to_target: str,
                                                       bound=bound,
                                                       aliasing_strategy=alias_strategy,
                                                       timeout=timeout,
-                                                      hack_testcases=hack_testcases)
+                                                      hack_validator=hack_validator)
 
     if verify_returncode == 0:
         verified_correct, counter_examples_available, counterexample_str = \
