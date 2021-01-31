@@ -16,7 +16,7 @@ class StokePipeline:
     def __init__(self,  n_workers: int, max_cost: int, verification_strategy: str, path_to_volume: str,
                     volume_path_to_data: str, volume_path_to_tmp: str, alias_strategy: str = None,
                     bound: int = None, cost_timeout: int = 100, verification_timeout: int = 300,
-                    hack_testcases: bool = False):
+                    hack_testcases: bool = False, override_heap_out: bool = False):
 
         self.n_workers = n_workers
         self.max_cost = max_cost
@@ -30,6 +30,7 @@ class StokePipeline:
         self.cost_timeout = cost_timeout
         self.verification_timeout = verification_timeout
         self.hack_testcases = hack_testcases
+        self.override_heap_out = override_heap_out
 
         if self.verification_strategy == "bounded":
             assert type(bound) == int and bound > 0, "if using a formal validator, you'll need to specify the bound"
@@ -65,6 +66,8 @@ class StokePipeline:
         container_abs_path_to_target = join(self.path_to_volume, self.volume_path_to_data, data_path_to_target)
         container_abs_path_to_testcases = join(self.path_to_volume, self.volume_path_to_data, data_path_to_testcases)
 
+        if self.override_heap_out:
+            metadata["cost_conf"]["heap_out"] = True
         metadata["cost_conf"]["training_set"] = "{ 0 ... 9999 }"
         assert os.path.exists(container_abs_path_to_functions), "paths to functions doesn't exist"
         assert os.path.exists(container_abs_path_to_target), "paths to target"
@@ -83,6 +86,7 @@ class StokePipeline:
         if is_correct and self.verification_strategy == "bounded":
             machine_output_filename = rewrite_id + ".verify"
             container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
+            # currently test against the -Og program
             container_abs_path_to_optimized = function_path_to_optimized_function(container_abs_path_to_target, "Og")
             verify_returncode, verify_stdout = verify_rewrite(target_f=container_abs_path_to_optimized,
                                                       rewrite_f=container_abs_path_asbly_rewrite,
