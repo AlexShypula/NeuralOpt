@@ -123,7 +123,8 @@ class StokePipeline:
 #                                             parse_verify_machine_output(container_abs_path_machine_output)
             else:
                 is_correct = False
-            os.remove(container_abs_path_machine_output)
+            if os.path.exists(container_abs_path_machine_output):
+                os.remove(container_abs_path_machine_output)
 
         print("cost is {}".format(cost))
         print("failed tunit is {}".format(failed_tunit), flush = True)
@@ -194,7 +195,7 @@ class StokePipeline:
                 alias_strategy = self.alias_strategy,
                 bound = self.bound,
                 timeout = self.verification_timeout,
-                hack_validator = self.hack_validator
+                hack_validator = self.hack_validatorcontainer_abs_path_machine_output
                 )
 
             if is_verified_correct:
