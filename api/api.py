@@ -25,6 +25,7 @@ class ParseOptions:
     # flask params
     port: int = field(metadata=dict(args=["-port", "--port"]), default=5000)
     debug: bool = field(metadata=dict(args=["-d", "--debug_mode"]), default=False)
+    hack_testcases: bool = field(metadata=dict(args=["--hack_testcases"]), default=False)
 
 @app.route('/stoke', methods = ["GET"])
 def Process():
@@ -63,7 +64,8 @@ if __name__ == "__main__":
                                      alias_strategy=args.alias_strategy,
                                      bound=args.bound,
                                      cost_timeout=args.cost_timeout,
-                                     verification_timeout=args.verification_timeout)
+                                     verification_timeout=args.verification_timeout,
+                                     hack_testcases=args.hack_testcases)
     app.run(debug=args.debug, host="0.0.0.0", port=args.port)
 
 

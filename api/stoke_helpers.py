@@ -1,9 +1,16 @@
 import subprocess
+import copy
 import json
 from logging import Logger
 from typing import Dict
 from typing import Union
-from utils import COST_SEARCH_REGEX, CORRECT_SEARCH_REGEX, get_max_testcase_index
+import shutil
+import os
+from utils import COST_SEARCH_REGEX, CORRECT_SEARCH_REGEX, get_max_testcase_index, process_raw_assembly, \
+    FUNCTION_BEGIN_REGEX, HACK_TEXT
+from time import time
+import warnings
+
 
 def make_tunit_file(in_f: str, out_f: str, fun_dir: str, timeout: int = 100):
     try:
@@ -90,7 +97,19 @@ def verify_rewrite(target_f: str,
                    machine_output_f: str = "tmp.txt",
                    aliasing_strategy: str = "basic",
                    strategy: str = "bounded",
-                   timeout: int = 60) -> (int, str):
+                   timeout: int = 60,
+                   hack_validator: bool = False) -> (int, str):
+
+    if hack_validator:
+        assert strategy == "bounded", "in order to use 'hack_validator' setting, bounded strategy needs to be used"
+        # change path for the orig target so you don't over-write or delete it
+        old_target_f = copy.copy(target_f)
+        target_f = os.path.splitext(rewrite_f)[0] + "_target.s"
+        rc_tgt_rc = read_write_assembly2_hacked(path_to_input=old_target_f, path_to_output=target_f, timeout=timeout)
+        rc_rewrite_rc = read_write_assembly2_hacked(path_to_input=rewrite_f, path_to_output=rewrite_f, timeout=timeout)
+        if not rc_tgt_rc == 0 and rc_rewrite_rc == 0:
+            warnings.warn("function {} tunit for hacking failed".format(target_f))
+            return -1, "tunit for hacking failed"
 
     try:
         if settings_conf["heap_out"]:
@@ -176,9 +195,13 @@ def verify_rewrite(target_f: str,
                      "--cost", settings_conf["costfn"]],
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, timeout=timeout)
-        return verify_test.returncode, verify_test.stdout
+
+        rc = verify_test.returncode; stdout = verify_test.stdout;
     except subprocess.TimeoutExpired as err:
-        return -1, f"verify timed out with error {err}"
+        rc = verify_test.returncode; stdout = err;
+    if hack_validator:
+        os.remove(target_f)
+    return rc, stdout
 
 
 def parse_verify_machine_output(machine_output_f: str) -> (bool, bool, Union[None, str]):
@@ -210,7 +233,8 @@ def verify_and_rewrite_testcase(container_path_to_target: str,
                                 strategy: str = "hold_out",
                                 alias_strategy: str = "basic",
                                 bound: int = 2,
-                                timeout: int = 300):
+                                timeout: int = 300,
+                                hack_testcases: bool = False):
 
     verify_returncode, verify_stdout = verify_rewrite(target_f=container_path_to_target,
                                                       rewrite_f=container_path_to_rewrite,
@@ -221,7 +245,8 @@ def verify_and_rewrite_testcase(container_path_to_target: str,
                                                       settings_conf=settings_conf,
                                                       bound=bound,
                                                       aliasing_strategy=alias_strategy,
-                                                      timeout=timeout)
+                                                      timeout=timeout,
+                                                      hack_testcases=hack_testcases)
 
     if verify_returncode == 0:
         verified_correct, counter_examples_available, counterexample_str = \
@@ -235,3 +260,36 @@ def verify_and_rewrite_testcase(container_path_to_target: str,
         counter_examples_available = False
 
     return verified_correct, counter_examples_available, verify_stdout
+
+
+def _assembly2_hacked(input_assembly: str):
+    # injects a string into the assembly such that it prevents %rsp from being aliased for memory clobbering
+    assembly = process_raw_assembly(raw_assembly=input_assembly,
+                                              preserve_fun_names=True,
+                                              preserve_semantics=True)
+    # split it only once, you split on the first occurrenct of a location (the prog start)
+    metadata, body = FUNCTION_BEGIN_REGEX.split(assembly, 1)
+
+    return metadata + HACK_TEXT + body
+
+
+def read_write_assembly2_hacked(path_to_input: str, path_to_output: str, timeout: int = 100):
+    tmp_raw_asm_path = os.path.splitext(path_to_output)[0] + ".raw"
+    fun_dir = os.path.dirname(path_to_input)
+
+    raw_assembly = open(path_to_input).read()
+    hacked_asm_string = _assembly2_hacked(input_assembly=raw_assembly)
+
+    with open(tmp_raw_asm_path, "w") as fh:
+        fh.write(hacked_asm_string)
+
+    tunit_rc, tunit_stdout = make_tunit_file(in_f=tmp_raw_asm_path,
+                                             out_f=path_to_output,
+                                             fun_dir=fun_dir,
+                                             timeout=timeout)
+    os.remove(tmp_raw_asm_path)
+
+    return tunit_rc
+
+
+
