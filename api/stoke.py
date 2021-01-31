@@ -66,8 +66,6 @@ class StokePipeline:
         container_abs_path_to_target = join(self.path_to_volume, self.volume_path_to_data, data_path_to_target)
         container_abs_path_to_testcases = join(self.path_to_volume, self.volume_path_to_data, data_path_to_testcases)
 
-        if self.override_heap_out:
-            metadata["cost_conf"]["heap_out"] = True
         metadata["cost_conf"]["training_set"] = "{ 0 ... 9999 }"
         assert os.path.exists(container_abs_path_to_functions), "paths to functions doesn't exist"
         assert os.path.exists(container_abs_path_to_target), "paths to target"
@@ -84,6 +82,8 @@ class StokePipeline:
                                                             max_cost=1e9)
 
         if is_correct and self.verification_strategy == "bounded":
+            if self.override_heap_out:
+                metadata["cost_conf"]["heap_out"] = True
             machine_output_filename = rewrite_id + ".verify"
             container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
             # currently test against the -Og program
