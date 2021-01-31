@@ -268,7 +268,13 @@ def _assembly2_hacked(input_assembly: str):
                                               preserve_fun_names=True,
                                               preserve_semantics=True)
     # split it only once, you split on the first occurrenct of a location (the prog start)
-    metadata, body = FUNCTION_BEGIN_REGEX.split(assembly, 1)
+    m = FUNCTION_BEGIN_REGEX.search(assembly)
+    if m:
+        body_begin_idx = m.end()
+        metadata = assembly[:body_begin_idx]
+        body = assembly[body_begin_idx:]
+    else:
+        metadata = body = ""
 
     return metadata + HACK_TEXT + body
 
