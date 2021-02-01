@@ -7,7 +7,7 @@ from typing import Union
 import shutil
 import os
 from utils import COST_SEARCH_REGEX, CORRECT_SEARCH_REGEX, get_max_testcase_index, process_raw_assembly, \
-    FUNCTION_BEGIN_REGEX, HACK_TEXT
+    FUNCTION_BEGIN_REGEX, HACK_TEXT, replace_and_rewrite_rsp_loc
 from time import time
 import warnings
 
@@ -296,6 +296,9 @@ def read_write_assembly2_hacked(path_to_input: str, path_to_output: str, fun_dir
                                              out_f=path_to_output,
                                              fun_dir=fun_dir,
                                              timeout=timeout)
+    if tunit_rc == 0:
+        replace_and_rewrite_rsp_loc(path_to_formatted_asm = path_to_output)
+
     os.remove(tmp_raw_asm_path)
 
     return tunit_rc

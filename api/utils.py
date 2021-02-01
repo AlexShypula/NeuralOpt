@@ -26,6 +26,9 @@ FUNCTION_BEGIN_REGEX = re.compile("\.[^:]+:[\s\n]+")
 
 HACK_TEXT = "cmpq $0xffffff00, %rsp\n  je .continue\n  retq\n.continue:\n  "
 
+RSP_ADDR = re.compile("(?<=cmpq $0x)[0-9]+(?=, %rsp)")
+RSP_LOC = "ffffff00"
+
 
 def _get_testcase_indices(testcase_string: str):
     testcase_indices = TESTCASE_INDEX_FINDER.findall(testcase_string)
@@ -92,4 +95,17 @@ def _canonicalize_labels(assembly: str, function_list: List[str], preserve_seman
         # replace all occurrences
         assembly = re.sub(idiosyn, canon, assembly)
     return assembly, idiosyn2canon
+
+def _replace_rsp_loc(assembly_string: str):
+    return RSP_ADDR.sub(RSP_ADDR, assembly_string)
+
+def replace_and_rewrite_rsp_loc(path_to_formatted_asm: str):
+    with open(path_to_formatted_asm, "r+") as fh:
+        asm = fh.read()
+        fh.seek()
+        new_asm = _replace_rsp_loc(asm)
+        fh.write(new_asm)
+        fh.truncate()
+    return
+
 
