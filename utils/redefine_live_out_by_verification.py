@@ -22,7 +22,7 @@ from redefine_live_out import test_costfn
 from stoke_test_costfn import StopWatch
 from copy import copy
 from collections import OrderedDict
-from helpers import make_tunit_file
+from stoke_test_costfn import make_tunit_file
 
 
 DIFF_REGEX = re.compile("(?<=(Difference of running target and rewrite on the counterexample:))[\s\S]*")
@@ -97,8 +97,8 @@ def verify_rewrite(target_f: str,
         assert strategy == "bounded", "in order to use 'hack_validator' setting, bounded strategy needs to be used"
         # change path for the orig target so you don't over-write or delete it
         fun_dir = os.path.dirname(target_f)
-        old_target_f = copy.copy(target_f)
-        old_rewrite_f = copy.copy(rewrite_f)
+        old_target_f = copy(target_f)
+        old_rewrite_f = copy(rewrite_f)
         target_f = os.path.splitext(target_f)[0] + "_target.s"
         rewrite_f = os.path.splitext(rewrite_f)[0] + "_rewrite.s"
         rc_tgt_rc = read_write_assembly2_hacked(path_to_input=old_target_f, path_to_output=target_f, fun_dir = fun_dir, timeout=timeout)
@@ -150,7 +150,7 @@ def verify_rewrite(target_f: str,
                 text=True, timeout=timeout)
         rc = verify_test.returncode; stdout = verify_test.stdout
     except subprocess.TimeoutExpired as err:
-        rc = -1, stdout = f"verify timed out with error {err}"
+        rc = -1; stdout = f"verify timed out with error {err}"
     if hack_validator:
         # these were dummy files created for hacking, the old files should persist !!
         os.remove(target_f)
@@ -533,13 +533,15 @@ def read_write_assembly2_hacked(path_to_input: str, path_to_output: str, fun_dir
     hacked_asm_string = _assembly2_hacked(input_assembly=raw_assembly)
     print(f"hacked asm string looks like\n\n{hacked_asm_string}\n\nwhereas og one was\n\n{raw_assembly}", flush=True)
 
+
     with open(tmp_raw_asm_path, "w") as fh:
         fh.write(hacked_asm_string)
 
     tunit_rc, tunit_stdout = make_tunit_file(in_f=tmp_raw_asm_path,
                                              out_f=path_to_output,
                                              fun_dir=fun_dir,
-                                             timeout=timeout)
+                                             timeout=timeout, 
+					     live_dangerously=True)
     if tunit_rc == 0:
         replace_and_rewrite_rsp_loc(path_to_formatted_asm = path_to_output)
 
