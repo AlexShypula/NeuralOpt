@@ -199,7 +199,7 @@ def verify_rewrite(target_f: str,
 
         rc = verify_test.returncode; stdout = verify_test.stdout;
     except subprocess.TimeoutExpired as err:
-        rc = verify_test.returncode; stdout = err;
+        rc = -1; stdout = err;
     if hack_validator:
         os.remove(target_f)
     return rc, stdout
