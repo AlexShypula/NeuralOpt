@@ -21,12 +21,14 @@ from multiprocessing.pool import ThreadPool
 from redefine_live_out import test_costfn
 from stoke_test_costfn import StopWatch
 from copy import copy
-
+from collections import OrderedDict
+from helpers import make_tunit_file
 
 
 DIFF_REGEX = re.compile("(?<=(Difference of running target and rewrite on the counterexample:))[\s\S]*")
 LIVE_OUT_FLAGS_REGEX = re.compile("|".join(["({})".format(r) for r in LIVE_OUT_FLAGS_SET]))
 SIGNAL_REGEX = re.compile("Target returned abnormally")
+
 
 @dataclass
 class ParseOptions:
@@ -41,35 +43,36 @@ class ParseOptions:
     debug: bool = field(metadata=dict(args=["--debug"]), default = False)
     testcases_dir: str = field(metadata=dict(args=["--testcases_dir"]), default="testcases")
     depth_of_testing: int = field(metadata=dict(args=["--depth_of_testing"]), default = 8)
-   
+    hack_validator: bool = field(metadata=dict(args=["--hack_validator"]), default = False)
 
 
 def main(path_to_input_dataframe: str, path_to_output_dataframe: str, n_threads: int, path_to_disassembly_dir: str,
          bound: int, aliasing_strategy: str, verification_timeout: int, cost_timeout: int,  debug: bool = False,
-         depth_of_testing: int = 5, **kwargs):
+         depth_of_testing: int = 5, hack_validator: bool = False, **kwargs):
 
     in_df = pd.read_csv(path_to_input_dataframe)
     jobs = []
     for i, row in in_df.iterrows():
         jobs.append({"row": row, "path_to_disassembly_dir": path_to_disassembly_dir, "job_id": i, "bound": bound,
                      "debug": debug, "aliasing_strategy": aliasing_strategy, "verification_timeout": verification_timeout,
-                     "cost_timeout": cost_timeout, "depth_of_testing": depth_of_testing})
+                     "cost_timeout": cost_timeout, "depth_of_testing": depth_of_testing, "hack_validator": hack_validator})
 
     pbar = tqdm(total=len(jobs))
 
     out_df_list = []
-    n_verified = 0
+    n_verified = 0; n_heap_out = 0;
     if not debug:
         for row in ThreadPool(n_threads).imap_unordered(_process_training_example_with_redefine_verify_wrapper, jobs):
             n_verified+=row["verified_correct"]
+            n_heap_out+=row["heap_out"]
             out_df_list.append(row.to_dict())
-            pbar.set_description("verifying all assembly progress, {} have verified".format(n_verified))
+            pbar.set_description("verifying all assembly progress, {} have verified, {} with heap out".format(n_verified, n_heap_out))
             pbar.update()
     else:
         for row in map(_process_training_example_with_redefine_verify_wrapper, jobs):
             n_verified+=row["verified_correct"]
             out_df_list.append(row.to_dict())
-            pbar.set_description("verifying all assembly progress, {} have verified".format(n_verified))
+            pbar.set_description("verifying all assembly progress, {} have verified, {} with heap out".format(n_verified, n_heap_out))
             pbar.update()
     print("a total of {} of {} verified for {:2f}% percent".format(n_verified, len(in_df), n_verified/len(in_df)))
     out_df = pd.DataFrame(out_df_list)
@@ -87,7 +90,23 @@ def verify_rewrite(target_f: str,
                 machine_output_f: str = "tmp.txt",
                 aliasing_strategy: str = "basic",
                 strategy: str = "bounded",
-                timeout: int = 60) -> (int, str):
+                timeout: int = 60,
+                hack_validator: bool = False) -> (int, str):
+
+    if hack_validator:
+        assert strategy == "bounded", "in order to use 'hack_validator' setting, bounded strategy needs to be used"
+        # change path for the orig target so you don't over-write or delete it
+        fun_dir = os.path.dirname(target_f)
+        old_target_f = copy.copy(target_f)
+        old_rewrite_f = copy.copy(rewrite_f)
+        target_f = os.path.splitext(target_f)[0] + "_target.s"
+        rewrite_f = os.path.splitext(rewrite_f)[0] + "_rewrite.s"
+        rc_tgt_rc = read_write_assembly2_hacked(path_to_input=old_target_f, path_to_output=target_f, fun_dir = fun_dir, timeout=timeout)
+        rc_rewrite_rc = read_write_assembly2_hacked(path_to_input=old_rewrite_f, path_to_output=rewrite_f, fun_dir = fun_dir, timeout=timeout)
+        if not rc_tgt_rc == 0 and rc_rewrite_rc == 0:
+            warnings.warn("function {} tunit for hacking failed".format(target_f))
+            return -1, "tunit for hacking failed"
+        print(f"rewrite f is {rewrite_f}, inside it is\n\n{open(rewrite_f).read()}", flush=True)
 
     try:
         if heap_out:
@@ -129,10 +148,14 @@ def verify_rewrite(target_f: str,
                  "--bound", str(bound)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, timeout=timeout)
-        return verify_test.returncode, verify_test.stdout
+        rc = verify_test.returncode; stdout = verify_test.stdout
     except subprocess.TimeoutExpired as err:
-        return -1, f"verify timed out with error {err}"
-
+        rc = -1, stdout = f"verify timed out with error {err}"
+    if hack_validator:
+        # these were dummy files created for hacking, the old files should persist !!
+        os.remove(target_f)
+        os.remove(rewrite_f)
+    return rc, stdout
 
 def parse_verify_machine_output(machine_output_f: str) -> bool:
     with open(machine_output_f) as fh:
@@ -153,7 +176,8 @@ def verify_and_parse(target_f: str,
                         machine_output_f: str = "tmp.txt",
                         aliasing_strategy: str = "bounded",
                         strategy: str = "bounded",
-                        timeout: int = 60):
+                        timeout: int = 60,
+                        hack_validator: bool = False):
 
     verify_returncode, verify_stdout =  verify_rewrite(target_f=target_f,
                                         rewrite_f=rewrite_f,
@@ -166,7 +190,8 @@ def verify_and_parse(target_f: str,
                                         machine_output_f=machine_output_f,
                                         aliasing_strategy=aliasing_strategy,
                                         strategy=strategy,
-                                        timeout=timeout)
+                                        timeout=timeout,
+                                        hack_validator=hack_validator)
     if verify_returncode == 0:
         verified_correct, counter_examples_avail = parse_verify_machine_output(machine_output_f)
     else:
@@ -191,7 +216,7 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
                                target_f: str, rewrite_f: str, fun_dir: str, heap_out: bool,
                                cost_fn: str, machine_output_f: str, depth_of_testing: int, aliasing_strategy: str = "basic",
                                strategy: str = "bounded", bound: int = 64, live_dangerously: bool = False,
-                               debug: bool = False, timeout: int = 60):
+                               debug: bool = False, timeout: int = 60, hack_validator: bool = False):
     #breakpoint()
 
     def_in_str = register_list_to_register_string(def_in_register_list)
@@ -208,7 +233,8 @@ def _stoke_redefine_regs_verification(def_in_register_list: List[str], live_out_
                                                                            machine_output_f=machine_output_f,
                                                                            aliasing_strategy=aliasing_strategy,
                                                                            strategy=strategy,
-                                                                           timeout=timeout
+                                                                           timeout=timeout,
+                                                                           hack_validator=hack_validator
                                                                            )
     # check for SIGSEGV or other abnormal behavior
     if SIGNAL_REGEX.search(verify_stdout):
@@ -294,7 +320,7 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
                                            machine_output_f: str, live_out_str: str, cost_fn: str,
                                            bound: int, depth_of_testing: int, aliasing_strategy: str = "basic",
                                            strategy="bounded", live_dangerously: bool = True, debug: bool = False,
-                                           timeout: int = 60):
+                                           timeout: int = 60, hack_validator: bool = False):
 
     def_in_register_list = register_list_from_regex(def_in_str, REGISTER_LIST_REGEX)
     live_out_register_list = register_list_from_regex(live_out_str, REGISTER_LIST_REGEX)
@@ -303,7 +329,7 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
     verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, depth_of_testing =  \
         _stoke_redefine_regs_verification(def_in_register_list, live_out_register_list, target_f, rewrite_f, fun_dir,
                                           heap_out, cost_fn, machine_output_f, depth_of_testing, aliasing_strategy,
-                                          strategy, bound, live_dangerously, debug, timeout)
+                                          strategy, bound, live_dangerously, debug, timeout, hack_validator)
 
     if verify_returncode != 0 or not verified_correct:
         return verify_returncode, verified_correct, verify_stdout, diff_str, live_out_register_list, heap_out, depth_of_testing
@@ -326,7 +352,8 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
                                        machine_output_f=machine_output_f,
                                        aliasing_strategy=aliasing_strategy,
                                        strategy=strategy,
-                                       timeout=timeout, 
+                                       timeout=timeout,
+                                       hack_validator=hack_validator
                                        )
         if new_verified_correct:
             heap_out = new_heap_out
@@ -341,7 +368,8 @@ def _stoke_redefine_live_out_verification(target_f: str, rewrite_f: str, fun_dir
 
 def _process_training_example_with_redefine_verify(row: pd.Series, path_to_disassembly_dir: str, job_id: int, bound: int,
                                                    aliasing_strategy: str, debug: bool, testcases_dir: str = "testcases",
-                                                   verification_timeout: int = 60, cost_timeout: int = 300, depth_of_testing: int = 5):
+                                                   verification_timeout: int = 60, cost_timeout: int = 300, depth_of_testing: int = 5,
+                                                   hack_validator: bool = False):
 
     performance_timer = StopWatch()
     performance_timer.start()
@@ -372,7 +400,8 @@ def _process_training_example_with_redefine_verify(row: pd.Series, path_to_disas
                                                strategy="bounded",
                                                debug=debug,
                                                timeout=verification_timeout,
-                                               depth_of_testing = depth_of_testing
+                                               depth_of_testing = depth_of_testing,
+                                               hack_validator=hack_validator
                                                )
     performance_timer.validation_time.stop()
     row["live_out"] = register_list_to_register_string(live_out_register_list)
@@ -404,6 +433,122 @@ def _process_training_example_with_redefine_verify(row: pd.Series, path_to_disas
 
 def _process_training_example_with_redefine_verify_wrapper(kwags):
     return _process_training_example_with_redefine_verify(**kwags)
+
+#### utilities for helping with verification hack #####
+
+METADATA_SPLIT_PATTERN = re.compile("(?=# Text)")
+FINDALL_FUNCTIONS_PATTERN = re.compile("(?<=.type ).*?(?=, @function)")
+COMMENT_PATTERN = re.compile("#.*?(?=\n)")
+WHITESPACE_PATTERN = re.compile("\n+")
+FINDALL_LOCATIONS_PATTERN = re.compile("\..*?(?=:|\s)")
+
+# should include new-lines and whitespace
+FUNCTION_BEGIN_REGEX = re.compile("\.[^:]+:[\s\n]+")
+
+HACK_TEXT = "cmpq $0xffffff00, %rsp\n  je .continue\n  retq\n.continue:\n  "
+
+RSP_ADDR = re.compile("(?<=cmpq \$0x)[0-9]+(?=, %rsp)")
+RSP_LOC = "ffffff00"
+
+
+def _split_metadata(raw_assembly:str):
+    metadata, assembly = METADATA_SPLIT_PATTERN.split(raw_assembly, maxsplit=1)
+    return metadata, assembly
+
+
+def process_raw_assembly(raw_assembly: str, preserve_fun_names: bool = True, preserve_semantics: bool = True):
+    metadata, assembly = _split_metadata(raw_assembly)
+    if preserve_fun_names:
+        function_list = FINDALL_FUNCTIONS_PATTERN.findall(metadata)
+    else:
+        function_list = []
+    assembly, orig2canon_loc_dict = _process_assembly(assembly, function_list, preserve_semantics)
+    return metadata + assembly
+
+
+def _process_assembly(assembly: str, function_list: List[str], preserve_semantics: bool):
+    no_comments = COMMENT_PATTERN.sub("", assembly)
+    no_extra_space = WHITESPACE_PATTERN.sub("\n", no_comments)
+    clean_assembly, orig2canon_loc_dict = _canonicalize_labels(no_extra_space, function_list, preserve_semantics)
+    return clean_assembly, orig2canon_loc_dict
+
+
+def _canonicalize_labels(assembly: str, function_list: List[str], preserve_semantics: bool = True):
+    raw_locs = FINDALL_LOCATIONS_PATTERN.findall(assembly)
+    # make a list of the locations that we'll keep
+    kept_locs = [".size"]
+    for fun in function_list:
+        kept_locs.append("."+fun)
+        kept_locs.append(".-" + fun)
+    # get all idiosyncratic locations to replace
+    idiosyn_locs = [l for l in OrderedDict.fromkeys(raw_locs)
+                               if l not in kept_locs]
+    # canonicalized locations starting from 1
+    if preserve_semantics:
+        canon_locs = [".L"+ str(i+1) for i in range(len(idiosyn_locs))]
+    else:
+        canon_locs = [".LOC"] * len(idiosyn_locs)
+    idiosyn2canon = {idiosyn: canon for idiosyn, canon in zip(idiosyn_locs, canon_locs)}
+    for idiosyn, canon in idiosyn2canon.items():
+        # replace all occurrences
+        assembly = re.sub(idiosyn, canon, assembly)
+    return assembly, idiosyn2canon
+
+def _replace_rsp_loc(assembly_string: str):
+    return RSP_ADDR.sub(RSP_LOC, assembly_string)
+
+def replace_and_rewrite_rsp_loc(path_to_formatted_asm: str):
+    with open(path_to_formatted_asm, "r+") as fh:
+        asm = fh.read()
+        fh.seek(0)
+        new_asm = _replace_rsp_loc(asm)
+        print(f"new replaced asm is \n\n{new_asm}")
+        fh.write(new_asm)
+        fh.truncate()
+    return
+
+def _assembly2_hacked(input_assembly: str):
+    # injects a string into the assembly such that it prevents %rsp from being aliased for memory clobbering
+    assembly = process_raw_assembly(raw_assembly=input_assembly,
+                                              preserve_fun_names=True,
+                                              preserve_semantics=True)
+    # split it only once, you split on the first occurrenct of a location (the prog start)
+    m = FUNCTION_BEGIN_REGEX.search(assembly)
+    if m:
+        body_begin_idx = m.end()
+        metadata = assembly[:body_begin_idx]
+        body = assembly[body_begin_idx:]
+    else:
+        metadata = body = ""
+
+    return metadata + HACK_TEXT + body
+
+
+def read_write_assembly2_hacked(path_to_input: str, path_to_output: str, fun_dir: str, timeout: int = 100):
+
+    tmp_raw_asm_path = os.path.splitext(path_to_output)[0] + ".raw"
+#    fun_dir = os.path.dirname(path_to_input)
+
+    raw_assembly = open(path_to_input).read()
+    hacked_asm_string = _assembly2_hacked(input_assembly=raw_assembly)
+    print(f"hacked asm string looks like\n\n{hacked_asm_string}\n\nwhereas og one was\n\n{raw_assembly}", flush=True)
+
+    with open(tmp_raw_asm_path, "w") as fh:
+        fh.write(hacked_asm_string)
+
+    tunit_rc, tunit_stdout = make_tunit_file(in_f=tmp_raw_asm_path,
+                                             out_f=path_to_output,
+                                             fun_dir=fun_dir,
+                                             timeout=timeout)
+    if tunit_rc == 0:
+        replace_and_rewrite_rsp_loc(path_to_formatted_asm = path_to_output)
+
+    os.remove(tmp_raw_asm_path)
+
+    return tunit_rc
+
+
+
 
 
 if __name__ == "__main__":
