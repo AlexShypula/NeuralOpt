@@ -24,7 +24,7 @@ FINDALL_LOCATIONS_PATTERN = re.compile("\..*?(?=:|\s)")
 # should include new-lines and whitespace
 FUNCTION_BEGIN_REGEX = re.compile("\.[^:]+:[\s\n]+")
 
-HACK_TEXT = "cmpq $0xffffff00, %rsp\n  je .continue\n  retq\n.continue:\n"
+HACK_TEXT = "cmpq $0xffffff00, %rsp\n  je .continue\n  retq\n.continue:\n  "
 
 
 def _get_testcase_indices(testcase_string: str):

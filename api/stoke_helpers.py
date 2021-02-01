@@ -102,15 +102,16 @@ def verify_rewrite(target_f: str,
 
     if hack_validator:
         assert strategy == "bounded", "in order to use 'hack_validator' setting, bounded strategy needs to be used"
-        # change path for the orig target so you don't over-write or delete it
+        # change path for the orig target so you don't over-write or delete it 
+        fun_dir = os.path.dirname(target_f)
         old_target_f = copy.copy(target_f)
         target_f = os.path.splitext(rewrite_f)[0] + "_target.s"
-        rc_tgt_rc = read_write_assembly2_hacked(path_to_input=old_target_f, path_to_output=target_f, timeout=timeout)
-        rc_rewrite_rc = read_write_assembly2_hacked(path_to_input=rewrite_f, path_to_output=rewrite_f, timeout=timeout)
+        rc_tgt_rc = read_write_assembly2_hacked(path_to_input=old_target_f, path_to_output=target_f, fun_dir = fun_dir, timeout=timeout)
+        rc_rewrite_rc = read_write_assembly2_hacked(path_to_input=rewrite_f, path_to_output=rewrite_f, fun_dir = fun_dir, timeout=timeout)
         if not rc_tgt_rc == 0 and rc_rewrite_rc == 0:
             warnings.warn("function {} tunit for hacking failed".format(target_f))
             return -1, "tunit for hacking failed"
-
+    print(f"rewrite f is {rewrite_f}, inside it is\n\n{open(rewrite_f).read()}", flush=True)
     try:
         if settings_conf["heap_out"]:
             if strategy in ("bounded", "ddec"):
@@ -279,12 +280,14 @@ def _assembly2_hacked(input_assembly: str):
     return metadata + HACK_TEXT + body
 
 
-def read_write_assembly2_hacked(path_to_input: str, path_to_output: str, timeout: int = 100):
+def read_write_assembly2_hacked(path_to_input: str, path_to_output: str, fun_dir: str, timeout: int = 100):
+
     tmp_raw_asm_path = os.path.splitext(path_to_output)[0] + ".raw"
-    fun_dir = os.path.dirname(path_to_input)
+#    fun_dir = os.path.dirname(path_to_input)
 
     raw_assembly = open(path_to_input).read()
     hacked_asm_string = _assembly2_hacked(input_assembly=raw_assembly)
+    print(f"hacked asm string looks like\n\n{hacked_asm_string}\n\nwhereas og one was\n\n{raw_assembly}", flush=True)
 
     with open(tmp_raw_asm_path, "w") as fh:
         fh.write(hacked_asm_string)
