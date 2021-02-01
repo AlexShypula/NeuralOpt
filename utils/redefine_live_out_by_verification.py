@@ -99,6 +99,17 @@ def verify_rewrite(target_f: str,
         fun_dir = os.path.dirname(target_f)
         old_target_f = copy(target_f)
         old_rewrite_f = copy(rewrite_f)
+
+        file_to_remove_1 = os.path.splitext(target_f)[0] + "_target.s"
+        file_to_remove_2 = os.path.splitext(rewrite_f)[0] + "_rewrite.s"
+        for f in (file_to_remove_1, file_to_remove_2):
+            if os.path.exists(f) and open(f).read() == "":
+                os.remove(f)
+        if not os.path.exists("tmp"):
+            os.mkdir("tmp")
+
+        target_f = join("tmp", os.path.basename(target_f))
+        rewrite_f = join("tmp", os.path.basename(rewrite_f))
         target_f = os.path.splitext(target_f)[0] + "_target.s"
         rewrite_f = os.path.splitext(rewrite_f)[0] + "_rewrite.s"
         rc_tgt_rc = read_write_assembly2_hacked(path_to_input=old_target_f, path_to_output=target_f, fun_dir = fun_dir, timeout=timeout)
