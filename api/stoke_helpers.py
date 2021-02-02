@@ -10,6 +10,7 @@ from utils import COST_SEARCH_REGEX, CORRECT_SEARCH_REGEX, get_max_testcase_inde
     FUNCTION_BEGIN_REGEX, HACK_TEXT, replace_and_rewrite_rsp_loc, ALL_REGISTERS_LIVE_OUT
 from time import time
 import warnings
+from os.path import join
 
 
 def make_tunit_file(in_f: str, out_f: str, fun_dir: str, timeout: int = 100):
@@ -104,10 +105,16 @@ def verify_rewrite(target_f: str,
         assert strategy == "bounded", "in order to use 'hack_validator' setting, bounded strategy needs to be used"
         # change path for the orig target so you don't over-write or delete it 
         fun_dir = os.path.dirname(target_f)
-        old_target_f = copy.copy(target_f)
-        target_f = os.path.splitext(rewrite_f)[0] + "_target.s"
+        old_target_f = copy(target_f)
+        old_rewrite_f = copy(rewrite_f)
+
+        target_f = join("tmp", os.path.basename(target_f))
+        rewrite_f = join("tmp", os.path.basename(rewrite_f))
+        target_f = os.path.splitext(target_f)[0] + "_target.s"
+        rewrite_f = os.path.splitext(rewrite_f)[0] + "_rewrite.s"
+
         rc_tgt_rc = read_write_assembly2_hacked(path_to_input=old_target_f, path_to_output=target_f, fun_dir = fun_dir, timeout=timeout)
-        rc_rewrite_rc = read_write_assembly2_hacked(path_to_input=rewrite_f, path_to_output=rewrite_f, fun_dir = fun_dir, timeout=timeout)
+        rc_rewrite_rc = read_write_assembly2_hacked(path_to_input=old_rewrite_f, path_to_output=rewrite_f, fun_dir = fun_dir, timeout=timeout)
         if not rc_tgt_rc == 0 and rc_rewrite_rc == 0:
             warnings.warn("function {} tunit for hacking failed".format(target_f))
             return -1, "tunit for hacking failed"
@@ -203,6 +210,7 @@ def verify_rewrite(target_f: str,
         rc = -1; stdout = err;
     if hack_validator:
         os.remove(target_f)
+        os.remove(rewrite_f)
     return rc, stdout
 
 

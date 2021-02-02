@@ -27,6 +27,7 @@ class ParseOptions:
     debug: bool = field(metadata=dict(args=["-d", "--debug_mode"]), default=False)
     hack_validator: bool = field(metadata=dict(args=["--hack_validator"]), default=False)
     override_heap_out: bool = field(metadata=dict(args=["--override_heap_out"]), default=False)
+    override_live_out: bool = field(metadata=dict(args=["--override_live_out"]), default=False)
 
 @app.route('/stoke', methods = ["GET"])
 def Process():
@@ -67,7 +68,8 @@ if __name__ == "__main__":
                                      cost_timeout=args.cost_timeout,
                                      verification_timeout=args.verification_timeout,
                                      hack_validator=args.hack_validator,
-                                     override_heap_out=args.override_heap_out)
+                                     override_heap_out=args.override_heap_out,
+                                     override_live_out=args.override_live_out)
     app.run(debug=args.debug, host="0.0.0.0", port=args.port)
 
 

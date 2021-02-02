@@ -3,7 +3,7 @@ from time import time
 from typing import Dict, Union, List, Tuple
 from stoke_helpers import make_tunit_file, test_costfn, verify_and_rewrite_testcase, verify_rewrite, \
 			parse_verify_machine_output
-from utils import STOKE_TRAINING_SET_REGEX, mkdir, function_path_to_optimized_function
+from utils import STOKE_TRAINING_SET_REGEX, mkdir, function_path_to_optimized_function, ALL_REGISTERS_LIVE_OUT
 #from multiprocessing.pool import ThreadPool
 from concurrent.futures import ThreadPoolExecutor
 from os.path import join, dirname
@@ -12,11 +12,12 @@ import warnings
 
 NEW_TESTCASE_BEGINNING_INDEX = 2000
 
+
 class StokePipeline:
     def __init__(self,  n_workers: int, max_cost: int, verification_strategy: str, path_to_volume: str,
                     volume_path_to_data: str, volume_path_to_tmp: str, alias_strategy: str = None,
                     bound: int = None, cost_timeout: int = 100, verification_timeout: int = 300,
-                    hack_validator: bool = False, override_heap_out: bool = False):
+                    hack_validator: bool = False, override_heap_out: bool = False, override_live_out: bool = False):
 
         self.n_workers = n_workers
         self.max_cost = max_cost
@@ -31,6 +32,7 @@ class StokePipeline:
         self.verification_timeout = verification_timeout
         self.hack_validator = hack_validator
         self.override_heap_out = override_heap_out
+        self.override_live_out = override_live_out
 
         if self.verification_strategy == "bounded":
             assert type(bound) == int and bound > 0, "if using a formal validator, you'll need to specify the bound"
@@ -87,6 +89,8 @@ class StokePipeline:
             machine_output_filename = rewrite_id + ".verify"
             container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
             # currently test against the -Og program
+            if self.self.override_live_out:
+                metadata["cost_conf"]["live_out"] = ALL_REGISTERS_LIVE_OUT
             container_abs_path_to_optimized = function_path_to_optimized_function(container_abs_path_to_target, "Og")
             verify_returncode, verify_stdout = verify_rewrite(target_f=container_abs_path_to_optimized,
                                                       rewrite_f=container_abs_path_asbly_rewrite,
@@ -195,13 +199,17 @@ class StokePipeline:
         # 2 -> beat baseline on cost, but doesn't verify, new testcases added,
         # 3 -> beat baseline on cost and verifies correct
         if effective_cost < metadata.get("low_benchmark", self.max_cost) and not failed_tunit and not failed_cost:
+            if self.override_heap_out:
+                metadata["cost_conf"]["heap_out"] = True
+            if self.self.override_live_out:
+                metadata["cost_conf"]["live_out"] = ALL_REGISTERS_LIVE_OUT
 
             machine_output_filename = rewrite_id + ".verify"
             container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
-
+            container_abs_path_to_optimized = function_path_to_optimized_function(container_abs_path_to_target, "Og")
 
             is_verified_correct, counter_examples_available, verify_stdout = verify_and_rewrite_testcase(
-                container_path_to_target = container_abs_path_to_target,
+                container_path_to_target = container_abs_path_to_optimized, # container_abs_path_to_target,
                 container_path_to_rewrite = container_abs_path_asbly_rewrite,
                 container_path_to_testcases = container_abs_path_to_testcases,
                 container_path_to_functions = container_abs_path_to_functions,
@@ -211,7 +219,7 @@ class StokePipeline:
                 alias_strategy = self.alias_strategy,
                 bound = self.bound,
                 timeout = self.verification_timeout,
-                hack_validator = self.hack_validatorcontainer_abs_path_machine_output
+                hack_validator = self.hack_validator
                 )
 
             if is_verified_correct:
