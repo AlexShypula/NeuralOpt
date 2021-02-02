@@ -89,7 +89,7 @@ class StokePipeline:
             machine_output_filename = rewrite_id + ".verify"
             container_abs_path_machine_output = join(self.path_to_volume, self.volume_path_to_tmp, machine_output_filename)
             # currently test against the -Og program
-            if self.self.override_live_out:
+            if self.override_live_out:
                 metadata["cost_conf"]["live_out"] = ALL_REGISTERS_LIVE_OUT
             container_abs_path_to_optimized = function_path_to_optimized_function(container_abs_path_to_target, "Og")
             verify_returncode, verify_stdout = verify_rewrite(target_f=container_abs_path_to_optimized,
@@ -201,7 +201,7 @@ class StokePipeline:
         if effective_cost < metadata.get("low_benchmark", self.max_cost) and not failed_tunit and not failed_cost:
             if self.override_heap_out:
                 metadata["cost_conf"]["heap_out"] = True
-            if self.self.override_live_out:
+            if self.override_live_out:
                 metadata["cost_conf"]["live_out"] = ALL_REGISTERS_LIVE_OUT
 
             machine_output_filename = rewrite_id + ".verify"
