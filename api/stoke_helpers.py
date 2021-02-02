@@ -7,7 +7,7 @@ from typing import Union
 import shutil
 import os
 from utils import COST_SEARCH_REGEX, CORRECT_SEARCH_REGEX, get_max_testcase_index, process_raw_assembly, \
-    FUNCTION_BEGIN_REGEX, HACK_TEXT, replace_and_rewrite_rsp_loc
+    FUNCTION_BEGIN_REGEX, HACK_TEXT, replace_and_rewrite_rsp_loc, ALL_REGISTERS_LIVE_OUT
 from time import time
 import warnings
 
@@ -112,6 +112,8 @@ def verify_rewrite(target_f: str,
             warnings.warn("function {} tunit for hacking failed".format(target_f))
             return -1, "tunit for hacking failed"
     print(f"rewrite f is {rewrite_f}, inside it is\n\n{open(rewrite_f).read()}", flush=True)
+    live_out = ALL_REGISTERS_LIVE_OUT
+    # live_out = settings_conf["live_out"]
     try:
         if settings_conf["heap_out"]:
             if strategy in ("bounded", "ddec"):
@@ -125,7 +127,7 @@ def verify_rewrite(target_f: str,
                      '--functions', fun_dir,
                      "--prune", "--live_dangerously",
                      "--def_in", settings_conf["def_in"],
-                     "--live_out", settings_conf["live_out"],
+                     "--live_out", live_out,
                      "--distance", settings_conf["distance"],
                      "--misalign_penalty", str(settings_conf["misalign_penalty"]), 
                      "--sig_penalty", settings_conf["sig_penalty"],
@@ -147,7 +149,7 @@ def verify_rewrite(target_f: str,
                      '--functions', fun_dir,
                      "--prune", "--live_dangerously",
                      "--def_in", settings_conf["def_in"],
-                     "--live_out", settings_conf["live_out"],
+                     "--live_out", live_out,
                      "--distance", settings_conf["distance"],
                      "--misalign_penalty", str(settings_conf["misalign_penalty"]),
                      "--sig_penalty", settings_conf["sig_penalty"],
@@ -168,7 +170,7 @@ def verify_rewrite(target_f: str,
                      '--functions', fun_dir,
                      "--prune", "--live_dangerously",
                      "--def_in", settings_conf["def_in"],
-                     "--live_out", settings_conf["live_out"],
+                     "--live_out", live_out,
                      "--distance", settings_conf["distance"],
                      "--misalign_penalty", str(settings_conf["misalign_penalty"]), 
                      "--sig_penalty", settings_conf["sig_penalty"],
@@ -189,14 +191,13 @@ def verify_rewrite(target_f: str,
                      '--functions', fun_dir,
                      "--prune", "--live_dangerously",
                      "--def_in", settings_conf["def_in"],
-                     "--live_out", settings_conf["live_out"],
+                     "--live_out", live_out,
                      "--distance", settings_conf["distance"],
                      "--misalign_penalty", str(settings_conf["misalign_penalty"]),
                      "--sig_penalty", settings_conf["sig_penalty"],
                      "--cost", settings_conf["costfn"]],
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, timeout=timeout)
-
         rc = verify_test.returncode; stdout = verify_test.stdout;
     except subprocess.TimeoutExpired as err:
         rc = -1; stdout = err;
