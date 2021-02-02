@@ -29,6 +29,11 @@ HACK_TEXT = "cmpq $0xffffff00, %rsp\n  je .continue\n  retq\n.continue:\n  "
 RSP_ADDR = re.compile("(?<=cmpq \$0x)[0-9]+(?=, %rsp)")
 RSP_LOC = "ffffff00"
 
+ALL_REGISTERS_LIVE_OUT = "{ %rax %rcx %rdx %rbx %rsp %rbp %rsi %rdi %r8 %r9 %r10 %r11 %r12 %r13 %r14 %r15 " \
+                         "%xmm0 %xmm1 %xmm2 %xmm3 %xmm4 %xmm5 %xmm6 %xmm7 %xmm8 %xmm9 %xmm10 %xmm11 %xmm12 %xmm13 " \
+                         "%xmm14 %xmm15 %zf %cf }"
+
+
 
 def _get_testcase_indices(testcase_string: str):
     testcase_indices = TESTCASE_INDEX_FINDER.findall(testcase_string)
