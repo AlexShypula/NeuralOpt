@@ -138,17 +138,25 @@ class StokePipeline:
             if not is_correct:
                 mkdir("/home/stoke/did_not_verify_flat_heap_out_hack") 
                 pth = join("/home/stoke/did_not_verify_flat_heap_out_hack", rewrite_id + ".s")
-                print(f"pth is {pth}")
-                print(f"verified stdout is \n\n{verify_stdout}")
+                #print(f"pth is {pth}")
+                #print(f"verified stdout is \n\n{verify_stdout}")
                 with open(pth, "w") as fh:
                     fh.write(f"{rewrite_id} as incorrect on verification but passed tcs, cost was {cost}\n\n"
+                                    f"the verify stdout is\n\n{verify_stdout}")
+            else:
+                mkdir("/home/stoke/did_verify_flat_heap_out_hack") 
+                pth = join("/home/stoke/did_verify_flat_heap_out_hack", rewrite_id + ".s")
+                #print(f"pth is {pth}")
+                print(f"heap out is {metadata['cost_conf']['heap_out']} and live out is {metadata['cost_conf']['live_out']}\n\nverified stdout is \n\n{verify_stdout}")
+                with open(pth, "w") as fh:
+                    fh.write(f"{rewrite_id} as correct on verification but passed tcs, cost was {cost}\n\n"
                                     f"the verify stdout is\n\n{verify_stdout}")
             if os.path.exists(container_abs_path_machine_output):
                 os.remove(container_abs_path_machine_output)
 
-        print("cost is {}".format(cost))
-        print("failed tunit is {}".format(failed_tunit), flush = True)
-        print("verified: {}".format(is_correct), flush=True)
+        #print("cost is {}".format(cost))
+        #print("failed tunit is {}".format(failed_tunit), flush = True)
+        #print("verified: {}".format(is_correct), flush=True)
 
         return {"metadata": metadata, "stats": {"cost": cost,
                                          "correct": is_correct,
@@ -222,15 +230,33 @@ class StokePipeline:
                 hack_validator = self.hack_validator
                 )
 
-            if is_verified_correct:
-                print(f"Beat baseline for {metadata['name']} with cost: {effective_cost}, and verified correct",
-                      flush = True)
-                beat_baseline_returncode = 3
-                with open(join(self.path_to_volume, self.volume_path_to_tmp, "verified_bound4", \
-                           os.path.splitext(metadata["name"])[0]+".verified"), "w+") as fh:
-                    fh.write("Program: {}\n".format(metadata["name"]))
+            if not is_verified_correct:
+                mkdir("/home/stoke/did_not_verify_flat_heap_out_hack") 
+                pth = join("/home/stoke/did_not_verify_flat_heap_out_hack", rewrite_id + ".s")
+                #print(f"pth is {pth}")
+                print(f"heap out is {metadata['cost_conf']['heap_out']} and live out is {metadata['cost_conf']['live_out']}\n\nverified stdout is \n\n{verify_stdout}")
+#                with open(pth, "w") as fh:
+#                    fh.write(f"{rewrite_id} as correct on verification but passed tcs, cost was {cost}\n\n"
+#                                    f"the verify stdout is\n\n{verify_stdout}")
+                with open(pth, "w+") as fh:
+                    fh.write("Program: {}, and verified is {}\ni".format(metadata["name"], is_verified_correct))
                     fh.write("Live out: {}\n".format(metadata["cost_conf"]["live_out"]))
                     fh.write("Heap out: {}\n".format(metadata["cost_conf"]["heap_out"]))
+                    fh.write(f"Cost was {cost} and low benchmark was {metadata.get('low_benchmark')}")
+                    fh.write("verify output is :\n\n{}".format(verify_stdout))
+
+            if is_verified_correct:
+                #print(f"Beat baseline for {metadata['name']} with cost: {effective_cost}, and verified correct",
+   #                   flush = True)
+                beat_baseline_returncode = 3
+                mkdir("/home/stoke/did_verify_flat_heap_out_hack") 
+                pth = join("/home/stoke/did_verify_flat_heap_out_hack", rewrite_id + ".s")
+                print(f"heap out is {metadata['cost_conf']['heap_out']} and live out is {metadata['cost_conf']['live_out']}\n\nverified stdout is \n\n{verify_stdout}")
+                with open(pth, "w+") as fh:
+                    fh.write("Program: {}, and verified is {}\ni".format(metadata["name"], is_verified_correct))
+                    fh.write("Live out: {}\n".format(metadata["cost_conf"]["live_out"]))
+                    fh.write("Heap out: {}\n".format(metadata["cost_conf"]["heap_out"]))
+                    fh.write(f"Cost was {cost} and low benchmark was {metadata.get('low_benchmark')}")
                     fh.write("verify output is :\n\n{}".format(verify_stdout))
 
             elif counter_examples_available:

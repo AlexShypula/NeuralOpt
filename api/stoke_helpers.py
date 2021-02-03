@@ -105,8 +105,8 @@ def verify_rewrite(target_f: str,
         assert strategy == "bounded", "in order to use 'hack_validator' setting, bounded strategy needs to be used"
         # change path for the orig target so you don't over-write or delete it 
         fun_dir = os.path.dirname(target_f)
-        old_target_f = copy(target_f)
-        old_rewrite_f = copy(rewrite_f)
+        old_target_f = copy.copy(target_f)
+        old_rewrite_f = copy.copy(rewrite_f)
 
         target_f = join("tmp", os.path.basename(target_f))
         rewrite_f = join("tmp", os.path.basename(rewrite_f))
@@ -118,7 +118,7 @@ def verify_rewrite(target_f: str,
         if not rc_tgt_rc == 0 and rc_rewrite_rc == 0:
             warnings.warn("function {} tunit for hacking failed".format(target_f))
             return -1, "tunit for hacking failed"
-    print(f"rewrite f is {rewrite_f}, inside it is\n\n{open(rewrite_f).read()}", flush=True)
+    #print(f"rewrite f is {rewrite_f}, inside it is\n\n{open(rewrite_f).read()}", flush=True)
     live_out = ALL_REGISTERS_LIVE_OUT
     # live_out = settings_conf["live_out"]
     try:
@@ -296,7 +296,7 @@ def read_write_assembly2_hacked(path_to_input: str, path_to_output: str, fun_dir
 
     raw_assembly = open(path_to_input).read()
     hacked_asm_string = _assembly2_hacked(input_assembly=raw_assembly)
-    print(f"hacked asm string looks like\n\n{hacked_asm_string}\n\nwhereas og one was\n\n{raw_assembly}", flush=True)
+    #print(f"hacked asm string looks like\n\n{hacked_asm_string}\n\nwhereas og one was\n\n{raw_assembly}", flush=True)
 
     with open(tmp_raw_asm_path, "w") as fh:
         fh.write(hacked_asm_string)
