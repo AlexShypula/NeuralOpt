@@ -108,6 +108,14 @@ def verify_rewrite(target_f: str,
         old_target_f = copy.copy(target_f)
         old_rewrite_f = copy.copy(rewrite_f)
 
+        file_to_remove_1 = os.path.splitext(target_f)[0] + "_target.s"
+        file_to_remove_2 = os.path.splitext(rewrite_f)[0] + "_rewrite.s"
+        for f in (file_to_remove_1, file_to_remove_2):
+            if os.path.exists(f) and open(f).read() == "":
+                os.remove(f)
+        if not os.path.exists("tmp"):
+            os.mkdir("tmp")
+
         target_f = join("tmp", os.path.basename(target_f))
         rewrite_f = join("tmp", os.path.basename(rewrite_f))
         target_f = os.path.splitext(target_f)[0] + "_target.s"
