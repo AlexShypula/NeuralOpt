@@ -1,6 +1,7 @@
 import subprocess
 import copy
 import json
+import threading
 from logging import Logger
 from typing import Dict
 from typing import Union
@@ -118,8 +119,8 @@ def verify_rewrite(target_f: str,
 
         target_f = join("tmp", os.path.basename(target_f))
         rewrite_f = join("tmp", os.path.basename(rewrite_f))
-        target_f = os.path.splitext(target_f)[0] + "_target.s"
-        rewrite_f = os.path.splitext(rewrite_f)[0] + "_rewrite.s"
+        target_f = os.path.splitext(target_f)[0] + "_{}_target.s".format(time()+threading.get_ident())
+        rewrite_f = os.path.splitext(rewrite_f)[0] + "_{}_rewrite.s".format(time()+threading.get_ident())
 
         rc_tgt_rc = read_write_assembly2_hacked(path_to_input=old_target_f, path_to_output=target_f, fun_dir = fun_dir, timeout=timeout)
         rc_rewrite_rc = read_write_assembly2_hacked(path_to_input=old_rewrite_f, path_to_output=rewrite_f, fun_dir = fun_dir, timeout=timeout)
